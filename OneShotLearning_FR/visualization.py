@@ -1,12 +1,13 @@
 import matplotlib.pyplot as plt
-import pickle
+import csv
 import numpy as np
+
 
 #  ===============================================================
 #                       GLOBAL VARIABLES
 # ================================================================
 
-
+CSV_NAME = "model_evaluation.csv"
 NB_DATA_GRAPH = 1000
 MAX_NB_KEYS = 12
 
@@ -20,12 +21,13 @@ INDEX_END_GRAPH_LABEL = 9
 
 
 def line_graph(x, y, title, x_label="x", y_label="y"):
-    plt.plot(x,y)
+    plt.plot(x, y)
     plt.title(title)
     plt.xlabel(x_label)
     plt.ylabel(y_label)
     plt.grid(True)
     plt.show()
+
 
 def multi_line_graph(dictionary, x_elements, title, x_label="x", y_label="Score"):
     plt.figure()
@@ -145,13 +147,29 @@ def autolabel(rects, ax):
                 ha='center', va='bottom')
 
 
+''' -------------------- store_in_csv ----------------------------
+This function extends the csv file containing all the current 
+results related to the different scenarios that were experimented 
+-------------------------------------------------------------------'''
+
+
+def store_in_csv(batch_size, weight_decay, learning_rate, main_zip, num_epoch, diff_faces, with_profile,
+                 archType, lossType, loss, acc):
+
+    name_bd = main_zip.split("datasets/")[1].split(".zip")[0]
+    curr_parameters = [name_bd, diff_faces, with_profile, num_epoch, batch_size, weight_decay,
+                       learning_rate, archType, lossType]
+    curr_evaluation = [float(loss[0]), float(loss[round(len(loss) / 2)]), float(loss[-1]),
+                       float(acc[0]), float(acc[round(len(acc) / 2)]), float(acc[-1])]
+
+    #titles = ["Name BD", "IsDiffFaces", "IsWithProfile", "NbEpoches", "BS", "WD", "LR",
+     #         "LossType", "Loss1", "Loss2", "Loss3", "Acc1", "Acc2", 'Acc3']
+
+    with open(CSV_NAME, 'a') as f:
+        writer = csv.writer(f)
+        #writer.writerow(titles)
+        writer.writerow(curr_parameters + curr_evaluation)
+
 
 if __name__ == '__main__':
-
-    # Retrieve information about the training phase
-    with open("losses_train_16.txt", "rb") as fp:  # UnPickling
-        losses_train = pickle.load(fp)
-    with open("losses_test_16.txt", "rb") as fp:  # UnPickling
-        losses_test = pickle.load(fp)
-    with open("acc_test_16.txt", "rb") as fp:  # UnPickling
-        acc_test = pickle.load(fp)
+    pass

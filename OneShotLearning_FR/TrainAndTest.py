@@ -1,7 +1,9 @@
 import torch
 import torch.nn.functional as f
+import torch.nn as nn
 from visualization import multi_line_graph, line_graph
 
+LOSS = "triplet_loss"
 '''---------------------------- train --------------------------------
  This function trains the model 
  OUT: loss_list (list of losses during the epoch) 
@@ -14,21 +16,7 @@ def train(model, device, train_loader, epoch, optimizer, batch_size):
     loss_list = []
 
     for batch_idx, (data, target) in enumerate(train_loader):
-        for i in range(len(data)):
-            data[i] = data[i].to(device)
-
-        optimizer.zero_grad()
-        output_positive = model(data[:2])
-        output_negative = model(data[0:3:2])
-
-        target = target.type(torch.LongTensor).to(device)
-        target_positive = torch.squeeze(target[:, 0])
-        target_negative = torch.squeeze(target[:, 1])
-
-        loss_positive = f.cross_entropy(output_positive, target_positive)
-        loss_negative = f.cross_entropy(output_negative, target_negative)
-
-        loss = loss_positive + loss_negative
+        _, _, _, _, loss = compute_loss(data, target, device, model)
         loss.backward()
 
         optimizer.step()
@@ -54,34 +42,64 @@ def test(model, device, test_loader):
 
     with torch.no_grad():
         accurate_labels = 0
-        all_labels = 0
-        loss = 0
+        nb_labels = 0
+        loss_test = 0
+
         for batch_idx, (data, target) in enumerate(test_loader):
-            for i in range(len(data)):
-                data[i] = data[i].to(device)
+            out_pos, out_neg, tar_pos, tar_neg, loss = compute_loss(data, target, device, model)
 
-            output_positive = model(data[:2])
-            output_negative = model(data[0:3:2])
+            accurate_labels_positive = torch.sum(torch.argmax(out_pos, dim=1) == tar_pos).cpu()
+            accurate_labels_negative = torch.sum(torch.argmax(out_neg, dim=1) == tar_neg).cpu()
 
-            target = target.type(torch.LongTensor).to(device)
-            target_positive = torch.squeeze(target[:, 0])
-            target_negative = torch.squeeze(target[:, 1])
-
-            loss_positive = f.cross_entropy(output_positive, target_positive)
-            loss_negative = f.cross_entropy(output_negative, target_negative)
-
-            loss = loss + loss_positive + loss_negative
-
-            accurate_labels_positive = torch.sum(torch.argmax(output_positive, dim=1) == target_positive).cpu()
-            accurate_labels_negative = torch.sum(torch.argmax(output_negative, dim=1) == target_negative).cpu()
-
+            loss_test += loss
             accurate_labels = accurate_labels + accurate_labels_positive + accurate_labels_negative
-            all_labels = all_labels + len(target_positive) + len(target_negative)
+            nb_labels = nb_labels + len(tar_pos) + len(tar_neg)
 
-        accuracy = 100. * accurate_labels / all_labels
-        print('Test accuracy: {}/{} ({:.3f}%)\tLoss: {:.6f}'.format(accurate_labels, all_labels, accuracy, loss))
+        accuracy = 100. * accurate_labels / nb_labels
+        loss_test = loss_test / len(test_loader)  # avg of the loss
+        print('Test accuracy: {}/{} ({:.3f}%)\tLoss: {:.6f}'.format(accurate_labels, nb_labels, accuracy, loss_test))
 
-    return loss, accuracy
+    return loss_test, accuracy
+
+
+'''------------------------- compute_loss --------------------------------
+ This function derives the loss corresponding to the given data, providing
+ to the model
+ 
+ IN: data: list of 3 tensors, each respectively representing the anchor,
+           the positive and the negative 
+     target: the corresponding pairs of labels ((0, 1) here) 
+     device: device to use 
+     model: the model we evaluate the loss from 
+     
+ OUT: computed output_positive, output_negative
+      formatted target 
+      loss
+ -----------------------------------------------------------------------'''
+
+
+def compute_loss(data, target, device, model):
+    loss = 0
+    for i in range(len(data)):
+        data[i] = data[i].to(device)
+
+    output_positive = model(data[:2])
+    output_negative = model(data[0:3:2])
+
+    target = target.type(torch.LongTensor).to(device)
+    target_positive = torch.squeeze(target[:, 0])
+    target_negative = torch.squeeze(target[:, 1])
+
+    if LOSS == "cross_entropy":
+        loss_positive = f.cross_entropy(output_positive, target_positive)
+        loss_negative = f.cross_entropy(output_negative, target_negative)
+        loss = loss_positive + loss_negative
+
+    elif LOSS == "triplet_loss":
+        triplet_loss = nn.TripletMarginLoss(margin=1.0, p=2)
+        loss = triplet_loss(data[0].requires_grad_(), data[1].requires_grad_(), data[2].requires_grad_())
+
+    return output_positive, output_negative, target_positive, target_negative, loss
 
 
 '''---------------------------- oneshot ---------------------------'''
@@ -118,8 +136,8 @@ def visualization_train(epoch_list, loss_list):
 
 
 def visualization_test(loss, acc):
-    line_graph(range(0, len(loss),1), loss, "Loss according to the epochs", x_label="Epoch", y_label="Loss")
-    line_graph(range(0, len(acc),1), acc, "Accuracy according to the epochs", x_label="Epoch", y_label="Accuracy")
+    line_graph(range(0, len(loss), 1), loss, "Loss according to the epochs", x_label="Epoch", y_label="Loss")
+    line_graph(range(0, len(acc), 1), acc, "Accuracy according to the epochs", x_label="Epoch", y_label="Accuracy")
 
 
 if __name__ == '__main__':
@@ -128,6 +146,5 @@ if __name__ == '__main__':
     visualization_test(loss, acc)
 
     epoch_list = [0, 2, 4]
-    loss_list = [[1,2, 3],[1,2, 3], [7,8, 10], [11,12, 23], [1,3, 9]]
+    loss_list = [[1, 2, 3], [1, 2, 3], [7, 8, 10], [11, 12, 23], [1, 3, 9]]
     visualization_train(epoch_list, loss_list)
-

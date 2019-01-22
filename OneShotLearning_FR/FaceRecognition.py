@@ -1,6 +1,6 @@
 from random import shuffle, randint
 import torch
-from Dataset import from_zip_to_data
+from Dataprocessing import from_zip_to_data
 from Main import TRANS, NAME_MODEL, DEVICE
 from TrainAndTest import oneshot
 

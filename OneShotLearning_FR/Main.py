@@ -1,10 +1,12 @@
+import pickle
 import torch
 import torchvision.transforms as transforms
-from NeuralNetwork import Net
+from NeuralNetwork import Net, TYPE_ARCH
 from torch import optim
 
-from Dataset import Face_DS, MAIN_ZIP, from_zip_to_data
-from TrainAndTest import train, test, oneshot, visualization_test, visualization_train
+from Dataprocessing import Face_DS, MAIN_ZIP, from_zip_to_data, DB_TO_USE
+from TrainAndTest import train, test, oneshot, visualization_test, visualization_train, LOSS
+from visualization import store_in_csv
 
 #########################################
 #       GLOBAL VARIABLES                #
@@ -15,13 +17,14 @@ from TrainAndTest import train, test, oneshot, visualization_test, visualization
 
 BATCH_SIZE = 16
 LEARNING_RATE = 0.0001
-NUM_EPOCH = 100
-WEIGHT_DECAY = 0.0001
+NUM_EPOCH = 40
+WEIGHT_DECAY = 0.001
 
 SAVE_DATA_TRAINING = True
 SAVE_MODEL = True
-DO_LEARN = False
+DO_LEARN = True
 DIFF_FACES = True  # If true, we have different faces in the training and the testing set
+WITH_PROFILE = False  # True if both frontally and in profile people
 
 TRANS = transforms.Compose([transforms.CenterCrop(28), transforms.ToTensor(),
                             transforms.Normalize((0.5,), (1.0,))])  # If applied, a dimensional error is raised
@@ -29,7 +32,9 @@ TRANS = transforms.Compose([transforms.CenterCrop(28), transforms.ToTensor(),
 # Specifies where the torch.tensor is allocated
 DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-NAME_MODEL = "siameseFace" + "_" + MAIN_ZIP.split("datasets/")[1].split(".zip")[0] + (
+used_db = "".join([str(i) for i, db in enumerate(DB_TO_USE) if db[i] != ""])
+
+NAME_MODEL = "supp_siameseFace" + "_ds" + used_db + (
     "_diff_" if DIFF_FACES else "_same_") + str(NUM_EPOCH) + "_" + str(BATCH_SIZE) + ".pt"
 
 
@@ -44,7 +49,7 @@ def main():
     # Definition of a training and a testing set
     # ----------------------------------------------
     # Build your dataset from the processed data
-    fileset = from_zip_to_data()
+    fileset = from_zip_to_data(WITH_PROFILE)
     training_set, testing_set = fileset.get_train_and_test_sets(DIFF_FACES)
 
     if DO_LEARN:
@@ -70,14 +75,21 @@ def main():
             acc_test.append(acc)
 
         if SAVE_MODEL:
-            torch.save(model, NAME_MODEL)  # + '{:03}' .format(epoch))
-            print("Model is saved!")
+            torch.save(model, NAME_MODEL)
+            with open(NAME_MODEL.split(".pt")[0] + '_testdata.pkl', 'wb') as output:
+                pickle.dump(testing_set, output, pickle.HIGHEST_PROTOCOL)
 
+            print("Model is saved!")
             visualization_train(range(0, NUM_EPOCH, round(NUM_EPOCH / 5)), losses_train)
             visualization_test(losses_test, acc_test)
 
+            store_in_csv(BATCH_SIZE, WEIGHT_DECAY, LEARNING_RATE, MAIN_ZIP, NUM_EPOCH, DIFF_FACES, WITH_PROFILE,
+                         TYPE_ARCH, LOSS, losses_test, acc_test)
 
-    else:  # prediction
+    else:
+        # -----------------------
+        #  prediction mode
+        # -----------------------
         dataset = Face_DS(testing_set, transform=TRANS, to_print=True)
         prediction_loader = torch.utils.data.DataLoader(dataset, batch_size=1,
                                                         shuffle=False)  # batch_size = Nb of pairs you want to test
@@ -100,7 +112,7 @@ def main():
         # print("One data given to the onshot function is: " + str(data[0]))
 
         same = oneshot(model, DEVICE, data)
-        if same > 0:
+        if same == 0:
             print('=> PREDICTION: These two images represent the same person')
         else:
             print("=> PREDICTION: These two images don't represent the same person")
