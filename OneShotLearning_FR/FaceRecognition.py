@@ -1,24 +1,26 @@
 from random import shuffle, randint
 import torch
 from Dataprocessing import from_zip_to_data
-from Main import TRANS, NAME_MODEL, DEVICE
+from Main import TRANS, NAME_MODEL, DEVICE, WITH_PROFILE
 from TrainAndTest import oneshot
 
 # ================================================================
 #                   GLOBAL VARIABLES
 # ================================================================
 
-NB_TEST_PICT = 30
-NB_PEOPLE = 40  # Nb of people to consider
+NB_TEST_PICT = 50
+NB_PEOPLE = 400  # Nb of people to consider
 TOLERANCE = 2  # Max nb of times the model can make mistake in comparing p_test and the pictures of 1 person
 
 # ================================================================
 #                    CLASS: FaceRecognition
 # ================================================================
 
+
 class FaceRecognition:
+
     def __init__(self, model_path):
-        fileset = from_zip_to_data()
+        fileset = from_zip_to_data(WITH_PROFILE)
         people_dic = fileset.order_per_personName(TRANS, nb_people=NB_PEOPLE)
         self.people_pictures = people_dic
 
@@ -62,9 +64,10 @@ class FaceRecognition:
                     same = oneshot(self.siamese_model, DEVICE, data)
 
                     # --- Check the result of the prediction ---
-                    if same == 0:
+                    if same == 1:
                         nb_pred_diff += 1
                         if TOLERANCE < nb_pred_diff:
+                            data.pop()
                             break
                     else:
                         predictions[person] = 1 if person not in predictions else predictions[person] + 1

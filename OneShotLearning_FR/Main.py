@@ -6,7 +6,7 @@ from torch import optim
 
 from Dataprocessing import Face_DS, MAIN_ZIP, from_zip_to_data, DB_TO_USE
 from TrainAndTest import train, test, oneshot, visualization_test, visualization_train, LOSS
-from visualization import store_in_csv
+from Visualization import store_in_csv
 
 #########################################
 #       GLOBAL VARIABLES                #
@@ -22,7 +22,7 @@ WEIGHT_DECAY = 0.001
 
 SAVE_DATA_TRAINING = True
 SAVE_MODEL = True
-DO_LEARN = True
+DO_LEARN = False
 DIFF_FACES = True  # If true, we have different faces in the training and the testing set
 WITH_PROFILE = False  # True if both frontally and in profile people
 
@@ -34,7 +34,7 @@ DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 used_db = "".join([str(i) for i, db in enumerate(DB_TO_USE) if db[i] != ""])
 
-NAME_MODEL = "supp_siameseFace" + "_ds" + used_db + (
+NAME_MODEL = "models/siameseFace" + "_ds" + used_db + (
     "_diff_" if DIFF_FACES else "_same_") + str(NUM_EPOCH) + "_" + str(BATCH_SIZE) + ".pt"
 
 
@@ -90,16 +90,17 @@ def main():
         # -----------------------
         #  prediction mode
         # -----------------------
+
         dataset = Face_DS(testing_set, transform=TRANS, to_print=True)
+
         prediction_loader = torch.utils.data.DataLoader(dataset, batch_size=1,
                                                         shuffle=False)  # batch_size = Nb of pairs you want to test
         model = torch.load(NAME_MODEL)
-
         # ---------------------------------------------------------------------
         # Data: list containing the tensor representations of the 2 images
         # ---------------------------------------------------------------------
         data = []
-        should_be_the_same = True
+        should_be_the_same = False
 
         if should_be_the_same:
             data.extend(next(iter(prediction_loader))[0][:2])  # The 2 faces are the same

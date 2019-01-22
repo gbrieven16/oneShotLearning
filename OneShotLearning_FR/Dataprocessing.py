@@ -23,13 +23,14 @@ warnings.filterwarnings('ignore')
 #########################################
 
 DB_TO_USE = ["AberdeenCrop", "GTdbCrop", "yalefaces", "faces94"] # if the 2th db not used, replace "yalefaces" by ""
-MAIN_ZIP = 'datasets/ds1234.zip'
+MAIN_ZIP = 'datasets/ds0123.zip'
 ZIP_TO_PROCESS = 'datasets/faces94.zip'  # aber&GTdb_crop.zip'
 
 SEED = 4  # When data is shuffled
 EXTENSION = ".jpg"
 SEPARATOR = "_"  # !!! Format of the dabase: name[!]_id !!!
 RATION_TRAIN_SET = 0.75
+MAX_NB_IM_PER_PERSON = 10
 
 
 # ================================================================
@@ -186,7 +187,7 @@ class Fileset:
     def order_per_personName(self, transform, nb_people=None):
 
         faces_dic = {}
-        random.Random(SEED).shuffle(self.data_list)
+        shuffle(self.data_list) # random.Random(SEED).
 
         #################################
         # Order the picture per label
@@ -199,12 +200,13 @@ class Fileset:
                 img = FaceImage(data.filename, formatted_image)
 
                 try:
-                    faces_dic[personNames].append(img)
+                    if len(faces_dic[personNames]) < MAX_NB_IM_PER_PERSON:
+                        faces_dic[personNames].append(img)
                 except KeyError:
-                    faces_dic[personNames] = [img]
+                    if nb_people is None or len(faces_dic) < nb_people:
+                        faces_dic[personNames] = [img]
 
-                if nb_people is not None and nb_people < len(faces_dic):
-                    break
+
 
         return faces_dic
 
@@ -242,10 +244,6 @@ class FaceImage():
 # ================================================================
 #                    CLASS: Face_DS
 # ================================================================
-"""
-STILL TODO: 
-    - Putting more images in the database 
-"""
 
 
 class Face_DS(torch.utils.data.Dataset):
@@ -255,6 +253,7 @@ class Face_DS(torch.utils.data.Dataset):
         self.transform = transforms.ToTensor() if transform is None else transform
 
         faces_dic = fileset.order_per_personName(self.transform)
+        #print("after transformation" + str(faces_dic['faces94jdbenm'][0]))
 
         ########################################################################
         # Build triplet supporting the dataset (ensures balanced classes)

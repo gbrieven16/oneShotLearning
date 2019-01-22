@@ -4,6 +4,31 @@ import torch.nn.functional as f
 
 TYPE_ARCH = "1"
 
+
+# ================================================================
+#                    CLASS: Tripletnet
+# ================================================================
+
+class Tripletnet(nn.Module):
+
+    def __init__(self, embeddingnet):
+        super(Tripletnet, self).__init__()
+        self.embeddingnet = embeddingnet
+
+    def forward(self, x, y, z):
+
+        embedded_x = self.embeddingnet([x])
+        embedded_y = self.embeddingnet([y])
+        embedded_z = self.embeddingnet([z])
+        dist_a = f.pairwise_distance(embedded_x, embedded_y, 2)
+        dist_b = f.pairwise_distance(embedded_x, embedded_z, 2)
+        return dist_a, dist_b, embedded_x, embedded_y, embedded_z
+
+
+# ================================================================
+#                    CLASS: Net
+# ================================================================
+
 class Net(nn.Module):
     def __init__(self):
         super().__init__()
@@ -18,7 +43,8 @@ class Net(nn.Module):
 
     def forward(self, data):
         res = []
-        for i in range(2):  # Siamese nets; sharing weights
+
+        for i in range(len(data)):  # Siamese nets; sharing weights
             x = data[i]
             x = self.conv1(x)
             x = f.relu(x)
@@ -32,6 +58,17 @@ class Net(nn.Module):
             x = self.linear1(x)
             res.append(f.relu(x))
 
-        res = torch.abs(res[1] - res[0])
-        res = self.linear2(res)
-        return res
+        # ---- CASE 1: The triplet loss is used ----
+        if len(data) == 1:
+            return res[0]
+
+        # ---- CASE 2: The cross entropy is used ----
+        else:
+            difference = torch.abs(res[1] - res[0]) # Computation of the difference of the 2 feature representations
+
+            # TODO: Compute the avg of the difference
+            # Return (1-avg_diff, avg_diff)
+            #print("difference 1 is " + str(difference))
+            difference = self.linear2(difference)
+            #print("difference 2 is " + str(difference))
+            return difference # Should be probability assign to each class? Why negative values

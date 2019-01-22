@@ -1,9 +1,12 @@
 import torch
 import torch.nn.functional as f
-import torch.nn as nn
-from visualization import multi_line_graph, line_graph
+from NeuralNetwork import Tripletnet
 
-LOSS = "triplet_loss"
+from Visualization import multi_line_graph, line_graph
+
+LOSS = "cross_entropy"
+
+
 '''---------------------------- train --------------------------------
  This function trains the model 
  OUT: loss_list (list of losses during the epoch) 
@@ -26,7 +29,6 @@ def train(model, device, train_loader, epoch, optimizer, batch_size):
             print('Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}'.format(
                 epoch, batch_idx * batch_size, len(train_loader.dataset),
                        100. * batch_idx * batch_size / len(train_loader.dataset), loss.item()))
-
     return loss_list
 
 
@@ -83,7 +85,7 @@ def compute_loss(data, target, device, model):
     for i in range(len(data)):
         data[i] = data[i].to(device)
 
-    output_positive = model(data[:2])
+    output_positive = model(data[:2]) # 2 elements for each batch because 2 classes (pos, neg) (= (1-diff, diff))
     output_negative = model(data[0:3:2])
 
     target = target.type(torch.LongTensor).to(device)
@@ -96,8 +98,17 @@ def compute_loss(data, target, device, model):
         loss = loss_positive + loss_negative
 
     elif LOSS == "triplet_loss":
-        triplet_loss = nn.TripletMarginLoss(margin=1.0, p=2)
-        loss = triplet_loss(data[0].requires_grad_(), data[1].requires_grad_(), data[2].requires_grad_())
+        criterion = torch.nn.MarginRankingLoss(margin=1.0)
+
+        tnet = Tripletnet(model)
+        if device == "cuda": tnet.cuda()
+
+        dista, distb, _, _, _ = tnet.forward(data[0], data[1], data[2])
+
+        # 1 means, dista should be lower than distb
+        target = torch.FloatTensor(dista.size()).fill_(1)
+
+        loss = criterion(dista, distb, target)
 
     return output_positive, output_negative, target_positive, target_negative, loss
 
@@ -107,7 +118,7 @@ def compute_loss(data, target, device, model):
 
 def oneshot(model, device, data):
     model.eval()
-
+    #print("Data given to oneshot: " + str(data))
     with torch.no_grad():
         for i in range(len(data)):
             data[i] = data[i].to(device)
