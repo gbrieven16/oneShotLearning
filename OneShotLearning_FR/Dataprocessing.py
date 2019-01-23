@@ -7,7 +7,6 @@ import torch.utils.data
 
 from PIL import Image
 from io import BytesIO
-
 import matplotlib.pyplot as plt
 
 import torch
@@ -22,15 +21,17 @@ warnings.filterwarnings('ignore')
 #       GLOBAL VARIABLES                #
 #########################################
 
-DB_TO_USE = ["AberdeenCrop", "GTdbCrop", "yalefaces", "faces94"] # if the 2th db not used, replace "yalefaces" by ""
-MAIN_ZIP = 'datasets/ds0123.zip'
-ZIP_TO_PROCESS = 'datasets/faces94.zip'  # aber&GTdb_crop.zip'
+DB_TO_USE = ["AberdeenCrop", "GTdbCrop", "yalefaces", "faces94"] #, "Iranian"]  # if the 2th db not used, replace "yalefaces" by ""
+MAIN_ZIP = 'datasets/ds01234.zip'
+
+ZIP_TO_PROCESS = 'datasets/Iranian.zip'  # aber&GTdb_crop.zip'
+NB_DIGIT_IN_ID = 2
 
 SEED = 4  # When data is shuffled
 EXTENSION = ".jpg"
 SEPARATOR = "_"  # !!! Format of the dabase: name[!]_id !!!
 RATION_TRAIN_SET = 0.75
-MAX_NB_IM_PER_PERSON = 10
+MAX_NB_IM_PER_PERSON = 100
 
 
 # ================================================================
@@ -52,7 +53,7 @@ class Data:
             extension = fn.split(".")[1]
             self.db = fn.split(SEPARATOR)[0]
 
-        self.name_person = name_person.split("!")[0]
+        self.name_person = name_person
         self.lateral_face = True if name_person[-1] == "!" else False
         self.index = index
         self.extension = extension
@@ -101,12 +102,17 @@ class Data:
 
         # Check if there's no separator _ inside the name (if so delete it)
         label = self.filename.translate(str.maketrans('', '', digits)).split(".")[0]
-        label = label.replace("_", "")
-
-        extension = "." + self.filename.split(".")[1]
 
         try:
-            id = str(int("".join(filter(str.isdigit, self.filename))))
+            digits_in_name = list(filter(str.isdigit, self.filename))
+            label = label.replace("_", "") + "".join(digits_in_name[:NB_DIGIT_IN_ID])
+
+            extension = "." + self.filename.split(".")[1]
+            id = "".join(digits_in_name[len(digits_in_name) - NB_DIGIT_IN_ID:])
+
+            if id[1] in ["3", "4", "5", "6", "9", "0"]:
+                label = label + "!"
+
         except ValueError:
             print("There's no number id in the filename: " + str(self.filename))
             print("A number has been added then!")
@@ -182,12 +188,14 @@ class Fileset:
      person and the value is a list of images of this person 
      
      IN: transform: transformation that has to be applied to the picture 
+     OUT: dictionary where the key is the name of the person and the value is 
+     the list of their pictures as FaceImage object
      ----------------------------------------------------------------------- '''
 
-    def order_per_personName(self, transform, nb_people=None):
+    def order_per_personName(self, transform, nb_people=None, max_nb_pictures=MAX_NB_IM_PER_PERSON):
 
         faces_dic = {}
-        shuffle(self.data_list) # random.Random(SEED).
+        random.Random(SEED).shuffle(self.data_list)
 
         #################################
         # Order the picture per label
@@ -200,14 +208,11 @@ class Fileset:
                 img = FaceImage(data.filename, formatted_image)
 
                 try:
-                    if len(faces_dic[personNames]) < MAX_NB_IM_PER_PERSON:
+                    if len(faces_dic[personNames]) < max_nb_pictures:
                         faces_dic[personNames].append(img)
                 except KeyError:
                     if nb_people is None or len(faces_dic) < nb_people:
                         faces_dic[personNames] = [img]
-
-
-
         return faces_dic
 
     '''---------------------------- ds_to_zip --------------------------------
@@ -240,6 +245,13 @@ class FaceImage():
     def isIqual(self, other_image):
         return other_image.path == self.path
 
+    def display_im(self, to_print="A face is displayed"):
+        print(to_print)
+        with zipfile.ZipFile(MAIN_ZIP, 'r') as archive:
+            image = Image.open(BytesIO(archive.read(self.path))).convert("RGB")
+            plt.imshow(image)
+            plt.show()
+
 
 # ================================================================
 #                    CLASS: Face_DS
@@ -247,13 +259,13 @@ class FaceImage():
 
 
 class Face_DS(torch.utils.data.Dataset):
-    def __init__(self, fileset, transform=None, to_print=False):
+    def __init__(self, fileset, transform=None, to_print=False, device="cpu"):
 
         self.to_print = to_print
         self.transform = transforms.ToTensor() if transform is None else transform
 
         faces_dic = fileset.order_per_personName(self.transform)
-        #print("after transformation" + str(faces_dic['faces94jdbenm'][0]))
+        # print("after transformation" + str(faces_dic['faces94jdbenm'][0]))
 
         ########################################################################
         # Build triplet supporting the dataset (ensures balanced classes)
@@ -261,7 +273,7 @@ class Face_DS(torch.utils.data.Dataset):
         self.train_data = []
         self.train_labels = []
         self.train_not_formatted_data = []
-        self.build_triplet(faces_dic)
+        self.build_triplet(faces_dic, device=device)
 
         self.print_data_report(faces_dic)
 
@@ -279,22 +291,19 @@ class Face_DS(torch.utils.data.Dataset):
             print("IN GET ITEM: the index in the dataset is: " + str(index) + "\n")
 
         if visualization:
-            with zipfile.ZipFile(MAIN_ZIP, 'r') as archive:
-                for i, image_name in enumerate(self.train_not_formatted_data[index]):
-                    print("Face " + str(i) + ": ")
-                    image = Image.open(BytesIO(archive.read(image_name))).convert("RGB")
-                    imgplot = plt.imshow(image)
-                    plt.show()
+            for i, image_face in enumerate(self.train_not_formatted_data[index]):
+                print("Face " + str(i) + ": ")
+                image_face.display_im()
 
         return self.train_data[index], self.train_labels[index]
 
     def __len__(self):
-        """
+        """ -------------------------------------------
         Total number of samples in the dataset
-        """
+        ----------------------------------------------- """
         return len(self.train_data)
 
-    def build_triplet(self, faces_dic):
+    def build_triplet(self, faces_dic, device="cpu"):
 
         all_labels = list(faces_dic.keys())
         nb_labels = len(all_labels)
@@ -321,14 +330,16 @@ class Face_DS(torch.utils.data.Dataset):
                 label_neg = all_labels[random.choice(labels_indexes_neg)]
                 picture_negative = random.choice(faces_dic[label_neg])
 
-                self.train_not_formatted_data.append([picture_ref.path, picture_positive.path, picture_negative.path])
+                # To keep track of the image itself in order to potentially print it
+                self.train_not_formatted_data.append([picture_ref, picture_positive, picture_negative])
 
-                self.train_data.append([picture_ref.trans_img, picture_positive.trans_img,
-                                        picture_negative.trans_img])  # torch.stack is not applied because we want a list of tensors
+                self.train_data.append([picture_ref.trans_img.to(device), picture_positive.trans_img.to(device),
+                                            picture_negative.trans_img.to(device)])
+
                 self.train_labels.append([0, 1])
 
         # self.train_data = torch.stack(self.train_data)
-        self.train_labels = torch.tensor(self.train_labels)
+        self.train_labels = torch.tensor(self.train_labels).to(device)
 
     """ ---------------------------------- print_data_report ------------------------------------  """
 
@@ -393,8 +404,4 @@ def from_zip_to_data(with_profile):
 
 
 if __name__ == "__main__":
-    # To include new data in the dataset
-    # from_zip_to_data(True)
     include_data_to_zip()
-    #fileset = from_zip_to_data()
-    #training_set, testing_set = fileset.get_train_and_test_sets(True)

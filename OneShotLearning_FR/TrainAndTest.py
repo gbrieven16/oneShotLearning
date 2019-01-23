@@ -6,7 +6,6 @@ from Visualization import multi_line_graph, line_graph
 
 LOSS = "cross_entropy"
 
-
 '''---------------------------- train --------------------------------
  This function trains the model 
  OUT: loss_list (list of losses during the epoch) 
@@ -19,9 +18,10 @@ def train(model, device, train_loader, epoch, optimizer, batch_size):
     loss_list = []
 
     for batch_idx, (data, target) in enumerate(train_loader):
+
+        optimizer.zero_grad()
         _, _, _, _, loss = compute_loss(data, target, device, model)
         loss.backward()
-
         optimizer.step()
 
         if batch_idx % 10 == 0:  # Print the state of the training each 10 batches (i.e each 10*size_batch considered examples)
@@ -49,9 +49,12 @@ def test(model, device, test_loader):
 
         for batch_idx, (data, target) in enumerate(test_loader):
             out_pos, out_neg, tar_pos, tar_neg, loss = compute_loss(data, target, device, model)
-
-            accurate_labels_positive = torch.sum(torch.argmax(out_pos, dim=1) == tar_pos).cpu()
-            accurate_labels_negative = torch.sum(torch.argmax(out_neg, dim=1) == tar_neg).cpu()
+            if device.type == "cpu":
+                accurate_labels_positive = torch.sum(torch.argmax(out_pos, dim=1) == tar_pos).cpu()  # = 0
+                accurate_labels_negative = torch.sum(torch.argmax(out_neg, dim=1) == tar_neg).cpu()  # = 1
+            else:
+                accurate_labels_positive = torch.sum(torch.argmax(out_pos, dim=1) == tar_pos).cuda()  # = 0
+                accurate_labels_negative = torch.sum(torch.argmax(out_neg, dim=1) == tar_neg).cuda()  # = 1
 
             loss_test += loss
             accurate_labels = accurate_labels + accurate_labels_positive + accurate_labels_negative
@@ -67,13 +70,13 @@ def test(model, device, test_loader):
 '''------------------------- compute_loss --------------------------------
  This function derives the loss corresponding to the given data, providing
  to the model
- 
+
  IN: data: list of 3 tensors, each respectively representing the anchor,
            the positive and the negative 
      target: the corresponding pairs of labels ((0, 1) here) 
      device: device to use 
      model: the model we evaluate the loss from 
-     
+
  OUT: computed output_positive, output_negative
       formatted target 
       loss
@@ -85,7 +88,7 @@ def compute_loss(data, target, device, model):
     for i in range(len(data)):
         data[i] = data[i].to(device)
 
-    output_positive = model(data[:2]) # 2 elements for each batch because 2 classes (pos, neg) (= (1-diff, diff))
+    output_positive = model(data[:2])  # 2 elements for each batch because 2 classes (pos, neg) (= (1-diff, diff))
     output_negative = model(data[0:3:2])
 
     target = target.type(torch.LongTensor).to(device)
@@ -103,10 +106,10 @@ def compute_loss(data, target, device, model):
         tnet = Tripletnet(model)
         if device == "cuda": tnet.cuda()
 
-        dista, distb, _, _, _ = tnet.forward(data[0], data[1], data[2])
+        distb, dista, _, _, _ = tnet.forward(data[0], data[1], data[2])
 
-        # 1 means, dista should be lower than distb
-        target = torch.FloatTensor(dista.size()).fill_(1)
+        # 1 means, dista should be greater than distb
+        target = torch.FloatTensor(dista.size()).fill_(1).to(device)
 
         loss = criterion(dista, distb, target)
 
@@ -118,7 +121,7 @@ def compute_loss(data, target, device, model):
 
 def oneshot(model, device, data):
     model.eval()
-    #print("Data given to oneshot: " + str(data))
+    # print("Data given to oneshot: " + str(data))
     with torch.no_grad():
         for i in range(len(data)):
             data[i] = data[i].to(device)

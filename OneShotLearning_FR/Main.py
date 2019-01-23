@@ -10,19 +10,17 @@ from Visualization import store_in_csv
 
 #########################################
 #       GLOBAL VARIABLES                #
-# < 20/01: LEARNING_RATE = 0.001        #
-#   21/01: LEARNING_RATE = 0.0001       #
 #########################################
 
 
 BATCH_SIZE = 16
-LEARNING_RATE = 0.0001
+LEARNING_RATE = 0.001
 NUM_EPOCH = 40
 WEIGHT_DECAY = 0.001
 
 SAVE_DATA_TRAINING = True
 SAVE_MODEL = True
-DO_LEARN = False
+DO_LEARN = True
 DIFF_FACES = True  # If true, we have different faces in the training and the testing set
 WITH_PROFILE = False  # True if both frontally and in profile people
 
@@ -31,8 +29,7 @@ TRANS = transforms.Compose([transforms.CenterCrop(28), transforms.ToTensor(),
 
 # Specifies where the torch.tensor is allocated
 DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-
-used_db = "".join([str(i) for i, db in enumerate(DB_TO_USE) if db[i] != ""])
+used_db = "".join([str(i) for i, db in enumerate(DB_TO_USE) if db != ""])
 
 NAME_MODEL = "models/siameseFace" + "_ds" + used_db + (
     "_diff_" if DIFF_FACES else "_same_") + str(NUM_EPOCH) + "_" + str(BATCH_SIZE) + ".pt"
@@ -57,9 +54,9 @@ def main():
         # -----------------------
         #  training mode
         # -----------------------
-        train_loader = torch.utils.data.DataLoader(Face_DS(training_set, transform=TRANS),
+        train_loader = torch.utils.data.DataLoader(Face_DS(training_set, transform=TRANS, device=DEVICE),
                                                    batch_size=BATCH_SIZE, shuffle=True)
-        test_loader = torch.utils.data.DataLoader(Face_DS(testing_set, transform=TRANS),
+        test_loader = torch.utils.data.DataLoader(Face_DS(testing_set, transform=TRANS, device=DEVICE),
                                                   batch_size=BATCH_SIZE, shuffle=False)
 
         optimizer = optim.Adam(model.parameters(), lr=LEARNING_RATE, weight_decay=WEIGHT_DECAY)
@@ -91,11 +88,12 @@ def main():
         #  prediction mode
         # -----------------------
 
-        dataset = Face_DS(testing_set, transform=TRANS, to_print=True)
+        dataset = Face_DS(testing_set, transform=TRANS, to_print=True, device=DEVICE)
 
-        prediction_loader = torch.utils.data.DataLoader(dataset, batch_size=1,
-                                                        shuffle=False)  # batch_size = Nb of pairs you want to test
+        # batch_size = Nb of pairs you want to test
+        prediction_loader = torch.utils.data.DataLoader(dataset, batch_size=1, shuffle=True)
         model = torch.load(NAME_MODEL)
+
         # ---------------------------------------------------------------------
         # Data: list containing the tensor representations of the 2 images
         # ---------------------------------------------------------------------

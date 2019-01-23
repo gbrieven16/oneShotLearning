@@ -2,6 +2,7 @@ import torch
 from torch import nn
 import torch.nn.functional as f
 
+
 TYPE_ARCH = "1"
 
 
@@ -10,16 +11,17 @@ TYPE_ARCH = "1"
 # ================================================================
 
 class Tripletnet(nn.Module):
-
     def __init__(self, embeddingnet):
         super(Tripletnet, self).__init__()
         self.embeddingnet = embeddingnet
 
     def forward(self, x, y, z):
-
+        # --- Derivation of the feature representation ---
         embedded_x = self.embeddingnet([x])
         embedded_y = self.embeddingnet([y])
         embedded_z = self.embeddingnet([z])
+
+        # --- Computation of the distance between them ---
         dist_a = f.pairwise_distance(embedded_x, embedded_y, 2)
         dist_b = f.pairwise_distance(embedded_x, embedded_z, 2)
         return dist_a, dist_b, embedded_x, embedded_y, embedded_z
@@ -38,8 +40,7 @@ class Net(nn.Module):
         self.conv2 = nn.Conv2d(64, 128, 5)
         self.conv3 = nn.Conv2d(128, 256, 5)
         self.linear1 = nn.Linear(2304, 512)
-
-        self.linear2 = nn.Linear(512, 2)
+        self.linear2 = nn.Linear(512, 2)  # Last layer assigning a number to each class from the previous layer
 
     def forward(self, data):
         res = []
@@ -64,11 +65,24 @@ class Net(nn.Module):
 
         # ---- CASE 2: The cross entropy is used ----
         else:
-            difference = torch.abs(res[1] - res[0]) # Computation of the difference of the 2 feature representations
+            difference = torch.abs(res[1] - res[0])  # Computation of the difference of the 2 feature representations
+            last_values = self.linear2(difference)
+            # print("Last values are " + str(last_values))
+            # print("Processed distance is " + str(self.avg_val_tensor(difference).requires_grad_(True)))
+            # return self.avg_val_tensor(difference).requires_grad_(True) #
+            return last_values
 
-            # TODO: Compute the avg of the difference
-            # Return (1-avg_diff, avg_diff)
-            #print("difference 1 is " + str(difference))
-            difference = self.linear2(difference)
-            #print("difference 2 is " + str(difference))
-            return difference # Should be probability assign to each class? Why negative values
+    """
+    IN: A tensor ... x 16 
+    OUT: A tensor 2 x 16 where the first value is avg_elem and the second is the 1-avg_elem
+    """
+
+    def avg_val_tensor(self, init_tensor):
+        new_content = []
+        for i, pred in enumerate(init_tensor):
+            avg = 0
+            for j, elem in enumerate(pred):
+                avg += elem
+            new_content.append([avg / len(pred), 1 - avg / len(pred)])
+
+        return torch.tensor(new_content)  # , grad_fn=<AddBackward0>)  #requires_grad=True)

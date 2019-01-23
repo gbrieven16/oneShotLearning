@@ -4,12 +4,13 @@ from Dataprocessing import from_zip_to_data
 from Main import TRANS, NAME_MODEL, DEVICE, WITH_PROFILE
 from TrainAndTest import oneshot
 
+
 # ================================================================
 #                   GLOBAL VARIABLES
 # ================================================================
 
-NB_TEST_PICT = 50
-NB_PEOPLE = 400  # Nb of people to consider
+NB_TEST_PICT = 10
+NB_PEOPLE = 50  # Nb of people to consider
 TOLERANCE = 2  # Max nb of times the model can make mistake in comparing p_test and the pictures of 1 person
 
 # ================================================================
@@ -21,7 +22,7 @@ class FaceRecognition:
 
     def __init__(self, model_path):
         fileset = from_zip_to_data(WITH_PROFILE)
-        people_dic = fileset.order_per_personName(TRANS, nb_people=NB_PEOPLE)
+        people_dic = fileset.order_per_personName(TRANS, nb_people=NB_PEOPLE, max_nb_pictures=4)
         self.people_pictures = people_dic
 
         # Pick different people (s.t. the test pictures are related to different people)
@@ -32,6 +33,11 @@ class FaceRecognition:
         for i, person in enumerate(people_test[:NB_TEST_PICT]):
             j = randint(0, len(people_dic[person]) - 1)
             self.pictures_test.append((person, people_dic[person].pop(j)))
+
+        # To ensure having the same nb of pictures per person
+        for i, person in enumerate(people_test[NB_TEST_PICT:]):
+            j = randint(0, len(people_dic[person]) - 1)
+            person, people_dic[person].pop(j)
 
         model = torch.load(model_path)
         self.siamese_model = model
@@ -53,6 +59,7 @@ class FaceRecognition:
             predictions = {}  # dict where the key is the person's name and the value the nb of "same" predictions
 
             data.append(torch.unsqueeze(test_picture[1].trans_img, 0))
+            if detailed_print: test_picture[1].display_im(to_print="The face to identify is: ")
 
             # --- Go through each person --- #
             for person, pictures in self.people_pictures.items():
@@ -61,10 +68,13 @@ class FaceRecognition:
                 for i, picture in enumerate(pictures):
 
                     data.append(torch.unsqueeze(picture.trans_img, 0))
+                    if detailed_print: picture.display_im(to_print="The face which is compared is: ")
+
                     same = oneshot(self.siamese_model, DEVICE, data)
 
                     # --- Check the result of the prediction ---
                     if same == 1:
+                        if detailed_print: print("Predicted as different")
                         nb_pred_diff += 1
                         if TOLERANCE < nb_pred_diff:
                             data.pop()
