@@ -18,7 +18,6 @@ LEARNING_RATE = 0.001
 NUM_EPOCH = 40
 WEIGHT_DECAY = 0.001
 
-SAVE_DATA_TRAINING = True
 SAVE_MODEL = True
 DO_LEARN = True
 DIFF_FACES = True  # If true, we have different faces in the training and the testing set
