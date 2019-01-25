@@ -1,5 +1,6 @@
 import zipfile
 import os
+import platform
 import random
 from random import shuffle
 from string import digits
@@ -7,7 +8,6 @@ import torch.utils.data
 
 from PIL import Image
 from io import BytesIO
-import Tkinter
 import matplotlib.pyplot as plt
 
 import torch
@@ -23,7 +23,7 @@ warnings.filterwarnings('ignore')
 #########################################
 
 DB_TO_USE = ["AberdeenCrop", "GTdbCrop", "yalefaces", "faces94"] #, "Iranian"]  # if the 2th db not used, replace "yalefaces" by ""
-MAIN_ZIP = 'datasets/ds01234.zip'
+MAIN_ZIP = 'datasets/ds01234.zip' if platform.system() == "darwin" else "/home/data/gbrieven.zip"
 
 ZIP_TO_PROCESS = 'datasets/Iranian.zip'  # aber&GTdb_crop.zip'
 NB_DIGIT_IN_ID = 2
@@ -405,4 +405,4 @@ def from_zip_to_data(with_profile):
 
 
 if __name__ == "__main__":
-    include_data_to_zip()
+    pass
