@@ -28,7 +28,7 @@ warnings.filterwarnings('ignore')
 
 DB_TO_USE = ["AberdeenCrop", "GTdbCrop", "yalefaces",
              "faces94"]  # , "Iranian"]  # if the 2th db not used, replace "yalefaces" by ""
-MAIN_ZIP = 'datasets/ds01234.zip' if platform.system() == "Darwin" else "/home/data/gbrieven.zip"
+MAIN_ZIP = 'datasets/ds01234.zip' if platform.system() == "Darwin" else "/data/gbrieven/gbrieven.zip"
 
 ZIP_TO_PROCESS = 'datasets/Iranian.zip'  # aber&GTdb_crop.zip'
 NB_DIGIT_IN_ID = 2
