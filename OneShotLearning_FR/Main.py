@@ -15,7 +15,7 @@ from Visualization import store_in_csv
 
 BATCH_SIZE = 16
 LEARNING_RATE = 0.001
-NUM_EPOCH = 40
+NUM_EPOCH = 100
 WEIGHT_DECAY = 0.001
 
 SAVE_MODEL = True
