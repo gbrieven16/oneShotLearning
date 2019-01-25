@@ -18,7 +18,7 @@ LEARNING_RATE = 0.001
 NUM_EPOCH = 100
 WEIGHT_DECAY = 0.001
 
-SAVE_MODEL = True
+SAVE_MODEL = False
 DO_LEARN = True
 DIFF_FACES = True  # If true, we have different faces in the training and the testing set
 WITH_PROFILE = False  # True if both frontally and in profile people
@@ -80,7 +80,7 @@ def main():
 
         # ------- Visualization: Evolution of the performance ---------
         name_fig = "ds" + used_db + str(NUM_EPOCH) + "_" + str(BATCH_SIZE) + "_" + LOSS
-        visualization_train(range(0, NUM_EPOCH, round(NUM_EPOCH / 5)), losses_train, save_name=name_fig+"_train.png")
+        visualization_train(range(0, NUM_EPOCH, int(round(NUM_EPOCH / 5))), losses_train, save_name=name_fig+"_train.png")
         visualization_test(losses_test, acc_test, save_name=name_fig+"_test.png")
 
         # ------- Record: Evolution of the performance ---------
