@@ -179,7 +179,7 @@ class Fileset:
                 all_labels.add(data.name_person)
 
             # Build a training and a testing set with different labels
-            for i in range(round((1 - RATION_TRAIN_SET) * len(all_labels))): all_labels.pop()
+            for i in range(int(round((1 - RATION_TRAIN_SET) * len(all_labels)))): all_labels.pop()
 
             for i, data in enumerate(self.data_list):
                 if data.name_person in all_labels:
