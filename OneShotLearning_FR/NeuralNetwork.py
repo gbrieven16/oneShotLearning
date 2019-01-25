@@ -1,4 +1,4 @@
-import sys
+
 import torch
 from torch import nn
 import torch.nn.functional as f
@@ -34,10 +34,7 @@ class Tripletnet(nn.Module):
 
 class Net(nn.Module):
     def __init__(self):
-        if sys.version_info[0] < 3:
-            super(nn.Module, self).__init__()
-        else:
-            super().__init__()
+        super(Net, self).__init__()
 
         self.conv1 = nn.Conv2d(3, 64, 7)
         self.pool1 = nn.MaxPool2d(2)
