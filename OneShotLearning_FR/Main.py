@@ -31,7 +31,7 @@ DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 used_db = "".join([str(i) for i, db in enumerate(DB_TO_USE) if db != ""])
 
 NAME_MODEL = "models/siameseFace" + "_ds" + used_db + (
-    "_diff_" if DIFF_FACES else "_same_") + str(NUM_EPOCH) + "_" + str(BATCH_SIZE) + ".pt"
+    "_diff_" if DIFF_FACES else "_same_") + str(NUM_EPOCH) + "_" + str(BATCH_SIZE) + "_" + LOSS + ".pt"
 
 
 #########################################
@@ -63,6 +63,7 @@ def main():
         losses_test = []
         acc_test = []
 
+        # ------- Model Training ---------
         for epoch in range(NUM_EPOCH):
             loss_list = train(model, DEVICE, train_loader, epoch, optimizer, BATCH_SIZE)
             loss, acc = test(model, DEVICE, test_loader)
@@ -70,17 +71,21 @@ def main():
             losses_test.append(loss)
             acc_test.append(acc)
 
+        # ------- Model Saving ---------
         if SAVE_MODEL:
             torch.save(model, NAME_MODEL)
             with open(NAME_MODEL.split(".pt")[0] + '_testdata.pkl', 'wb') as output:
                 pickle.dump(testing_set, output, pickle.HIGHEST_PROTOCOL)
-
             print("Model is saved!")
-            visualization_train(range(0, NUM_EPOCH, round(NUM_EPOCH / 5)), losses_train)
-            visualization_test(losses_test, acc_test)
 
-            store_in_csv(BATCH_SIZE, WEIGHT_DECAY, LEARNING_RATE, MAIN_ZIP, NUM_EPOCH, DIFF_FACES, WITH_PROFILE,
-                         TYPE_ARCH, LOSS, losses_test, acc_test)
+        # ------- Visualization: Evolution of the performance ---------
+        name_fig = "ds" + used_db + str(NUM_EPOCH) + "_" + str(BATCH_SIZE) + "_" + LOSS
+        visualization_train(range(0, NUM_EPOCH, round(NUM_EPOCH / 5)), losses_train, save_name=name_fig+"_train.png")
+        visualization_test(losses_test, acc_test, save_name=name_fig+"_test.png")
+
+        # ------- Record: Evolution of the performance ---------
+        store_in_csv(BATCH_SIZE, WEIGHT_DECAY, LEARNING_RATE, MAIN_ZIP, NUM_EPOCH, DIFF_FACES, WITH_PROFILE,
+                     TYPE_ARCH, LOSS, losses_test, acc_test)
 
     else:
         # -----------------------
@@ -118,4 +123,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-

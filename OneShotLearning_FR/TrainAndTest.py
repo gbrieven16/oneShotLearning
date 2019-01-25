@@ -106,7 +106,7 @@ def compute_loss(data, target, device, model):
         tnet = Tripletnet(model)
         if device == "cuda": tnet.cuda()
 
-        distb, dista, _, _, _ = tnet.forward(data[0], data[1], data[2])
+        dista, distb, _, _, _ = tnet.forward(data[0], data[2], data[1])
 
         # 1 means, dista should be greater than distb
         target = torch.FloatTensor(dista.size()).fill_(1).to(device)
@@ -136,22 +136,24 @@ IN: epoch_list: list of specific epochs
 --------------------------------------------------------------------------------------'''
 
 
-def visualization_train(epoch_list, loss_list):
+def visualization_train(epoch_list, loss_list, save_name=None):
     title = "Evolution of the loss for different epoches"
     perc_train = [x / len(loss_list[0]) for x in range(0, len(loss_list[0]))]
     dictionary = {}
     for i, epoch in enumerate(epoch_list):
         dictionary["epoch " + str(epoch)] = loss_list[epoch]
 
-    multi_line_graph(dictionary, perc_train, title, x_label="percentage of data", y_label="Loss")
+    multi_line_graph(dictionary, perc_train, title, x_label="percentage of data", y_label="Loss", save_name=save_name)
 
 
 '''------------------ visualization_test ----------------------------- '''
 
 
-def visualization_test(loss, acc):
-    line_graph(range(0, len(loss), 1), loss, "Loss according to the epochs", x_label="Epoch", y_label="Loss")
-    line_graph(range(0, len(acc), 1), acc, "Accuracy according to the epochs", x_label="Epoch", y_label="Accuracy")
+def visualization_test(loss, acc, save_name=None):
+    line_graph(range(0, len(loss), 1), loss, "Loss according to the epochs", x_label="Epoch", y_label="Loss",
+               save_name=save_name)
+    line_graph(range(0, len(acc), 1), acc, "Accuracy according to the epochs", x_label="Epoch", y_label="Accuracy",
+               save_name=save_name)
 
 
 if __name__ == '__main__':
