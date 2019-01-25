@@ -8,6 +8,10 @@ import torch.utils.data
 
 from PIL import Image
 from io import BytesIO
+
+import matplotlib
+
+matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
 import torch
@@ -22,7 +26,8 @@ warnings.filterwarnings('ignore')
 #       GLOBAL VARIABLES                #
 #########################################
 
-DB_TO_USE = ["AberdeenCrop", "GTdbCrop", "yalefaces", "faces94"] #, "Iranian"]  # if the 2th db not used, replace "yalefaces" by ""
+DB_TO_USE = ["AberdeenCrop", "GTdbCrop", "yalefaces",
+             "faces94"]  # , "Iranian"]  # if the 2th db not used, replace "yalefaces" by ""
 MAIN_ZIP = 'datasets/ds01234.zip' if platform.system() == "darwin" else "/home/data/gbrieven.zip"
 
 ZIP_TO_PROCESS = 'datasets/Iranian.zip'  # aber&GTdb_crop.zip'
@@ -335,7 +340,7 @@ class Face_DS(torch.utils.data.Dataset):
                 self.train_not_formatted_data.append([picture_ref, picture_positive, picture_negative])
 
                 self.train_data.append([picture_ref.trans_img.to(device), picture_positive.trans_img.to(device),
-                                            picture_negative.trans_img.to(device)])
+                                        picture_negative.trans_img.to(device)])
 
                 self.train_labels.append([0, 1])
 
