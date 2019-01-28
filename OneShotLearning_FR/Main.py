@@ -1,30 +1,32 @@
 import pickle
 import torch
 import torchvision.transforms as transforms
-from NeuralNetwork import Net, TYPE_ARCH
-from torch import optim
+from NeuralNetwork import TYPE_ARCH, AutoEncoder
 
-from Dataprocessing import Face_DS, MAIN_ZIP, from_zip_to_data, DB_TO_USE
-from TrainAndTest import train, test, oneshot, visualization_test, visualization_train, LOSS
-from Visualization import store_in_csv
+from Dataprocessing import Face_DS, from_zip_to_data, DB_TO_USE
+from TrainAndTest import train, test, oneshot, pretraining, train_nonpretrained, get_optimizer
+from Visualization import store_in_csv, visualization_test, visualization_train
 
 #########################################
 #       GLOBAL VARIABLES                #
 #########################################
 
 
-BATCH_SIZE = 16
+NUM_EPOCH = 50
+BATCH_SIZE = 32
 LEARNING_RATE = 0.001
-NUM_EPOCH = 100
-WEIGHT_DECAY = 0.001
+WEIGHT_DECAY = 0.001  # To control regularization
+LOSS = "cross_entropy"
+OPTIMIZER = "Adam"  # "SGD" # Adagrad
 
-SAVE_MODEL = False
+SAVE_MODEL = True
 DO_LEARN = True
+WITH_PRETRAINING = False
 DIFF_FACES = True  # If true, we have different faces in the training and the testing set
 WITH_PROFILE = False  # True if both frontally and in profile people
 
 TRANS = transforms.Compose([transforms.CenterCrop(28), transforms.ToTensor(),
-                            transforms.Normalize((0.5,), (1.0,))])  # If applied, a dimensional error is raised
+                            transforms.Normalize((0.5,), (1.0,))])
 
 # Specifies where the torch.tensor is allocated
 DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -38,8 +40,9 @@ NAME_MODEL = "models/siameseFace" + "_ds" + used_db + (
 #       FUNCTION main                   #
 #########################################
 
-def main():
-    model = Net().to(DEVICE)
+def main(loss_type=LOSS, batch_size=BATCH_SIZE, learning_rate=LEARNING_RATE, weight_decay=WEIGHT_DECAY):
+    autoencoder = AutoEncoder(device=DEVICE).to(DEVICE)
+    visualization = True
 
     # ----------------------------------------------
     # Definition of a training and a testing set
@@ -49,27 +52,46 @@ def main():
     training_set, testing_set = fileset.get_train_and_test_sets(DIFF_FACES)
 
     if DO_LEARN:
-
         # -----------------------
         #  training mode
         # -----------------------
-        train_loader = torch.utils.data.DataLoader(Face_DS(training_set, transform=TRANS, device=DEVICE),
-                                                   batch_size=BATCH_SIZE, shuffle=True)
-        test_loader = torch.utils.data.DataLoader(Face_DS(testing_set, transform=TRANS, device=DEVICE),
-                                                  batch_size=BATCH_SIZE, shuffle=False)
 
-        optimizer = optim.Adam(model.parameters(), lr=LEARNING_RATE, weight_decay=WEIGHT_DECAY)
+        losses_test = {"Pretrained Model": [], "Non-pretrained Model": []}
+        acc_test = {"Pretrained Model": [], "Non-pretrained Model": []}
+
+        train_loader = torch.utils.data.DataLoader(Face_DS(training_set, transform=TRANS, device=DEVICE),
+                                                   batch_size=batch_size, shuffle=True)
+        test_loader = torch.utils.data.DataLoader(Face_DS(testing_set, transform=TRANS, device=DEVICE),
+                                                  batch_size=batch_size, shuffle=False)
+
+        if WITH_PRETRAINING:
+            # ---------- Pretraining using an autoencoder --------------
+            train_data = Face_DS(training_set, transform=TRANS, device=DEVICE, triplet_version=False)
+            model = pretraining(train_data, autoencoder, batch_size=batch_size)
+            train_nonpretrained(train_loader, test_loader, losses_test, acc_test, NUM_EPOCH, loss_type, OPTIMIZER)
+        else:
+            model = autoencoder.encoder
+
+        # ------ Optimizer Definition ------
+        optimizer = get_optimizer(model, OPTIMIZER, learning_rate, weight_decay)
+
         losses_train = []
-        losses_test = []
-        acc_test = []
 
         # ------- Model Training ---------
         for epoch in range(NUM_EPOCH):
-            loss_list = train(model, DEVICE, train_loader, epoch, optimizer, BATCH_SIZE)
-            loss, acc = test(model, DEVICE, test_loader)
+            loss_list = train(model, DEVICE, train_loader, epoch, optimizer, loss_type=loss_type)
+            loss, acc = test(model, DEVICE, test_loader, loss_type=loss_type)
+
+            # Record for later visualization
             losses_train.append(loss_list)
-            losses_test.append(loss)
-            acc_test.append(acc)
+            losses_test["Pretrained Model"].append(loss)
+            acc_test["Pretrained Model"].append(acc)
+
+            # --------- STOP if no relevant learning after some epoch ----------
+            if 14 < epoch and sum(acc_test["Pretrained Model"]) / len(acc_test["Pretrained Model"]) < 55:
+                print("The accuracy is bad => Stop Training")
+                visualization = False
+                break
 
         # ------- Model Saving ---------
         if SAVE_MODEL:
@@ -79,13 +101,17 @@ def main():
             print("Model is saved!")
 
         # ------- Visualization: Evolution of the performance ---------
-        name_fig = "ds" + used_db + str(NUM_EPOCH) + "_" + str(BATCH_SIZE) + "_" + LOSS
-        visualization_train(range(0, NUM_EPOCH, int(round(NUM_EPOCH / 5))), losses_train, save_name=name_fig+"_train.png")
-        visualization_test(losses_test, acc_test, save_name=name_fig+"_test.png")
+        if visualization:
+            name_fig = "graphs/ds" + used_db + str(NUM_EPOCH) + "_" + str(batch_size) \
+                       + "_" + loss_type + "_arch" + TYPE_ARCH
+            visualization_train(range(0, NUM_EPOCH, int(round(NUM_EPOCH / 5))), losses_train,
+                                save_name=name_fig + "_train.png")
 
-        # ------- Record: Evolution of the performance ---------
-        store_in_csv(BATCH_SIZE, WEIGHT_DECAY, LEARNING_RATE, MAIN_ZIP, NUM_EPOCH, DIFF_FACES, WITH_PROFILE,
-                     TYPE_ARCH, LOSS, losses_test, acc_test)
+            visualization_test(losses_test, acc_test, save_name=name_fig + "_test")
+
+            # ------- Record: Evolution of the performance ---------
+            store_in_csv(batch_size, weight_decay, learning_rate, used_db, NUM_EPOCH, DIFF_FACES, WITH_PROFILE,
+                         TYPE_ARCH, OPTIMIZER, loss_type, losses_test, acc_test)
 
     else:
         # -----------------------
@@ -114,7 +140,7 @@ def main():
 
         # print("One data given to the onshot function is: " + str(data[0]))
 
-        same = oneshot(model, DEVICE, data)
+        same = oneshot(model, data)
         if same == 0:
             print('=> PREDICTION: These two images represent the same person')
         else:

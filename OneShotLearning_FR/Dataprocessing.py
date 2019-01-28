@@ -1,3 +1,4 @@
+import torch.utils.data
 import zipfile
 import os
 import platform
@@ -16,7 +17,6 @@ import matplotlib.pyplot as plt
 
 import torch
 import torchvision.transforms as transforms
-import torch.utils.data
 
 import warnings
 
@@ -26,12 +26,12 @@ warnings.filterwarnings('ignore')
 #       GLOBAL VARIABLES                #
 #########################################
 
-DB_TO_USE = ["AberdeenCrop", "GTdbCrop", "yalefaces",
-             "faces94"]  # , "Iranian"]  # if the 2th db not used, replace "yalefaces" by ""
-MAIN_ZIP = 'datasets/ds01234.zip' if platform.system() == "Darwin" else "/data/gbrieven/gbrieven.zip"
+# if the 2th db not used, replace "yalefaces" by ""
+DB_TO_USE = ["AberdeenCrop"]  # , "GTdbCrop", "yalefaces", "faces94", "Iranian", "pain_crops", "utrecht"]
+MAIN_ZIP = 'datasets/ds0123456.zip' if platform.system() == "Darwin" else "/data/gbrieven/gbrieven.zip"
 
-ZIP_TO_PROCESS = 'datasets/Iranian.zip'  # aber&GTdb_crop.zip'
-NB_DIGIT_IN_ID = 2
+ZIP_TO_PROCESS = 'datasets/utrecht.zip'  # aber&GTdb_crop.zip'
+NB_DIGIT_IN_ID = 1
 
 SEED = 4  # When data is shuffled
 EXTENSION = ".jpg"
@@ -106,7 +106,7 @@ class Data:
         # === CASE 2: No separation between the name of the person and the index ===
         number_if_error = 1
 
-        # Check if there's no separator _ inside the name (if so delete it)
+        # Check if there's no separator _ inside the name (if so delete it) f4001.jpg
         label = self.filename.translate(str.maketrans('', '', digits)).split(".")[0]
 
         try:
@@ -115,9 +115,6 @@ class Data:
 
             extension = "." + self.filename.split(".")[1]
             id = "".join(digits_in_name[len(digits_in_name) - NB_DIGIT_IN_ID:])
-
-            if id[1] in ["3", "4", "5", "6", "9", "0"]:
-                label = label + "!"
 
         except ValueError:
             print("There's no number id in the filename: " + str(self.filename))
@@ -152,7 +149,7 @@ class Fileset:
      This function defines a training and a testing set from data_list by splitting it
      IN: diff_faces: True if no one has to be present in both training and testing sets
      OUT: a training and a testing sets that are Fileset objects 
-     
+
      REM: no instantiation of the db_source variable ... 
      --------------------------------------------------------------------------------'''
 
@@ -192,7 +189,7 @@ class Fileset:
     '''---------------- order_per_personName --------------------------------
      This function returns a dictionary where the key is the name of the 
      person and the value is a list of images of this person 
-     
+
      IN: transform: transformation that has to be applied to the picture 
      OUT: dictionary where the key is the name of the person and the value is 
      the list of their pictures as FaceImage object
@@ -265,7 +262,7 @@ class FaceImage():
 
 
 class Face_DS(torch.utils.data.Dataset):
-    def __init__(self, fileset, transform=None, to_print=False, device="cpu"):
+    def __init__(self, fileset, transform=None, to_print=False, device="cpu", triplet_version=True):
 
         self.to_print = to_print
         self.transform = transforms.ToTensor() if transform is None else transform
@@ -273,13 +270,17 @@ class Face_DS(torch.utils.data.Dataset):
         faces_dic = fileset.order_per_personName(self.transform)
         # print("after transformation" + str(faces_dic['faces94jdbenm'][0]))
 
-        ########################################################################
-        # Build triplet supporting the dataset (ensures balanced classes)
-        ########################################################################
         self.train_data = []
         self.train_labels = []
-        self.train_not_formatted_data = []
-        self.build_triplet(faces_dic, device=device)
+
+        # ------ Build triplet supporting the dataset (ensures balanced classes) --------
+        if triplet_version:
+            self.train_not_formatted_data = []
+            self.build_triplet(faces_dic, device=device)
+
+        # -------- Build training set composed of faces --------
+        else:
+            self.image_data(faces_dic, device=device)
 
         self.print_data_report(faces_dic)
 
@@ -310,6 +311,14 @@ class Face_DS(torch.utils.data.Dataset):
         return len(self.train_data)
 
     def build_triplet(self, faces_dic, device="cpu"):
+        """ ---------------------------------------------------
+        Define the training set composed of (ref, pos, neg)
+        List of 3 lists, each containing tensors
+
+        !! Convention !!:
+            Label = 0 if same people
+            Label = 1 if different people
+        --------------------------------------------------- """
 
         all_labels = list(faces_dic.keys())
         nb_labels = len(all_labels)
@@ -345,6 +354,18 @@ class Face_DS(torch.utils.data.Dataset):
                 self.train_labels.append([0, 1])
 
         # self.train_data = torch.stack(self.train_data)
+        self.train_labels = torch.tensor(self.train_labels).to(device)
+
+    """ --------------------- image_data ------------------------------------  """
+
+    def image_data(self, faces_dic, device="cpu"):
+
+        # ========= Consider each person =================
+        for label, pictures_list in faces_dic.items():
+            # ======== Consider each picture of each person ==========
+            for i, picture in enumerate(pictures_list):
+                self.train_data.append(picture.trans_img.to(device))
+                self.train_labels.append(1)
         self.train_labels = torch.tensor(self.train_labels).to(device)
 
     """ ---------------------------------- print_data_report ------------------------------------  """
@@ -410,4 +431,4 @@ def from_zip_to_data(with_profile):
 
 
 if __name__ == "__main__":
-    pass
+    include_data_to_zip()

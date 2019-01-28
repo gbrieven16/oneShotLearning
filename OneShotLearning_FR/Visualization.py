@@ -6,8 +6,7 @@ import matplotlib.pyplot as plt
 import csv
 import numpy as np
 
-
-#  ===============================================================
+# ================================================================
 #                       GLOBAL VARIABLES
 # ================================================================
 
@@ -162,22 +161,62 @@ results related to the different scenarios that were experimented
 -------------------------------------------------------------------'''
 
 
-def store_in_csv(batch_size, weight_decay, learning_rate, main_zip, num_epoch, diff_faces, with_profile,
-                 archType, lossType, loss, acc):
+def store_in_csv(batch_size, weight_decay, learning_rate, used_db, num_epoch, diff_faces, with_profile,
+                 archType, optimizer, lossType, loss, acc):
+    curr_parameters = [("ds_" + used_db), diff_faces, with_profile, num_epoch, batch_size, weight_decay, learning_rate,
+                       archType, optimizer, lossType]
 
-    name_bd = main_zip.split("/")[-1].split(".zip")[0]
-    curr_parameters = [name_bd, diff_faces, with_profile, num_epoch, batch_size, weight_decay,
-                       learning_rate, archType, lossType]
     curr_evaluation = [float(loss[0]), float(loss[int(round(len(loss)) / 2)]), float(loss[-1]),
                        float(acc[0]), float(acc[int(round(len(acc) / 2))]), float(acc[-1])]
 
-    #titles = ["Name BD", "IsDiffFaces", "IsWithProfile", "NbEpoches", "BS", "WD", "LR",
-     #         "LossType", "Loss1", "Loss2", "Loss3", "Acc1", "Acc2", 'Acc3']
+    # titles = ["Name BD", "IsDiffFaces", "IsWithProfile", "NbEpoches", "BS", "WD", "LR", "ArchType", "Optimizer",
+    #         "LossType", "Loss1", "Loss2", "Loss3", "Acc1", "Acc2", 'Acc3']
 
     with open(CSV_NAME, 'a') as f:
-        writer = csv.writer(f)
-        #writer.writerow(titles)
+        writer = csv.writer(f, delimiter=";")
+        # writer.writerow(titles)
         writer.writerow(curr_parameters + curr_evaluation)
+
+
+'''------------------ visualization_train -------------------------------------------
+IN: epoch_list: list of specific epochs
+    loss_list: list of lists of all the losses during each epoch
+--------------------------------------------------------------------------------------'''
+
+
+def visualization_train(epoch_list, loss_list, save_name=None):
+    title = "Evolution of the loss for different epoches"
+    perc_train = [float(x) / len(loss_list[0]) for x in range(0, len(loss_list[0]))]
+    dictionary = {}
+    for i, epoch in enumerate(epoch_list):
+        dictionary["epoch " + str(epoch)] = loss_list[epoch]
+
+    multi_line_graph(dictionary, perc_train, title, x_label="percentage of data", y_label="Loss", save_name=save_name)
+
+
+'''------------------ visualization_test ----------------------------- '''
+
+
+def visualization_test(loss, acc, save_name=None):
+    title_loss = "Comparison of the evolution of the losses"
+    title_acc = "Comparison of the evolution of the accuracies"
+
+    if type(loss) == "list":
+        line_graph(range(0, len(loss), 1), loss, "Loss according to the epochs", x_label="Epoch", y_label="Loss",
+                   save_name=save_name + "_loss.png")
+        line_graph(range(0, len(acc), 1), acc, "Accuracy according to the epochs", x_label="Epoch", y_label="Accuracy",
+                   save_name=save_name + "_acc.png")
+    else:
+        key1 = list(loss.keys())[0]
+        key2 = list(loss.keys())[1]
+        dictionary_loss = {key1: loss[key1], key2: loss[key2]}
+        dictionary_acc = {key1: acc[key1], key2: acc[key2]}
+        epoches = list(range(0, len(loss[key1]), 1))
+
+        multi_line_graph(dictionary_loss, epoches, title_loss, x_label="epoch", y_label="Loss",
+                         save_name=save_name + "_loss.png")
+        multi_line_graph(dictionary_acc, epoches, title_acc, x_label="epoch", y_label="Acc",
+                         save_name=save_name + "_acc.png")
 
 
 if __name__ == '__main__':

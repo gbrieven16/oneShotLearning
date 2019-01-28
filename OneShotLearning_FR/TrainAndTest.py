@@ -1,10 +1,15 @@
 import torch
 import torch.nn.functional as f
-from NeuralNetwork import Tripletnet
+from NeuralNetwork import Tripletnet, AutoEncoder
+from torch import nn
+from torch import optim
 
-from Visualization import multi_line_graph, line_graph
+MARGIN = 1.0
+MOMENTUM = 0.9
+N_TEST_IMG = 5
 
-LOSS = "cross_entropy"
+# Specifies where the torch.tensor is allocated
+DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 '''---------------------------- train --------------------------------
  This function trains the model 
@@ -13,22 +18,49 @@ LOSS = "cross_entropy"
  -----------------------------------------------------------------------'''
 
 
-def train(model, device, train_loader, epoch, optimizer, batch_size):
+def train(model, device, train_loader, epoch, optimizer, loss_type="cross_entropy", autoencoder=False):
     model.train()
     loss_list = []
-
+    # ------- Go through each batch of the train_loader -------
     for batch_idx, (data, target) in enumerate(train_loader):
+        optimizer.zero_grad()  # clear gradients for this training step
+        loss = None
 
-        optimizer.zero_grad()
-        _, _, _, _, loss = compute_loss(data, target, device, model)
-        loss.backward()
-        optimizer.step()
+        try:
+            if autoencoder:
+                # ----------------------------
+                # CASE 1: Autoencoder Training
+                # ----------------------------
+                data_copy = data  # torch.unsqueeze(data, 0)
+                encoded, decoded = model([data])
+                loss = nn.MSELoss()(decoded, data_copy)  # mean square error
+            else:
+                # ----------------------------------------------
+                # CASE 2: Image Differentiation Training
+                # ----------------------------------------------
+                _, _, _, _, loss = compute_loss(data, target, device, model, loss_type)
+        except IOError:  # The batch is "not complete"
+            print("A runtime error occurred")
+            print("Data is: " + str(data))
+            print("Target is: " + str(target))
+            break
 
+        loss.backward()  # backpropagation, compute gradients
+        optimizer.step()  # apply gradients
+
+        # -----------------------
+        #   Visualization
+        # -------------------------
         if batch_idx % 10 == 0:  # Print the state of the training each 10 batches (i.e each 10*size_batch considered examples)
+            if autoencoder:
+                batch_size = len(data)
+            else:
+                batch_size = len(data[0])
             loss_list.append(loss.item())
             print('Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}'.format(
                 epoch, batch_idx * batch_size, len(train_loader.dataset),
-                       100. * batch_idx * batch_size / len(train_loader.dataset), loss.item()))
+                       100. * batch_idx * batch_size / len(train_loader.dataset),
+                loss.item()))  # len(data[0]) = batch_size
     return loss_list
 
 
@@ -39,7 +71,7 @@ def train(model, device, train_loader, epoch, optimizer, batch_size):
  -----------------------------------------------------------------------'''
 
 
-def test(model, device, test_loader):
+def test(model, device, test_loader, loss_type="cross_entropy"):
     model.eval()
 
     with torch.no_grad():
@@ -48,7 +80,11 @@ def test(model, device, test_loader):
         loss_test = 0
 
         for batch_idx, (data, target) in enumerate(test_loader):
-            out_pos, out_neg, tar_pos, tar_neg, loss = compute_loss(data, target, device, model)
+            try:
+                out_pos, out_neg, tar_pos, tar_neg, loss = compute_loss(data, target, device, model, loss_type)
+            except RuntimeError:  # The batch is "not complete"
+                break
+
             if device.type == "cpu":
                 accurate_labels_positive = torch.sum(torch.argmax(out_pos, dim=1) == tar_pos).cpu()  # = 0
                 accurate_labels_negative = torch.sum(torch.argmax(out_neg, dim=1) == tar_neg).cpu()  # = 1
@@ -83,25 +119,25 @@ def test(model, device, test_loader):
  -----------------------------------------------------------------------'''
 
 
-def compute_loss(data, target, device, model):
+def compute_loss(data, target, device, model, loss_type):
     loss = 0
-    for i in range(len(data)):
+    for i in range(len(data)):  # List of 3 tensors
         data[i] = data[i].to(device)
 
-    output_positive = model(data[:2])  # 2 elements for each batch because 2 classes (pos, neg) (= (1-diff, diff))
+    output_positive = model(data[:2])  # 2 elements for each batch because 2 classes (pos, neg)
     output_negative = model(data[0:3:2])
 
     target = target.type(torch.LongTensor).to(device)
-    target_positive = torch.squeeze(target[:, 0])
-    target_negative = torch.squeeze(target[:, 1])
+    target_positive = torch.squeeze(target[:, 0])  # = Only 0 here
+    target_negative = torch.squeeze(target[:, 1])  # = Only 1 here
 
-    if LOSS == "cross_entropy":
+    if loss_type == "cross_entropy":
         loss_positive = f.cross_entropy(output_positive, target_positive)
         loss_negative = f.cross_entropy(output_negative, target_negative)
         loss = loss_positive + loss_negative
 
-    elif LOSS == "triplet_loss":
-        criterion = torch.nn.MarginRankingLoss(margin=1.0)
+    elif loss_type == "triplet_loss":
+        criterion = torch.nn.MarginRankingLoss(margin=MARGIN)
 
         tnet = Tripletnet(model)
         if device == "cuda": tnet.cuda()
@@ -116,51 +152,83 @@ def compute_loss(data, target, device, model):
     return output_positive, output_negative, target_positive, target_negative, loss
 
 
-'''---------------------------- oneshot ---------------------------'''
+'''---------------------------- oneshot ---------------------------
+   The function predicts if 2 images represent the same person  
+   IN: model: neural network taking 2 processed images as input and
+              outputting a pair of numbers
+       data: list of 2 tensors representing 2 images 
+   OUT: index of the maximum value in the output
+        This index corresponds to the predicted class: 
+        0 => same person  &  1 => different people 
+------------------------------------------------------------------- '''
 
 
-def oneshot(model, device, data):
+def oneshot(model, data):
     model.eval()
     # print("Data given to oneshot: " + str(data))
     with torch.no_grad():
         for i in range(len(data)):
-            data[i] = data[i].to(device)
+            data[i] = data[i].to(DEVICE)
 
         output = model(data)
-        return torch.squeeze(torch.argmax(output, dim=1)).cpu().item()
+        if DEVICE == "cpu":
+            return torch.squeeze(torch.argmax(output, dim=1)).cpu().item()
+        else:
+            return torch.squeeze(torch.argmax(output, dim=1)).cuda().item()
 
 
-'''------------------ visualization_train -------------------------------------------
-IN: epoch_list: list of specific epochs
-    loss_list: list of lists of all the losses during each epoch
---------------------------------------------------------------------------------------'''
+'''------------------ pretraining -------------------------------------
+   The function trains an autoencoder based on given training data 
+   IN: train_data: Face_DS objet whose training data is a list of 
+       face images represented through tensors 
+       autoencoder: an autocoder characterized by an encoder and a decoder
+   OUT: the encoder (after training) 
+------------------------------------------------------------------------ '''
 
 
-def visualization_train(epoch_list, loss_list, save_name=None):
-    title = "Evolution of the loss for different epoches"
-    perc_train = [x / len(loss_list[0]) for x in range(0, len(loss_list[0]))]
-    dictionary = {}
-    for i, epoch in enumerate(epoch_list):
-        dictionary["epoch " + str(epoch)] = loss_list[epoch]
+def pretraining(train_data, autoencoder, num_epochs=100, batch_size=32, loss_type="cross_entropy"):
+    train_loader = torch.utils.data.DataLoader(train_data, batch_size=batch_size, shuffle=True)
 
-    multi_line_graph(dictionary, perc_train, title, x_label="percentage of data", y_label="Loss", save_name=save_name)
+    optimizer = get_optimizer(autoencoder)
+
+    # ------- Model Training ---------
+    print(" ------------ Train as Autoencoder ----------------- ")
+    for epoch in range(num_epochs):
+        train(autoencoder, DEVICE, train_loader, epoch, optimizer, loss_type=loss_type, autoencoder=True)
+
+    # Get the pretrained Model
+    return autoencoder.encoder
 
 
-'''------------------ visualization_test ----------------------------- '''
+'''------------------ train_nonpretrained -------------------------------------
+   The function trains a neural network (so that it's performance can be 
+   compared to the ones of a NN that was pretrained) 
+-------------------------------------------------------------------------------- '''
 
 
-def visualization_test(loss, acc, save_name=None):
-    line_graph(range(0, len(loss), 1), loss, "Loss according to the epochs", x_label="Epoch", y_label="Loss",
-               save_name=save_name)
-    line_graph(range(0, len(acc), 1), acc, "Accuracy according to the epochs", x_label="Epoch", y_label="Accuracy",
-               save_name=save_name)
+def train_nonpretrained(train_loader, test_loader, losses_test, acc_test, num_epochs, loss_type, optimizer_type):
+    model_comp = AutoEncoder(device=DEVICE).encoder
+    optimizer = get_optimizer(model_comp, optimizer_type)
+    # ------- Model Training ---------
+    for epoch in range(num_epochs):
+        print("-------------- Model that was not pretrained ------------------")
+        train(model_comp, DEVICE, train_loader, epoch, optimizer, loss_type=loss_type)
+        loss_notPret, acc_notPret = test(model_comp, DEVICE, test_loader, loss_type=loss_type)
+        losses_test["Non-pretrained Model"].append(loss_notPret)
+        acc_test["Non-pretrained Model"].append(acc_notPret)
+
+
+'''------------------ get_optimizer ---------------------------------- '''
+
+
+def get_optimizer(model, opt_type="Adam", learning_rate=0.001, weight_decay=0.001):
+    if opt_type == "Adam":
+        return optim.Adam(model.parameters(), lr=learning_rate, weight_decay=weight_decay)
+    elif opt_type == "SGD":
+        return optim.SGD(model.parameters(), lr=learning_rate, momentum=MOMENTUM)
+    elif opt_type == "Adagrad":
+        return optim.Adagrad(model.parameters(), lr=learning_rate, weight_decay=weight_decay)
 
 
 if __name__ == '__main__':
-    loss = [1, 0.2, 0.1, 0.05]
-    acc = [0.5, 0.6, 0.7, 0.75]
-    visualization_test(loss, acc)
-
-    epoch_list = [0, 2, 4]
-    loss_list = [[1, 2, 3], [1, 2, 3], [7, 8, 10], [11, 12, 23], [1, 3, 9]]
-    visualization_train(epoch_list, loss_list)
+    pass

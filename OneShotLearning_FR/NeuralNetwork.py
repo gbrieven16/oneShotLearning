@@ -1,10 +1,18 @@
-
 import torch
 from torch import nn
 import torch.nn.functional as f
 
 
+"""
+TYPE_ARCH 
+
+1: without dropout, without batch normalization 
+2: with dropout, without batch normalization  
+3: without dropout, with batch normalization  
+"""
 TYPE_ARCH = "1"
+WITH_DROPOUT = True
+WITH_NORM_BATCH = False
 
 
 # ================================================================
@@ -37,11 +45,15 @@ class Net(nn.Module):
         super(Net, self).__init__()
 
         self.conv1 = nn.Conv2d(3, 64, 7)
+        self.conv1_bn = nn.BatchNorm2d(64)
         self.pool1 = nn.MaxPool2d(2)
         self.conv2 = nn.Conv2d(64, 128, 5)
+        self.conv2_bn = nn.BatchNorm2d(128)
         self.conv3 = nn.Conv2d(128, 256, 5)
+        self.conv3_bn = nn.BatchNorm2d(256)
         self.linear1 = nn.Linear(2304, 512)
         self.linear2 = nn.Linear(512, 2)  # Last layer assigning a number to each class from the previous layer
+        self.dropout = nn.Dropout(0.1)
 
     def forward(self, data):
         res = []
@@ -49,14 +61,22 @@ class Net(nn.Module):
         for i in range(len(data)):  # Siamese nets; sharing weights
             x = data[i]
             x = self.conv1(x)
+            if WITH_NORM_BATCH: x = self.conv1_bn(x)
             x = f.relu(x)
+            if WITH_DROPOUT: x = self.dropout(x)
             x = self.pool1(x)
-            x = self.conv2(x)
-            x = f.relu(x)
-            x = self.conv3(x)
-            x = f.relu(x)
 
-            x = x.view(x.shape[0], -1)
+            x = self.conv2(x)
+            if WITH_NORM_BATCH: x = self.conv2_bn(x)
+            x = f.relu(x)
+            if WITH_DROPOUT: x = self.dropout(x)
+
+            x = self.conv3(x)
+            if WITH_NORM_BATCH: x = self.conv3_bn(x)
+            x = f.relu(x)
+            if WITH_DROPOUT: x = self.dropout(x)
+
+            x = x.view(x.shape[0], -1) # To reshape
             x = self.linear1(x)
             res.append(f.relu(x))
 
@@ -87,3 +107,43 @@ class Net(nn.Module):
             new_content.append([avg / len(pred), 1 - avg / len(pred)])
 
         return torch.tensor(new_content)  # , grad_fn=<AddBackward0>)  #requires_grad=True)
+
+# ================================================================
+#                    CLASS: DecoderNet
+# ================================================================
+
+class DecoderNet(nn.Module):
+    def __init__(self):
+        super(DecoderNet, self).__init__()
+
+        self.linear1 = nn.Linear(512, 2304)
+        self.conv3 = nn.ConvTranspose2d(9, 3, 13)
+        self.conv2 = nn.ConvTranspose2d(128, 64, 5)
+        self.pool = nn.MaxPool2d(2)
+        self.conv1 = nn.ConvTranspose2d(64, 3, 7)
+        self.sig = nn.Sigmoid()  # compress to a range (0, 1)
+
+    def forward(self, data):
+
+        x = self.linear1(data)
+        x = x.view(x.size(0), 9, 16, 16)
+        x = self.conv3(x)
+        x = self.sig(x)
+
+        return x
+
+
+# ================================================================
+#                    CLASS: AutoEncoder
+# ================================================================
+class AutoEncoder(nn.Module):
+    def __init__(self, device="cpu"):
+        super(AutoEncoder, self).__init__()
+
+        self.encoder = Net().to(device)
+        self.decoder = DecoderNet().to(device)
+
+    def forward(self, x):
+        encoded = self.encoder(x)
+        decoded = self.decoder(encoded)
+        return encoded, decoded
