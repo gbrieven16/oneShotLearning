@@ -4,7 +4,9 @@ from NeuralNetwork import Tripletnet, AutoEncoder
 from torch import nn
 from torch import optim
 
-MARGIN = 1.0
+DIST_THRESHOLD = 0.02
+
+MARGIN = 2.0
 MOMENTUM = 0.9
 N_TEST_IMG = 5
 
@@ -38,7 +40,7 @@ def train(model, device, train_loader, epoch, optimizer, loss_type="cross_entrop
                 # ----------------------------------------------
                 # CASE 2: Image Differentiation Training
                 # ----------------------------------------------
-                _, _, _, _, loss = compute_loss(data, target, device, model, loss_type)
+                _, _, _, _, loss = compute_loss(data, target, device, model, loss_type, with_output=False)
         except IOError:  # The batch is "not complete"
             print("A runtime error occurred")
             print("Data is: " + str(data))
@@ -76,6 +78,7 @@ def test(model, device, test_loader, loss_type="cross_entropy"):
 
     with torch.no_grad():
         accurate_labels = 0
+        recall = 0
         nb_labels = 0
         loss_test = 0
 
@@ -93,14 +96,17 @@ def test(model, device, test_loader, loss_type="cross_entropy"):
                 accurate_labels_negative = torch.sum(torch.argmax(out_neg, dim=1) == tar_neg).cuda()  # = 1
 
             loss_test += loss
+            recall = accurate_labels_positive / (accurate_labels_positive + (len(tar_pos)-accurate_labels_positive))
             accurate_labels = accurate_labels + accurate_labels_positive + accurate_labels_negative
             nb_labels = nb_labels + len(tar_pos) + len(tar_neg)
 
         accuracy = 100. * accurate_labels / nb_labels
+        recall = 100. * recall / nb_labels
         loss_test = loss_test / len(test_loader)  # avg of the loss
         print('Test accuracy: {}/{} ({:.3f}%)\tLoss: {:.6f}'.format(accurate_labels, nb_labels, accuracy, loss_test))
 
-    return loss_test, accuracy
+    print("Recall is: recall: " + recall)
+    return round(float(loss_test), 2), accuracy
 
 
 '''------------------------- compute_loss --------------------------------
@@ -119,35 +125,59 @@ def test(model, device, test_loader, loss_type="cross_entropy"):
  -----------------------------------------------------------------------'''
 
 
-def compute_loss(data, target, device, model, loss_type):
+def compute_loss(data, target, device, model, loss_type, with_output=True):
     loss = 0
     for i in range(len(data)):  # List of 3 tensors
         data[i] = data[i].to(device)
 
-    output_positive = model(data[:2])  # 2 elements for each batch because 2 classes (pos, neg)
-    output_negative = model(data[0:3:2])
+    output_positive = None
+    output_negative = None
 
     target = target.type(torch.LongTensor).to(device)
     target_positive = torch.squeeze(target[:, 0])  # = Only 0 here
     target_negative = torch.squeeze(target[:, 1])  # = Only 1 here
 
+    # -----------------------------
+    # CASE 1: Cross Entropy
+    # -----------------------------
     if loss_type == "cross_entropy":
+        output_positive = model(data[:2])  # 2 elements for each batch because 2 classes (pos, neg)
+        output_negative = model(data[0:3:2])
         loss_positive = f.cross_entropy(output_positive, target_positive)
         loss_negative = f.cross_entropy(output_negative, target_negative)
         loss = loss_positive + loss_negative
 
+    # -----------------------------
+    # CASE 2: Triplet Loss
+    # -----------------------------
     elif loss_type == "triplet_loss":
         criterion = torch.nn.MarginRankingLoss(margin=MARGIN)
 
         tnet = Tripletnet(model)
         if device == "cuda": tnet.cuda()
 
-        dista, distb, _, _, _ = tnet.forward(data[0], data[2], data[1])
+        dista, distb, embedded_0, embedded_2, embedded_1 = tnet.forward(data[0], data[2], data[1])
+        update_dist_threshold(dista, distb)
 
         # 1 means, dista should be greater than distb
         target = torch.FloatTensor(dista.size()).fill_(1).to(device)
 
         loss = criterion(dista, distb, target)
+
+        if with_output:
+            output_positive = torch.ones([dista.size()[0], 2], dtype=torch.float64).to(device)
+            output_positive[distb <= DIST_THRESHOLD, 1] = 0
+            output_positive[distb > DIST_THRESHOLD, 1] = 2
+
+            output_negative = torch.ones([dista.size()[0], 2], dtype=torch.float64).to(device)
+            output_negative[DIST_THRESHOLD <= dista, 0] = 0
+            output_negative[dista < DIST_THRESHOLD, 0] = 2
+
+    # -----------------------------
+    # CASE 3: Contrastive Loss
+    # -----------------------------
+    elif loss_type == "constrastive_loss":
+        pass
 
     return output_positive, output_negative, target_positive, target_negative, loss
 
@@ -191,7 +221,6 @@ def pretraining(train_data, autoencoder, num_epochs=100, batch_size=32, loss_typ
 
     optimizer = get_optimizer(autoencoder)
 
-    # ------- Model Training ---------
     print(" ------------ Train as Autoencoder ----------------- ")
     for epoch in range(num_epochs):
         train(autoencoder, DEVICE, train_loader, epoch, optimizer, loss_type=loss_type, autoencoder=True)
@@ -228,6 +257,15 @@ def get_optimizer(model, opt_type="Adam", learning_rate=0.001, weight_decay=0.00
         return optim.SGD(model.parameters(), lr=learning_rate, momentum=MOMENTUM)
     elif opt_type == "Adagrad":
         return optim.Adagrad(model.parameters(), lr=learning_rate, weight_decay=weight_decay)
+
+
+def update_dist_threshold(dista, distb):
+    avg_dista = float(sum(dista)) / dista.size()[0]
+    avg_distb = float(sum(distb)) / dista.size()[0]
+    global DIST_THRESHOLD
+    DIST_THRESHOLD = (avg_dista+avg_distb)/2
+
+
 
 
 if __name__ == '__main__':

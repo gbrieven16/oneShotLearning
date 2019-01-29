@@ -3,6 +3,7 @@ import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
+import os
 import csv
 import numpy as np
 
@@ -23,19 +24,26 @@ INDEX_END_GRAPH_LABEL = 9
 # ================================================================
 
 
-def line_graph(x, y, title, x_label="x", y_label="y", save_name=True):
+def line_graph(x, y, title, x_label="x", y_label="y", save_name=None):
     plt.plot(x, y)
     plt.title(title)
     plt.xlabel(x_label)
     plt.ylabel(y_label)
     plt.grid(True)
     plt.show()
+    # --------- Save -----------
+    plt.show()
     if save_name is not None:
-        plt.savefig(save_name)
+        try:
+            plt.savefig(save_name)
+        except FileNotFoundError:
+            os.mkdir(save_name.split("/")[0])
+            plt.savefig(save_name)
+    print("Graph saved as " + save_name)
     plt.close()
 
 
-def multi_line_graph(dictionary, x_elements, title, x_label="x", y_label="Score", save_name=True):
+def multi_line_graph(dictionary, x_elements, title, x_label="x", y_label="Score", save_name=None):
     plt.figure()
     plt.grid(True)
     plt.title(title)
@@ -63,7 +71,12 @@ def multi_line_graph(dictionary, x_elements, title, x_label="x", y_label="Score"
     # --------- Save -----------
     plt.show()
     if save_name is not None:
-        plt.savefig(save_name)
+        try:
+            plt.savefig(save_name)
+        except FileNotFoundError:
+            os.mkdir(save_name.split("/")[0])
+            plt.savefig(save_name)
+    print("Graph saved as " + save_name)
     plt.close()
 
 
@@ -158,19 +171,22 @@ def autolabel(rects, ax):
 ''' -------------------- store_in_csv ----------------------------
 This function extends the csv file containing all the current 
 results related to the different scenarios that were experimented 
+IN: List of information to record about:
+    data = [used_db, DIFF_FACES, WITH_PROFILE, DB_TRAIN]
+    training = [nb_ep, bs, wd, lr, arch, opt, loss_type]
+    result = [losses_test, acc_test]
 -------------------------------------------------------------------'''
 
 
-def store_in_csv(batch_size, weight_decay, learning_rate, used_db, num_epoch, diff_faces, with_profile,
-                 archType, optimizer, lossType, loss, acc):
-    curr_parameters = [("ds_" + used_db), diff_faces, with_profile, num_epoch, batch_size, weight_decay, learning_rate,
-                       archType, optimizer, lossType]
+def store_in_csv(data, training, result):
+    curr_parameters = [("ds_" + data[0])] + data[1:] + training
 
-    curr_evaluation = [float(loss[0]), float(loss[int(round(len(loss)) / 2)]), float(loss[-1]),
-                       float(acc[0]), float(acc[int(round(len(acc) / 2))]), float(acc[-1])]
+    curr_evaluation = [float(result[0][0]), float(result[0][int(round(len(result[0])) / 2)]), float(result[0][-1]),
+                       float(result[1][0]), float(result[1][int(round(len(result[1]) / 2))]), float(result[1][-1])]
 
-    # titles = ["Name BD", "IsDiffFaces", "IsWithProfile", "NbEpoches", "BS", "WD", "LR", "ArchType", "Optimizer",
-    #         "LossType", "Loss1", "Loss2", "Loss3", "Acc1", "Acc2", 'Acc3']
+    # titles = ["Name BD", "IsDiffFaces", "IsWithProfile", "Db_train", With Pretraining,
+    #  "NbEpoches", "BS", "WD", "LR", "ArchType", "Optimizer", "LossType",
+    # "Loss1", "Loss2", "Loss3", "Acc1", "Acc2", 'Acc3']
 
     with open(CSV_NAME, 'a') as f:
         writer = csv.writer(f, delimiter=";")
@@ -201,14 +217,15 @@ def visualization_test(loss, acc, save_name=None):
     title_loss = "Comparison of the evolution of the losses"
     title_acc = "Comparison of the evolution of the accuracies"
 
-    if type(loss) == "list":
-        line_graph(range(0, len(loss), 1), loss, "Loss according to the epochs", x_label="Epoch", y_label="Loss",
-                   save_name=save_name + "_loss.png")
-        line_graph(range(0, len(acc), 1), acc, "Accuracy according to the epochs", x_label="Epoch", y_label="Accuracy",
-                   save_name=save_name + "_acc.png")
+    key1 = list(loss.keys())[0]
+    key2 = list(loss.keys())[1]
+
+    if len(loss[key2]) == 0:
+        line_graph(range(0, len(loss[key1]), 1), loss[key1], "Loss according to the epochs", x_label="Epoch",
+                   y_label="Loss", save_name=save_name + "_loss.png")
+        line_graph(range(0, len(acc[key1]), 1), acc[key1], "Accuracy according to the epochs", x_label="Epoch",
+                   y_label="Accuracy", save_name=save_name + "_acc.png")
     else:
-        key1 = list(loss.keys())[0]
-        key2 = list(loss.keys())[1]
         dictionary_loss = {key1: loss[key1], key2: loss[key2]}
         dictionary_acc = {key1: acc[key1], key2: acc[key2]}
         epoches = list(range(0, len(loss[key1]), 1))

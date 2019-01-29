@@ -26,9 +26,14 @@ warnings.filterwarnings('ignore')
 #       GLOBAL VARIABLES                #
 #########################################
 
-# if the 2th db not used, replace "yalefaces" by ""
-DB_TO_USE = ["AberdeenCrop"]  # , "GTdbCrop", "yalefaces", "faces94", "Iranian", "pain_crops", "utrecht"]
-MAIN_ZIP = 'datasets/ds0123456.zip' if platform.system() == "Darwin" else "/data/gbrieven/gbrieven.zip"
+if platform.system() == "Darwin":
+    # if the 2th db not used, replace "yalefaces" by ""
+    DB_TO_USE = ["AberdeenCrop"]
+    MAIN_ZIP = 'datasets/ds0123456.zip'
+else:
+    # if the 2th db not used, replace "yalefaces" by ""
+    DB_TO_USE = ["AberdeenCrop", "GTdbCrop", "yalefaces", "faces94", "Iranian", "pain_crops", "utrecht"]
+    MAIN_ZIP = "/data/gbrieven/gbrieven.zip"
 
 ZIP_TO_PROCESS = 'datasets/utrecht.zip'  # aber&GTdb_crop.zip'
 NB_DIGIT_IN_ID = 1
@@ -37,7 +42,7 @@ SEED = 4  # When data is shuffled
 EXTENSION = ".jpg"
 SEPARATOR = "_"  # !!! Format of the dabase: name[!]_id !!!
 RATION_TRAIN_SET = 0.75
-MAX_NB_IM_PER_PERSON = 100
+MAX_NB_IM_PER_PERSON = 10
 
 
 # ================================================================
@@ -50,12 +55,14 @@ class Data:
         self.file = file
         self.filename = fn  # Picture of the person
         self.db_path = db_path
+        self.db_source = fn.split("_")[0]
 
         if to_process:
             name_person, index, extension = self.extract_info_from_name()
         else:
             name_person = fn.split(SEPARATOR)[0] + fn.split(SEPARATOR)[1]  # = dbNamePersonName
             index = fn.split(SEPARATOR)[2]
+
             extension = fn.split(".")[1]
             self.db = fn.split(SEPARATOR)[0]
 
@@ -108,6 +115,7 @@ class Data:
 
         # Check if there's no separator _ inside the name (if so delete it) f4001.jpg
         label = self.filename.translate(str.maketrans('', '', digits)).split(".")[0]
+        extension = ".jpg" # First default value
 
         try:
             digits_in_name = list(filter(str.isdigit, self.filename))
@@ -132,7 +140,6 @@ class Data:
 
 class Fileset:
     def __init__(self):
-        self.db_source = []
         self.data_list = []
 
     '''---------------- add_data -----------------------------------
@@ -140,9 +147,6 @@ class Fileset:
      ---------------------------------------------------------------'''
 
     def add_data(self, data):
-        if data.db_path not in self.db_source:
-            self.db_source.append(data.db_path)
-
         self.data_list.append(data)
 
     '''---------------------- get_train_and_test_sets --------------------------------
@@ -153,7 +157,7 @@ class Fileset:
      REM: no instantiation of the db_source variable ... 
      --------------------------------------------------------------------------------'''
 
-    def get_train_and_test_sets(self, diff_faces):
+    def get_train_and_test_sets(self, diff_faces, db_train=False):
 
         random.Random(SEED).shuffle(self.data_list)
         training_set = Fileset()
@@ -162,14 +166,14 @@ class Fileset:
         ############################################################
         # CASE 1: same people in the training and the testing set
         ############################################################
-        if not diff_faces:
+        if not diff_faces and db_train is None:
             training_set.data_list = self.data_list[:round(RATION_TRAIN_SET * len(self.data_list))]
             testing_set.data_list = self.data_list[round(RATION_TRAIN_SET * len(self.data_list)):]
 
         ##############################################################
         # CASE 2: different people in the training and the testing set
         ##############################################################
-        else:
+        elif db_train is None:
             # Get all the names of the people in the ds
             all_labels = set()
             for i, data in enumerate(self.data_list):
@@ -180,6 +184,16 @@ class Fileset:
 
             for i, data in enumerate(self.data_list):
                 if data.name_person in all_labels:
+                    training_set.data_list.append(data)
+                else:
+                    testing_set.data_list.append(data)
+
+        ##############################################################
+        # CASE 3: Specific DB for training and testing sets
+        ##############################################################
+        else:
+            for i, data in enumerate(self.data_list):
+                if data.db_path in db_train:
                     training_set.data_list.append(data)
                 else:
                     testing_set.data_list.append(data)
@@ -408,9 +422,12 @@ def include_data_to_zip():
     dataset.ds_to_zip()
 
 
-'''--------------------- from_zip_to_data --------------------------------
+'''----------------------------- from_zip_to_data --------------------------------
  This function turns the content of the MAIN ZIP into a Fileset object
- --------------------------------------------------------------------------'''
+ !! 2 possible structures inside the main zip: 
+ 1. set of files whose name is like dbOrigin_person_id.jpg
+ 2. set of folder (related to each person) containing files whose name is id.jpg
+ ---------------------------------------------------------------------------------'''
 
 
 def from_zip_to_data(with_profile):
@@ -422,7 +439,9 @@ def from_zip_to_data(with_profile):
 
         # Create data from each image and add it to the dataset
         for i, fn in enumerate(file_names):  # fn = name[!]_id.extension
-
+            if fn[-1] == "/":
+                continue
+            fn = fn.replace("/", "_")
             new_data = Data(file_list[i], fn, MAIN_ZIP, False)
 
             if (with_profile or not new_data.lateral_face) and new_data.db in DB_TO_USE:
@@ -431,4 +450,4 @@ def from_zip_to_data(with_profile):
 
 
 if __name__ == "__main__":
-    include_data_to_zip()
+    from_zip_to_data(False)

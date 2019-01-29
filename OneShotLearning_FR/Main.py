@@ -12,16 +12,18 @@ from Visualization import store_in_csv, visualization_test, visualization_train
 #########################################
 
 
-NUM_EPOCH = 50
+NUM_EPOCH = 100
 BATCH_SIZE = 32
 LEARNING_RATE = 0.001
 WEIGHT_DECAY = 0.001  # To control regularization
-LOSS = "cross_entropy"
-OPTIMIZER = "Adam"  # "SGD" # Adagrad
+LOSS = "triplet_loss"
+OPTIMIZER = "Adam" #"SGD"  # Adagrad
 
-SAVE_MODEL = True
+SAVE_MODEL = False
 DO_LEARN = True
 WITH_PRETRAINING = False
+
+DB_TRAIN = None    # If None, the instances of the training and test sets belong to different BD
 DIFF_FACES = True  # If true, we have different faces in the training and the testing set
 WITH_PROFILE = False  # True if both frontally and in profile people
 
@@ -49,7 +51,7 @@ def main(loss_type=LOSS, batch_size=BATCH_SIZE, learning_rate=LEARNING_RATE, wei
     # ----------------------------------------------
     # Build your dataset from the processed data
     fileset = from_zip_to_data(WITH_PROFILE)
-    training_set, testing_set = fileset.get_train_and_test_sets(DIFF_FACES)
+    training_set, testing_set = fileset.get_train_and_test_sets(DIFF_FACES, db_train=DB_TRAIN)
 
     if DO_LEARN:
         # -----------------------
@@ -102,7 +104,7 @@ def main(loss_type=LOSS, batch_size=BATCH_SIZE, learning_rate=LEARNING_RATE, wei
 
         # ------- Visualization: Evolution of the performance ---------
         if visualization:
-            name_fig = "graphs/ds" + used_db + str(NUM_EPOCH) + "_" + str(batch_size) \
+            name_fig = "graphs/ds" + used_db + "_" + str(NUM_EPOCH) + "_" + str(batch_size) \
                        + "_" + loss_type + "_arch" + TYPE_ARCH
             visualization_train(range(0, NUM_EPOCH, int(round(NUM_EPOCH / 5))), losses_train,
                                 save_name=name_fig + "_train.png")
@@ -110,8 +112,10 @@ def main(loss_type=LOSS, batch_size=BATCH_SIZE, learning_rate=LEARNING_RATE, wei
             visualization_test(losses_test, acc_test, save_name=name_fig + "_test")
 
             # ------- Record: Evolution of the performance ---------
-            store_in_csv(batch_size, weight_decay, learning_rate, used_db, NUM_EPOCH, DIFF_FACES, WITH_PROFILE,
-                         TYPE_ARCH, OPTIMIZER, loss_type, losses_test, acc_test)
+            info_data = [used_db, DIFF_FACES, WITH_PROFILE, DB_TRAIN]
+            info_training = [WITH_PRETRAINING, NUM_EPOCH, batch_size, weight_decay, learning_rate, TYPE_ARCH, OPTIMIZER, loss_type]
+            info_result = [losses_test["Pretrained Model"], acc_test["Pretrained Model"]]
+            store_in_csv(info_data, info_training, info_result)
 
     else:
         # -----------------------
