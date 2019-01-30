@@ -3,8 +3,8 @@ import torch
 import torchvision.transforms as transforms
 from NeuralNetwork import TYPE_ARCH, AutoEncoder
 
-from Dataprocessing import Face_DS, from_zip_to_data, DB_TO_USE
-from TrainAndTest import train, test, oneshot, pretraining, train_nonpretrained, get_optimizer
+from Dataprocessing import Face_DS, from_zip_to_data, DB_TO_USE, MAIN_ZIP
+from TrainAndTest import train, test, oneshot, pretraining, train_nonpretrained, get_optimizer, MARGIN
 from Visualization import store_in_csv, visualization_test, visualization_train
 
 #########################################
@@ -16,15 +16,15 @@ NUM_EPOCH = 100
 BATCH_SIZE = 32
 LEARNING_RATE = 0.001
 WEIGHT_DECAY = 0.001  # To control regularization
-LOSS = "triplet_loss"
-OPTIMIZER = "Adam" #"SGD"  # Adagrad
+LOSS = "triplet_loss" # "cross_entropy"
+OPTIMIZER = "Adam"  # Adagrad "SGD"
 
 SAVE_MODEL = False
 DO_LEARN = True
-WITH_PRETRAINING = False
+PRETRAINING = "autoencoder" #"triplet_loss"  #  for autoencoder and None if no pretrain
 
-DB_TRAIN = None    # If None, the instances of the training and test sets belong to different BD
-DIFF_FACES = True  # If true, we have different faces in the training and the testing set
+DB_TRAIN = None       # If None, the instances of the training and test sets belong to different BD
+DIFF_FACES = True     # If true, we have different faces in the training and the testing set
 WITH_PROFILE = False  # True if both frontally and in profile people
 
 TRANS = transforms.Compose([transforms.CenterCrop(28), transforms.ToTensor(),
@@ -32,7 +32,7 @@ TRANS = transforms.Compose([transforms.CenterCrop(28), transforms.ToTensor(),
 
 # Specifies where the torch.tensor is allocated
 DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-used_db = "".join([str(i) for i, db in enumerate(DB_TO_USE) if db != ""])
+used_db = MAIN_ZIP.split("/")[-1] if DB_TO_USE is None else "".join([str(i) for i, db in enumerate(DB_TO_USE) if db != ""])
 
 NAME_MODEL = "models/siameseFace" + "_ds" + used_db + (
     "_diff_" if DIFF_FACES else "_same_") + str(NUM_EPOCH) + "_" + str(BATCH_SIZE) + "_" + LOSS + ".pt"
@@ -61,15 +61,17 @@ def main(loss_type=LOSS, batch_size=BATCH_SIZE, learning_rate=LEARNING_RATE, wei
         losses_test = {"Pretrained Model": [], "Non-pretrained Model": []}
         acc_test = {"Pretrained Model": [], "Non-pretrained Model": []}
 
-        train_loader = torch.utils.data.DataLoader(Face_DS(training_set, transform=TRANS, device=DEVICE),
-                                                   batch_size=batch_size, shuffle=True)
-        test_loader = torch.utils.data.DataLoader(Face_DS(testing_set, transform=TRANS, device=DEVICE),
-                                                  batch_size=batch_size, shuffle=False)
+        face_train = Face_DS(training_set, transform=TRANS, device=DEVICE) # Triplet Version
+        face_test = Face_DS(testing_set, transform=TRANS, device=DEVICE)   # Triplet Version
+        train_loader = torch.utils.data.DataLoader(face_train, batch_size=batch_size, shuffle=True)
+        test_loader = torch.utils.data.DataLoader(face_test, batch_size=batch_size, shuffle=False)
 
-        if WITH_PRETRAINING:
-            # ---------- Pretraining using an autoencoder --------------
-            train_data = Face_DS(training_set, transform=TRANS, device=DEVICE, triplet_version=False)
-            model = pretraining(train_data, autoencoder, batch_size=batch_size)
+        if PRETRAINING is not None:
+            # ---------- Pretraining using an autoencoder or classical model --------------
+            train_data = Face_DS(training_set, transform=TRANS,
+                                 device=DEVICE, triplet_version=False) if PRETRAINING is "autoencoder" else face_train
+
+            model = pretraining(train_data, autoencoder, batch_size=batch_size, loss_type=PRETRAINING)
             train_nonpretrained(train_loader, test_loader, losses_test, acc_test, NUM_EPOCH, loss_type, OPTIMIZER)
         else:
             model = autoencoder.encoder
@@ -113,7 +115,8 @@ def main(loss_type=LOSS, batch_size=BATCH_SIZE, learning_rate=LEARNING_RATE, wei
 
             # ------- Record: Evolution of the performance ---------
             info_data = [used_db, DIFF_FACES, WITH_PROFILE, DB_TRAIN]
-            info_training = [WITH_PRETRAINING, NUM_EPOCH, batch_size, weight_decay, learning_rate, TYPE_ARCH, OPTIMIZER, loss_type]
+            info_training = [PRETRAINING, NUM_EPOCH, batch_size, weight_decay, learning_rate,
+                             TYPE_ARCH, OPTIMIZER, loss_type, MARGIN]
             info_result = [losses_test["Pretrained Model"], acc_test["Pretrained Model"]]
             store_in_csv(info_data, info_training, info_result)
 

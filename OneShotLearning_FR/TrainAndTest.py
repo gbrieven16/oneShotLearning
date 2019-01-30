@@ -77,9 +77,7 @@ def test(model, device, test_loader, loss_type="cross_entropy"):
     model.eval()
 
     with torch.no_grad():
-        accurate_labels = 0
-        recall = 0
-        nb_labels = 0
+        eval_dic = {"nb_correct": 0, "nb_labels": 0, "recall_pos": 0, "recall_neg": 0, "f1_pos": 0, "f1_neg": 0}
         loss_test = 0
 
         for batch_idx, (data, target) in enumerate(test_loader):
@@ -89,24 +87,25 @@ def test(model, device, test_loader, loss_type="cross_entropy"):
                 break
 
             if device.type == "cpu":
-                accurate_labels_positive = torch.sum(torch.argmax(out_pos, dim=1) == tar_pos).cpu()  # = 0
-                accurate_labels_negative = torch.sum(torch.argmax(out_neg, dim=1) == tar_neg).cpu()  # = 1
+                acc_pos = torch.sum(torch.argmax(out_pos, dim=1) == tar_pos).cpu()  # = 0
+                acc_neg = torch.sum(torch.argmax(out_neg, dim=1) == tar_neg).cpu()  # = 1
             else:
-                accurate_labels_positive = torch.sum(torch.argmax(out_pos, dim=1) == tar_pos).cuda()  # = 0
-                accurate_labels_negative = torch.sum(torch.argmax(out_neg, dim=1) == tar_neg).cuda()  # = 1
+                acc_pos = torch.sum(torch.argmax(out_pos, dim=1) == tar_pos).cuda()  # = 0
+                acc_neg = torch.sum(torch.argmax(out_neg, dim=1) == tar_neg).cuda()  # = 1
 
             loss_test += loss
-            recall = accurate_labels_positive / (accurate_labels_positive + (len(tar_pos)-accurate_labels_positive))
-            accurate_labels = accurate_labels + accurate_labels_positive + accurate_labels_negative
-            nb_labels = nb_labels + len(tar_pos) + len(tar_neg)
+            get_evaluation(acc_pos, acc_neg, len(tar_pos), len(tar_neg), eval_dic)
 
-        accuracy = 100. * accurate_labels / nb_labels
-        recall = 100. * recall / nb_labels
-        loss_test = loss_test / len(test_loader)  # avg of the loss
-        print('Test accuracy: {}/{} ({:.3f}%)\tLoss: {:.6f}'.format(accurate_labels, nb_labels, accuracy, loss_test))
+    acc = 100. * eval_dic["nb_correct"] / eval_dic["nb_labels"]
+    loss_test = loss_test / len(test_loader)  # avg of the loss
 
-    print("Recall is: recall: " + recall)
-    return round(float(loss_test), 2), accuracy
+    print('Test accuracy: {}/{} ({:.3f}%)\tLoss: {:.6f}'.format(eval_dic["nb_correct"], eval_dic["nb_labels"], acc, loss_test))
+    print("Recall Pos is: " + str(100. * eval_dic["recall_pos"] / len(test_loader)))
+    print("Recall Neg is: " + str(100. * eval_dic["recall_neg"] / len(test_loader)))
+    print("f1 Pos is: " + str(100. * eval_dic["f1_pos"] / len(test_loader)))
+    print("f1 Neg is: " + str(100. * eval_dic["f1_neg"] / len(test_loader)))
+
+    return round(float(loss_test), 2), acc
 
 
 '''------------------------- compute_loss --------------------------------
@@ -166,8 +165,8 @@ def compute_loss(data, target, device, model, loss_type, with_output=True):
 
         if with_output:
             output_positive = torch.ones([dista.size()[0], 2], dtype=torch.float64).to(device)
-            output_positive[distb <= DIST_THRESHOLD, 1] = 0
-            output_positive[distb > DIST_THRESHOLD, 1] = 2
+            output_positive[distb + 0.2 * distb <= DIST_THRESHOLD, 1] = 0
+            output_positive[distb > DIST_THRESHOLD - 0.2 * distb, 1] = 2
 
             output_negative = torch.ones([dista.size()[0], 2], dtype=torch.float64).to(device)
             output_negative[DIST_THRESHOLD <= dista, 0] = 0
@@ -207,26 +206,31 @@ def oneshot(model, data):
             return torch.squeeze(torch.argmax(output, dim=1)).cuda().item()
 
 
-'''------------------ pretraining -------------------------------------
+'''---------------------------------- pretraining -----------------------------------------------
    The function trains an autoencoder based on given training data 
    IN: train_data: Face_DS objet whose training data is a list of 
        face images represented through tensors 
-       autoencoder: an autocoder characterized by an encoder and a decoder
+       autocoder: an autocoder characterized by an encoder and a decoder 
+       loss_type: loss to use to pretrain the encoder (if it's not "autoencoder")
    OUT: the encoder (after training) 
------------------------------------------------------------------------- '''
+---------------------------------------------------------------------------------------------- '''
 
 
-def pretraining(train_data, autoencoder, num_epochs=100, batch_size=32, loss_type="cross_entropy"):
+def pretraining(train_data, autocoder, num_epochs=100, batch_size=32, loss_type=None):
     train_loader = torch.utils.data.DataLoader(train_data, batch_size=batch_size, shuffle=True)
 
-    optimizer = get_optimizer(autoencoder)
+    optimizer = get_optimizer(autocoder)
 
-    print(" ------------ Train as Autoencoder ----------------- ")
-    for epoch in range(num_epochs):
-        train(autoencoder, DEVICE, train_loader, epoch, optimizer, loss_type=loss_type, autoencoder=True)
+    if loss_type == "autoencoder":
+        print(" ------------ Train as Autoencoder ----------------- ")
+        for epoch in range(num_epochs):
+            train(autocoder, DEVICE, train_loader, epoch, optimizer, autoencoder=True)
+    else:
+        print(" ------------ Pretraining with " + loss_type + " ----------------- ")
+        for epoch in range(num_epochs):
+            train(autocoder.encoder, DEVICE, train_loader, epoch, optimizer, loss_type=loss_type, autoencoder=False)
 
-    # Get the pretrained Model
-    return autoencoder.encoder
+    return autocoder.encoder  # Returns the pretrained Model
 
 
 '''------------------ train_nonpretrained -------------------------------------
@@ -259,13 +263,46 @@ def get_optimizer(model, opt_type="Adam", learning_rate=0.001, weight_decay=0.00
         return optim.Adagrad(model.parameters(), lr=learning_rate, weight_decay=weight_decay)
 
 
+'''----------- update_dist_threshold ------------------------------ 
+   This function updates the distance threshold by avg: 
+        - the distances separting faces of different people,
+        - the distances separting faces of same people,
+        - the previous threshold value 
+-----------------------------------------------------------------'''
+
+
 def update_dist_threshold(dista, distb):
     avg_dista = float(sum(dista)) / dista.size()[0]
     avg_distb = float(sum(distb)) / dista.size()[0]
     global DIST_THRESHOLD
-    DIST_THRESHOLD = (avg_dista+avg_distb)/2
+    DIST_THRESHOLD = (DIST_THRESHOLD + avg_dista + avg_distb) / 3
 
 
+'''----------- get_evaluation ------------------------------ 
+   This function computes different metrics to evaluate the
+   performance some model, based on:
+    - tp (True Positives) 
+    - tn (True Negatives) 
+    - p (Total number of positives) 
+    - n (Total number of negatives) 
+    IN: eval_dic: accumulator dictionary whose keys are: 
+    "nb_correct", "nb_labels", "recall_pos", "recall_neg", "f1_pos", "f1_neg"
+
+------------------------------------------------------------------------'''
+
+
+def get_evaluation(tp, tn, p, n, eval_dic):
+    eval_dic["recall_pos"] += float(tp) / (float(tp) + (p - float(tp)))
+    eval_dic["recall_neg"] += float(tn) / (float(tn) + (n - float(tn)))
+
+    prec_pos = float(tp) / (float(tp) + (n - float(tn)))
+    prec_neg = float(tn) / (float(tn) + (p - float(tp)))
+
+    eval_dic["f1_pos"] += (2 * eval_dic["recall_pos"] * prec_pos) / (prec_pos + eval_dic["recall_pos"])
+    eval_dic["f1_neg"] += (2 * eval_dic["recall_neg"] * prec_neg) / (prec_neg + eval_dic["recall_neg"])
+
+    eval_dic["nb_correct"] += (tp + tn)
+    eval_dic["nb_labels"] += p + n
 
 
 if __name__ == '__main__':

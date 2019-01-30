@@ -13,6 +13,8 @@ TYPE_ARCH = "4AlexNet"  # "1default" "2def_drop" # "3def_bathNorm"
 WITH_DROPOUT = False
 WITH_NORM_BATCH = False
 
+# Specifies where the torch.tensor is allocated
+DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 # ================================================================
 #                    CLASS: Tripletnet
@@ -30,11 +32,12 @@ class Tripletnet(nn.Module):
         embedded_z = self.embeddingnet([z])
 
         # --- Computation of the distance between them ---
-        dist_a = f.pairwise_distance(embedded_anchor, embedded_y, 2) #(anchor - positive).pow(2).sum(1)  # .pow(.5)
+        dist_a = f.pairwise_distance(embedded_anchor, embedded_y, 2)  # (anchor - positive).pow(2).sum(1)  # .pow(.5)
         dist_b = f.pairwise_distance(embedded_anchor, embedded_z, 2)
-        #losses = F.relu(distance_positive - distance_negative + self.margin)
-        #return losses.mean() if size_average else losses.sum()
+        # losses = F.relu(distance_positive - distance_negative + self.margin)
+        # return losses.mean() if size_average else losses.sum()
         return dist_a, dist_b, embedded_anchor, embedded_y, embedded_z
+
 
 class ContrastiveLoss(nn.Module):
     """
@@ -49,7 +52,7 @@ class ContrastiveLoss(nn.Module):
 
     def forward(self, output1, output2, target, size_average=True):
         distances = (output2 - output1).pow(2).sum(1)  # squared distances
-        #loss = 0.5 *
+        # loss = 0.5 *
 
         losses = 0.5 * (target.float() * distances +
                         (1 + -1 * target).float() * f.relu(self.margin - (distances + self.eps).sqrt()).pow(2))
@@ -106,12 +109,30 @@ class Net(nn.Module):
 
         # ---- CASE 2: The cross entropy is used ----
         else:
-            difference = torch.abs(res[1] - res[0])  # Computation of the difference of the 2 feature representations
-            last_values = self.linear2(difference)
-            # print("Last values are " + str(last_values))
-            # print("Processed distance is " + str(self.avg_val_tensor(difference).requires_grad_(True)))
-            # return self.avg_val_tensor(difference).requires_grad_(True) #
+            return self.get_final_pred(res[0], res[1])
+
+    """ ----------------------- get_final_output ------------------------------------
+        IN: feature_repr1: feature representation of the first face image
+            feature_repr2: feature representation of the second face image 
+            as_output: specifies to:
+                return the final prediction if False  
+                return the final values related to each class otherwise
+    ------------------------------------------------------------------------------"""
+
+    def get_final_output(self, feature_repr1, feature_repr2, as_output=True):
+        difference = torch.abs(
+            feature_repr2 - feature_repr1)  # Computation of the difference of the 2 feature representations
+        last_values = self.linear2(difference)
+        # print("Last values are " + str(last_values))
+        # print("Processed distance is " + str(self.avg_val_tensor(difference).requires_grad_(True)))
+        # return self.avg_val_tensor(difference).requires_grad_(True) #
+        if as_output:
             return last_values
+        else:
+            if not torch.cuda.is_available():
+                return torch.squeeze(torch.argmax(last_values, dim=1)).cpu().item()
+            else:
+                return torch.squeeze(torch.argmax(last_values, dim=1)).cuda().item()
 
     """
     IN: A tensor ... x 16 
@@ -192,8 +213,6 @@ class AlexNet(nn.Module):
         self.conv4 = nn.Conv2d(384, 256, kernel_size=3, padding=1)
         self.conv5 = nn.Conv2d(256, 256, kernel_size=3, padding=1)
 
-
-
         self.features = nn.Sequential(
             nn.Conv2d(3, 64, kernel_size=11, stride=4, padding=2),
             nn.ReLU(inplace=True),
@@ -224,14 +243,14 @@ class AlexNet(nn.Module):
 
         for i in range(len(data)):  # Siamese nets; sharing weights
             x = data[i]
-            #x = self.features(x)
+            # x = self.features(x)
 
             x = self.conv1(x)
             x = self.relu(x)
             x = self.pool2(x)
             x = self.conv2(x)
             x = self.relu(x)
-            #x = self.pool2(x)
+            # x = self.pool2(x)
             x = self.conv3(x)
             x = self.relu(x)
             x = self.conv4(x)
@@ -251,4 +270,3 @@ class AlexNet(nn.Module):
         else:
             difference = torch.abs(res[1] - res[0])  # Computation of the difference of the 2 feature representations
             return self.final_layer(difference)
-

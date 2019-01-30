@@ -173,12 +173,16 @@ This function extends the csv file containing all the current
 results related to the different scenarios that were experimented 
 IN: List of information to record about:
     data = [used_db, DIFF_FACES, WITH_PROFILE, DB_TRAIN]
-    training = [nb_ep, bs, wd, lr, arch, opt, loss_type]
+    training = [pretrain_loss, nb_ep, bs, wd, lr, arch, opt, loss_type, margin]
     result = [losses_test, acc_test]
 -------------------------------------------------------------------'''
 
 
 def store_in_csv(data, training, result):
+
+    if training[-2] == "triplet_loss":
+        training[-2] = training[-2] + "_" + str(training[-1])
+    training.pop() # Remove margin information from the list
     curr_parameters = [("ds_" + data[0])] + data[1:] + training
 
     curr_evaluation = [float(result[0][0]), float(result[0][int(round(len(result[0])) / 2)]), float(result[0][-1]),

@@ -33,7 +33,7 @@ if platform.system() == "Darwin":
 else:
     # if the 2th db not used, replace "yalefaces" by ""
     DB_TO_USE = ["AberdeenCrop", "GTdbCrop", "yalefaces", "faces94", "Iranian", "pain_crops", "utrecht"]
-    MAIN_ZIP = "/data/gbrieven/gbrieven.zip"
+    MAIN_ZIP = "/data/gbrieven/CASIA-WebFace.zip" #"/data/gbrieven/gbrieven.zip"
 
 ZIP_TO_PROCESS = 'datasets/utrecht.zip'  # aber&GTdb_crop.zip'
 NB_DIGIT_IN_ID = 1
@@ -42,7 +42,7 @@ SEED = 4  # When data is shuffled
 EXTENSION = ".jpg"
 SEPARATOR = "_"  # !!! Format of the dabase: name[!]_id !!!
 RATION_TRAIN_SET = 0.75
-MAX_NB_IM_PER_PERSON = 10
+MAX_NB_IM_PER_PERSON = 30
 
 
 # ================================================================
@@ -55,6 +55,7 @@ class Data:
         self.file = file
         self.filename = fn  # Picture of the person
         self.db_path = db_path
+        fn = fn.replace("/", "_")
         self.db_source = fn.split("_")[0]
 
         if to_process:
@@ -258,6 +259,7 @@ class FaceImage():
     def __init__(self, path, trans_image):
         self.path = path
         self.trans_img = trans_image
+        self.feature_repres = None
 
     def isIqual(self, other_image):
         return other_image.path == self.path
@@ -268,6 +270,14 @@ class FaceImage():
             image = Image.open(BytesIO(archive.read(self.path))).convert("RGB")
             plt.imshow(image)
             plt.show()
+
+    def get_feature_repres(self, model):
+        if self.feature_repres is not None:
+            return self.feature_repres
+        else:
+            data = [torch.unsqueeze(self.trans_img, 0)]
+            self.feature_repres = model(data)
+            return self.feature_repres
 
 
 # ================================================================
@@ -441,10 +451,9 @@ def from_zip_to_data(with_profile):
         for i, fn in enumerate(file_names):  # fn = name[!]_id.extension
             if fn[-1] == "/":
                 continue
-            fn = fn.replace("/", "_")
             new_data = Data(file_list[i], fn, MAIN_ZIP, False)
 
-            if (with_profile or not new_data.lateral_face) and new_data.db in DB_TO_USE:
+            if (with_profile or not new_data.lateral_face) and (DB_TO_USE is None or new_data.db in DB_TO_USE):
                 dataset.add_data(new_data)
     return dataset
 

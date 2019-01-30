@@ -1,8 +1,7 @@
 from random import shuffle, randint
 import torch
 from Dataprocessing import from_zip_to_data
-from Main import TRANS, NAME_MODEL, DEVICE, WITH_PROFILE
-from TrainAndTest import oneshot
+from Main import TRANS, WITH_PROFILE # NAME_MODEL
 
 
 # ================================================================
@@ -34,6 +33,8 @@ class FaceRecognition:
             j = randint(0, len(people_dic[person]) - 1)
             self.pictures_test.append((person, people_dic[person].pop(j)))
 
+            # Derive the feature representation of the person
+
         # To ensure having the same nb of pictures per person
         for i, person in enumerate(people_test[NB_TEST_PICT:]):
             j = randint(0, len(people_dic[person]) - 1)
@@ -54,11 +55,10 @@ class FaceRecognition:
 
         # --- Go through each test picture --- #
         for i, test_picture in enumerate(self.pictures_test):
-            data = []
             nb_pred_diff = 0
             predictions = {}  # dict where the key is the person's name and the value the nb of "same" predictions
 
-            data.append(torch.unsqueeze(test_picture[1].trans_img, 0))
+            fr_1 = test_picture[1].get_feature_repres(self.siamese_model)
             if detailed_print: test_picture[1].display_im(to_print="The face to identify is: ")
 
             # --- Go through each person --- #
@@ -67,22 +67,19 @@ class FaceRecognition:
                 # --- Go through each picture of the current person --- #
                 for i, picture in enumerate(pictures):
 
-                    data.append(torch.unsqueeze(picture.trans_img, 0))
                     if detailed_print: picture.display_im(to_print="The face which is compared is: ")
+                    fr_2 = picture.get_feature_repres(self.siamese_model)
 
-                    same = oneshot(self.siamese_model, DEVICE, data)
+                    same = self.siamese_model.get_final_output(fr_1, fr_2, as_output=False)
 
                     # --- Check the result of the prediction ---
                     if same == 1:
                         if detailed_print: print("Predicted as different")
                         nb_pred_diff += 1
                         if TOLERANCE < nb_pred_diff:
-                            data.pop()
                             break
                     else:
                         predictions[person] = 1 if person not in predictions else predictions[person] + 1
-
-                    data.pop()
 
             # --- Final result --- #
             if detailed_print:
@@ -104,6 +101,6 @@ class FaceRecognition:
 
 
 if __name__ == '__main__':
-    fr = FaceRecognition(NAME_MODEL)
+    fr = FaceRecognition("models/siameseFace_ds12_diff_100_16.pt")
     fr.recognition()
 
