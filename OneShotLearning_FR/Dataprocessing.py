@@ -1,3 +1,4 @@
+import time
 import torch.utils.data
 import zipfile
 import os
@@ -35,6 +36,9 @@ else:
     DB_TO_USE = ["AberdeenCrop", "GTdbCrop", "yalefaces", "faces94", "Iranian", "pain_crops", "utrecht"]
     MAIN_ZIP = "/data/gbrieven/CASIA-WebFace.zip" #"/data/gbrieven/gbrieven.zip"
 
+if MAIN_ZIP.split("/")[-1] == 'CASIA-WebFace.zip':
+    DB_TO_USE = None
+
 ZIP_TO_PROCESS = 'datasets/utrecht.zip'  # aber&GTdb_crop.zip'
 NB_DIGIT_IN_ID = 1
 
@@ -42,6 +46,7 @@ SEED = 4  # When data is shuffled
 EXTENSION = ".jpg"
 SEPARATOR = "_"  # !!! Format of the dabase: name[!]_id !!!
 RATION_TRAIN_SET = 0.75
+MAX_NB_ENTRY = 100000
 MAX_NB_IM_PER_PERSON = 30
 
 
@@ -441,20 +446,53 @@ def include_data_to_zip():
 
 
 def from_zip_to_data(with_profile):
+    t = time.time()
     dataset = Fileset()
 
+    print("\nData Loading ...")
     with zipfile.ZipFile(MAIN_ZIP, 'r') as archive:
         file_names = archive.namelist()
         file_list = archive.filelist
 
+        nb_entry = 0
+        nb_entry_pers = 0
+        previous_person = ""
+        go_to_next_folder = False
+
         # Create data from each image and add it to the dataset
         for i, fn in enumerate(file_names):  # fn = name[!]_id.extension
             if fn[-1] == "/":
+                go_to_next_folder = False
                 continue
+            if go_to_next_folder:
+                continue
+
+            # Just keep a limited among of pictures per person
+            try:
+                if previous_person == fn.split("/")[1]:
+                    if MAX_NB_IM_PER_PERSON < nb_entry_pers:
+                        nb_entry_pers = 1
+                        go_to_next_folder = True
+                        continue
+                    else:
+                        nb_entry_pers += 1
+                else:
+                    nb_entry_pers = 1
+                    previous_person = fn.split("/")[1]
+            except IndexError: # case where the structure of the db isn't through folders
+                pass
+
             new_data = Data(file_list[i], fn, MAIN_ZIP, False)
 
             if (with_profile or not new_data.lateral_face) and (DB_TO_USE is None or new_data.db in DB_TO_USE):
                 dataset.add_data(new_data)
+
+            nb_entry += 1
+            if MAX_NB_ENTRY < nb_entry:
+                break
+
+    print("Loading Time: " + str(time.time() - t))
+    print("Data has been loaded!\n")
     return dataset
 
 

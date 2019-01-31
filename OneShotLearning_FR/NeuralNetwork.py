@@ -11,14 +11,14 @@ TYPE_ARCH
 4: AlexNet architecture 
 """
 TYPE_ARCH = "4AlexNet"  # "1default" "2def_drop" # "3def_bathNorm"
-P_DROPOUT = 0.2 # Probability of each element to be dropped
+P_DROPOUT = 0.2  # Probability of each element to be dropped
 WITH_NORM_BATCH = False
 DIST_THRESHOLD = 0.02
-
 
 # ================================================================
 #                    CLASS: Tripletnet
 # ================================================================
+
 
 class Tripletnet(nn.Module):
     def __init__(self, embeddingnet):
@@ -32,11 +32,17 @@ class Tripletnet(nn.Module):
         embedded_pos = self.embeddingnet([positive])
 
         # --- Computation of the distance between them ---
-        distance = f.pairwise_distance(embedded_anchor, embedded_neg, 2)  # (anchor - positive).pow(2).sum(1)  # .pow(.5)
+        distance = f.pairwise_distance(embedded_anchor, embedded_neg,
+                                       2)  # (anchor - positive).pow(2).sum(1)  # .pow(.5)
         disturb = f.pairwise_distance(embedded_anchor, embedded_pos, 2)
         # losses = F.relu(distance_positive - distance_negative + self.margin)
         # return losses.mean() if size_average else losses.sum()
         return distance, disturb, embedded_anchor, embedded_neg, embedded_pos
+
+
+# ================================================================
+#                    CLASS: ContrastiveLoss
+# ================================================================
 
 
 class ContrastiveLoss(nn.Module):
@@ -45,18 +51,21 @@ class ContrastiveLoss(nn.Module):
     Takes embeddings of two samples and a target label == 1 if samples are from the same class and label == 0 otherwise
     """
 
-    def __init__(self, margin):
+    def __init__(self, embeddingnet, margin):
         super(ContrastiveLoss, self).__init__()
         self.margin = margin
+        self.embeddingnet = embeddingnet
         self.eps = 1e-9
 
-    def forward(self, output1, output2, target, size_average=True):
-        distances = (output2 - output1).pow(2).sum(1)  # squared distances
-        # loss = 0.5 *
+    def forward(self, x, y, target, size_average=True):
+        embedding_x = self.embeddingnet([x])
+        embedding_y = self.embeddingnet([y])
 
-        losses = 0.5 * (target.float() * distances +
-                        (1 + -1 * target).float() * f.relu(self.margin - (distances + self.eps).sqrt()).pow(2))
-        return losses.mean() if size_average else losses.sum()
+        distances = (embedding_y - embedding_x).pow(2).sum(1)  # squared distances
+        loss = 0.5 * (1 - target.float()) * distances + \
+               0.5 * target.float() * f.relu(self.margin - (distances + self.eps).sqrt()).pow(2)
+
+        return distances, loss.mean() if size_average else loss.sum()
 
 
 # ================================================================
@@ -91,18 +100,18 @@ class Net(nn.Module):
             x = self.conv1(x)
             if WITH_NORM_BATCH: x = self.conv1_bn(x)
             x = f.relu(x)
-            #x = self.dropout(x)
+            x = self.dropout(x)
             x = self.pool1(x)
 
             x = self.conv2(x)
             if WITH_NORM_BATCH: x = self.conv2_bn(x)
             x = f.relu(x)
-            #x = self.dropout(x)
+            x = self.dropout(x)
 
             x = self.conv3(x)
             if WITH_NORM_BATCH: x = self.conv3_bn(x)
             x = f.relu(x)
-            #x = self.dropout(x)
+            x = self.dropout(x)
 
             x = x.view(x.shape[0], -1)  # To reshape
             x = self.linear1(x)
@@ -114,7 +123,7 @@ class Net(nn.Module):
 
         # ---- CASE 2: The cross entropy is used ----
         else:
-            return self.get_final_pred(res[0], res[1])
+            return self.get_final_output(res[0], res[1])
 
     """ ----------------------- get_final_output ------------------------------------
         IN: feature_repr1: feature representation of the first face image
@@ -139,7 +148,6 @@ class Net(nn.Module):
             else:
                 return torch.squeeze(torch.argmax(last_values, dim=1)).cuda().item()
 
-
     """
     This function can be used to replace the last layer linear2 assigning a value to each class
     IN: A tensor ... x 16 
@@ -156,7 +164,7 @@ class Net(nn.Module):
             sum_el = 0
             for j, elem in enumerate(pred):
                 sum_el += elem
-            new_content.append([1, sum_el / (DIST_THRESHOLD*len(pred))])
+            new_content.append([1, sum_el / (DIST_THRESHOLD * len(pred))])
 
         return torch.tensor(new_content)  # , grad_fn=<AddBackward0>)  #requires_grad=True)
 

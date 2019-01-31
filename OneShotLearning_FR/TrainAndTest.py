@@ -1,10 +1,12 @@
 import torch
 import torch.nn.functional as f
-from NeuralNetwork import Tripletnet, AutoEncoder
+from NeuralNetwork import Tripletnet, AutoEncoder, ContrastiveLoss
 from torch import nn
 from torch import optim
 
 DIST_THRESHOLD = 0.02
+MARG_PER_DISTURB = 0  # % of the disturbance we add to the disturbance to predict if 2 images are the same or not
+MARG_PER_DISTANCE = 0
 
 MARGIN = 2.0
 MOMENTUM = 0.9
@@ -20,7 +22,7 @@ DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
  -----------------------------------------------------------------------'''
 
 
-def train(model, device, train_loader, epoch, optimizer, loss_type="cross_entropy", autoencoder=False):
+def train(model, device, train_loader, epoch, optimizer, loss_type, weights=(1, 1), autoencoder=False):
     model.train()
     loss_list = []
     # ------- Go through each batch of the train_loader -------
@@ -40,7 +42,8 @@ def train(model, device, train_loader, epoch, optimizer, loss_type="cross_entrop
                 # ----------------------------------------------
                 # CASE 2: Image Differentiation Training
                 # ----------------------------------------------
-                _, _, _, _, loss = compute_loss(data, target, device, model, loss_type, with_output=False)
+                _, _, _, _, loss = compute_loss(data, target, device, model, loss_type, weights=weights,
+                                                with_output=False)
         except IOError:  # The batch is "not complete"
             print("A runtime error occurred")
             print("Data is: " + str(data))
@@ -73,7 +76,7 @@ def train(model, device, train_loader, epoch, optimizer, loss_type="cross_entrop
  -----------------------------------------------------------------------'''
 
 
-def test(model, device, test_loader, loss_type="cross_entropy"):
+def test(model, device, test_loader, loss_type):
     model.eval()
 
     with torch.no_grad():
@@ -99,13 +102,34 @@ def test(model, device, test_loader, loss_type="cross_entropy"):
     acc = 100. * eval_dic["nb_correct"] / eval_dic["nb_labels"]
     loss_test = loss_test / len(test_loader)  # avg of the loss
 
-    print('Test accuracy: {}/{} ({:.3f}%)\tLoss: {:.6f}'.format(eval_dic["nb_correct"], eval_dic["nb_labels"], acc, loss_test))
-    print("Recall Pos is: " + str(100. * eval_dic["recall_pos"] / len(test_loader)))
-    print("Recall Neg is: " + str(100. * eval_dic["recall_neg"] / len(test_loader)))
-    print("f1 Pos is: " + str(100. * eval_dic["f1_pos"] / len(test_loader)))
-    print("f1 Neg is: " + str(100. * eval_dic["f1_neg"] / len(test_loader)))
+    print('Test accuracy: {}/{} ({:.3f}%)\tLoss: {:.6f}'.format(eval_dic["nb_correct"], eval_dic["nb_labels"], acc,
+                                                                loss_test))
+    print(" \n-------------------------------------------------------------------------------- ")
+    print("Recall Pos is: " + str(100. * eval_dic["recall_pos"] / len(test_loader)) + " Recall Neg is: " + str(
+        100. * eval_dic["recall_neg"] / len(test_loader)))
+    print("f1 Pos is: " + str(100. * eval_dic["f1_pos"] / len(test_loader))) + "        f1 Neg is: " + str(
+        100. * eval_dic["f1_neg"] / len(test_loader))
+    print(" -------------------------------------------------------------------------------- \n")
+    # ----------------------------------------------------------------
+    # Computation of the weights to assign to the classes
+    # => put more weight to the class where performance are bad
+    # ----------------------------------------------------------------
 
-    return round(float(loss_test), 2), acc
+    weight_pos = 1
+    weight_neg = 1
+
+    diff = abs(eval_dic["f1_neg"] / len(test_loader) - eval_dic["f1_pos"] / len(test_loader))
+    # If diff = 0, then weight = 1 (no change)
+    if eval_dic["f1_pos"] / len(test_loader) < eval_dic["f1_neg"] / len(test_loader):
+    # weight_neg -= diff
+        weight_pos += diff
+    else:
+    # weight_pos -= diff
+        weight_neg += diff
+    print("Weight Pos is: " + str(weight_pos))
+    print("Weights Neg is: " + str(weight_neg))
+
+    return round(float(loss_test), 2), acc, (weight_pos, weight_neg)
 
 
 '''------------------------- compute_loss --------------------------------
@@ -124,8 +148,10 @@ def test(model, device, test_loader, loss_type="cross_entropy"):
  -----------------------------------------------------------------------'''
 
 
-def compute_loss(data, target, device, model, loss_type, with_output=True):
+def compute_loss(data, target, device, model, loss_type, weights=(1, 1), with_output=True):
     loss = 0
+    distance = 0
+    disturb = 0
     for i in range(len(data)):  # List of 3 tensors
         data[i] = data[i].to(device)
 
@@ -144,7 +170,7 @@ def compute_loss(data, target, device, model, loss_type, with_output=True):
         output_negative = model(data[0:3:2])
         loss_positive = f.cross_entropy(output_positive, target_positive)
         loss_negative = f.cross_entropy(output_negative, target_negative)
-        loss = loss_positive + loss_negative
+        loss = weights[0] * loss_positive + weights[1] * loss_negative
 
     # -----------------------------
     # CASE 2: Triplet Loss
@@ -155,28 +181,31 @@ def compute_loss(data, target, device, model, loss_type, with_output=True):
         tnet = Tripletnet(model)
         if device == "cuda": tnet.cuda()
 
-        dista, distb, embedded_0, embedded_2, embedded_1 = tnet.forward(data[0], data[2], data[1])
-        update_dist_threshold(dista, distb)
+        distance, disturb, embedded_0, embedded_2, embedded_1 = tnet.forward(data[0], data[2], data[1])
+        update_dist_threshold(distance, disturb)
 
         # 1 means, dista should be greater than distb
-        target = torch.FloatTensor(dista.size()).fill_(1).to(device)
-
-        loss = criterion(dista, distb, target)
-
-        if with_output:
-            output_positive = torch.ones([dista.size()[0], 2], dtype=torch.float64).to(device)
-            output_positive[distb + 0.2 * distb <= DIST_THRESHOLD, 1] = 0
-            output_positive[distb > DIST_THRESHOLD - 0.2 * distb, 1] = 2
-
-            output_negative = torch.ones([dista.size()[0], 2], dtype=torch.float64).to(device)
-            output_negative[DIST_THRESHOLD <= dista, 0] = 0
-            output_negative[dista < DIST_THRESHOLD, 0] = 2
+        target = torch.FloatTensor(distance.size()).fill_(1).to(device)
+        loss = criterion(distance, disturb, target)
 
     # -----------------------------
     # CASE 3: Contrastive Loss
     # -----------------------------
     elif loss_type == "constrastive_loss":
-        pass
+        contr_net = ContrastiveLoss(model, MARGIN)
+        disturb, loss_pos = contr_net.forward(data[0], data[1], target_positive)
+        distance, loss_neg = contr_net.forward(data[0], data[2], target_negative)
+        loss = weights[0] * loss_pos + weights[1] * loss_neg
+
+    # ----------------- Prediction Part --------------------------------
+    if with_output and (loss_type == "triplet_loss" or loss_type == "constrastive_loss"):
+        output_positive = torch.ones([distance.size()[0], 2], dtype=torch.float64).to(device)
+        output_positive[(1 + MARG_PER_DISTURB) * disturb <= DIST_THRESHOLD, 1] = 0
+        output_positive[disturb > DIST_THRESHOLD - MARG_PER_DISTURB * disturb, 1] = 2
+
+        output_negative = torch.ones([distance.size()[0], 2], dtype=torch.float64).to(device)
+        output_negative[DIST_THRESHOLD <= (1 - MARG_PER_DISTANCE) * distance, 0] = 0
+        output_negative[(1 - MARG_PER_DISTANCE) * distance < DIST_THRESHOLD, 0] = 2
 
     return output_positive, output_negative, target_positive, target_negative, loss
 
@@ -224,11 +253,11 @@ def pretraining(train_data, autocoder, num_epochs=100, batch_size=32, loss_type=
     if loss_type == "autoencoder":
         print(" ------------ Train as Autoencoder ----------------- ")
         for epoch in range(num_epochs):
-            train(autocoder, DEVICE, train_loader, epoch, optimizer, autoencoder=True)
+            train(autocoder, DEVICE, train_loader, epoch, optimizer, loss_type, autoencoder=True)
     else:
         print(" ------------ Pretraining with " + loss_type + " ----------------- ")
         for epoch in range(num_epochs):
-            train(autocoder.encoder, DEVICE, train_loader, epoch, optimizer, loss_type=loss_type, autoencoder=False)
+            train(autocoder.encoder, DEVICE, train_loader, epoch, optimizer, loss_type, autoencoder=False)
 
     return autocoder.encoder  # Returns the pretrained Model
 
@@ -242,11 +271,13 @@ def pretraining(train_data, autocoder, num_epochs=100, batch_size=32, loss_type=
 def train_nonpretrained(train_loader, test_loader, losses_test, acc_test, num_epochs, loss_type, optimizer_type):
     model_comp = AutoEncoder(device=DEVICE).encoder
     optimizer = get_optimizer(model_comp, optimizer_type)
+    weights = (1, 1)
+
     # ------- Model Training ---------
     for epoch in range(num_epochs):
         print("-------------- Model that was not pretrained ------------------")
-        train(model_comp, DEVICE, train_loader, epoch, optimizer, loss_type=loss_type)
-        loss_notPret, acc_notPret = test(model_comp, DEVICE, test_loader, loss_type=loss_type)
+        train(model_comp, DEVICE, train_loader, epoch, optimizer, loss_type, weights=weights)
+        loss_notPret, acc_notPret, weights = test(model_comp, DEVICE, test_loader, loss_type)
         losses_test["Non-pretrained Model"].append(loss_notPret)
         acc_test["Non-pretrained Model"].append(acc_notPret)
 
@@ -292,14 +323,24 @@ def update_dist_threshold(dista, distb):
 
 
 def get_evaluation(tp, tn, p, n, eval_dic):
-    eval_dic["recall_pos"] += float(tp) / (float(tp) + (p - float(tp)))
-    eval_dic["recall_neg"] += float(tn) / (float(tn) + (n - float(tn)))
+    try:
+        rec_pos = float(tp) / (float(tp) + (p - float(tp)))
+        eval_dic["recall_pos"] += rec_pos
+        prec_pos = float(tp) / (float(tp) + (n - float(tn)))
+        eval_dic["f1_pos"] += (2 * rec_pos * prec_pos) / (prec_pos + rec_pos)
 
-    prec_pos = float(tp) / (float(tp) + (n - float(tn)))
-    prec_neg = float(tn) / (float(tn) + (p - float(tp)))
+    except ZeroDivisionError:  # the tp is 0
+        pass
+        # print("A zero Division was attempted with: " + str(float(tp)) + " True Positives, " + str(float(tn)) + " False Negatives")
 
-    eval_dic["f1_pos"] += (2 * eval_dic["recall_pos"] * prec_pos) / (prec_pos + eval_dic["recall_pos"])
-    eval_dic["f1_neg"] += (2 * eval_dic["recall_neg"] * prec_neg) / (prec_neg + eval_dic["recall_neg"])
+    try:
+        rec_neg = float(tn) / (float(tn) + (n - float(tn)))
+        eval_dic["recall_neg"] += rec_neg
+        prec_neg = float(tn) / (float(tn) + (p - float(tp)))
+        eval_dic["f1_neg"] += (2 * rec_neg * prec_neg) / (prec_neg + rec_neg)
+
+    except ZeroDivisionError:  # the tn is 0
+        pass
 
     eval_dic["nb_correct"] += (tp + tn)
     eval_dic["nb_labels"] += p + n

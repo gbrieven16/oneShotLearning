@@ -189,7 +189,7 @@ def store_in_csv(data, training, result):
                        float(result[1][0]), float(result[1][int(round(len(result[1]) / 2))]), float(result[1][-1])]
 
     # titles = ["Name BD", "IsDiffFaces", "IsWithProfile", "Db_train", With Pretraining,
-    #  "NbEpoches", "BS", "WD", "LR", "ArchType", "Optimizer", "LossType",
+    #  "NbEpoches", "BS", "WD", "LR", "ArchType", "Optimizer", "LossType", "Weighted Classes",
     # "Loss1", "Loss2", "Loss3", "Acc1", "Acc2", 'Acc3']
 
     with open(CSV_NAME, 'a') as f:

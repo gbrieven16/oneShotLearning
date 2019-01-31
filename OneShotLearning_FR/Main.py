@@ -4,7 +4,7 @@ import torchvision.transforms as transforms
 from NeuralNetwork import TYPE_ARCH, AutoEncoder
 
 from Dataprocessing import Face_DS, from_zip_to_data, DB_TO_USE, MAIN_ZIP
-from TrainAndTest import train, test, oneshot, pretraining, train_nonpretrained, get_optimizer, MARGIN
+from TrainAndTest import train, test, oneshot, pretraining, train_nonpretrained, get_optimizer, MARGIN, DEVICE
 from Visualization import store_in_csv, visualization_test, visualization_train
 
 #########################################
@@ -16,12 +16,13 @@ NUM_EPOCH = 100
 BATCH_SIZE = 32
 LEARNING_RATE = 0.001
 WEIGHT_DECAY = 0.001  # To control regularization
-LOSS = "triplet_loss" # "cross_entropy"
+LOSS = "cross_entropy" #"constrastive_loss" #"triplet_loss" #
 OPTIMIZER = "Adam"  # Adagrad "SGD"
+WEIGHTED_CLASS = True
 
-SAVE_MODEL = False
+SAVE_MODEL = True
 DO_LEARN = True
-PRETRAINING = "autoencoder" #"triplet_loss"  #  for autoencoder and None if no pretrain
+PRETRAINING = None #"autoencoder" #"triplet_loss"  #  for autoencoder and None if no pretrain
 
 DB_TRAIN = None       # If None, the instances of the training and test sets belong to different BD
 DIFF_FACES = True     # If true, we have different faces in the training and the testing set
@@ -30,8 +31,6 @@ WITH_PROFILE = False  # True if both frontally and in profile people
 TRANS = transforms.Compose([transforms.CenterCrop(28), transforms.ToTensor(),
                             transforms.Normalize((0.5,), (1.0,))])
 
-# Specifies where the torch.tensor is allocated
-DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 used_db = MAIN_ZIP.split("/")[-1] if DB_TO_USE is None else "".join([str(i) for i, db in enumerate(DB_TO_USE) if db != ""])
 
 NAME_MODEL = "models/siameseFace" + "_ds" + used_db + (
@@ -51,6 +50,8 @@ def main(loss_type=LOSS, batch_size=BATCH_SIZE, learning_rate=LEARNING_RATE, wei
     # ----------------------------------------------
     # Build your dataset from the processed data
     fileset = from_zip_to_data(WITH_PROFILE)
+
+    print("Training and Testing Sets Definition ... \n")
     training_set, testing_set = fileset.get_train_and_test_sets(DIFF_FACES, db_train=DB_TRAIN)
 
     if DO_LEARN:
@@ -80,11 +81,12 @@ def main(loss_type=LOSS, batch_size=BATCH_SIZE, learning_rate=LEARNING_RATE, wei
         optimizer = get_optimizer(model, OPTIMIZER, learning_rate, weight_decay)
 
         losses_train = []
+        weights = (1, 1)
 
         # ------- Model Training ---------
         for epoch in range(NUM_EPOCH):
-            loss_list = train(model, DEVICE, train_loader, epoch, optimizer, loss_type=loss_type)
-            loss, acc = test(model, DEVICE, test_loader, loss_type=loss_type)
+            loss_list = train(model, DEVICE, train_loader, epoch, optimizer, loss_type, weights=weights if WEIGHTED_CLASS else (1, 1))
+            loss, acc, weights = test(model, DEVICE, test_loader, loss_type)
 
             # Record for later visualization
             losses_train.append(loss_list)
@@ -92,7 +94,7 @@ def main(loss_type=LOSS, batch_size=BATCH_SIZE, learning_rate=LEARNING_RATE, wei
             acc_test["Pretrained Model"].append(acc)
 
             # --------- STOP if no relevant learning after some epoch ----------
-            if 14 < epoch and sum(acc_test["Pretrained Model"]) / len(acc_test["Pretrained Model"]) < 55:
+            if False and 14 < epoch and sum(acc_test["Pretrained Model"]) / len(acc_test["Pretrained Model"]) < 55:
                 print("The accuracy is bad => Stop Training")
                 visualization = False
                 break
@@ -116,7 +118,7 @@ def main(loss_type=LOSS, batch_size=BATCH_SIZE, learning_rate=LEARNING_RATE, wei
             # ------- Record: Evolution of the performance ---------
             info_data = [used_db, DIFF_FACES, WITH_PROFILE, DB_TRAIN]
             info_training = [PRETRAINING, NUM_EPOCH, batch_size, weight_decay, learning_rate,
-                             TYPE_ARCH, OPTIMIZER, loss_type, MARGIN]
+                             TYPE_ARCH, OPTIMIZER, loss_type, WEIGHTED_CLASS, MARGIN]
             info_result = [losses_test["Pretrained Model"], acc_test["Pretrained Model"]]
             store_in_csv(info_data, info_training, info_result)
 
