@@ -1,28 +1,28 @@
-import pickle
+
 import torch
 import torchvision.transforms as transforms
-from NeuralNetwork import TYPE_ARCH, AutoEncoder
+from NeuralNetwork import TYPE_ARCH
+from Model import Model, MARGIN, DEVICE
 
 from Dataprocessing import Face_DS, from_zip_to_data, DB_TO_USE, MAIN_ZIP
-from TrainAndTest import train, test, oneshot, pretraining, train_nonpretrained, get_optimizer, MARGIN, DEVICE
-from Visualization import store_in_csv, visualization_test, visualization_train
+from Visualization import store_in_csv
 
 #########################################
 #       GLOBAL VARIABLES                #
 #########################################
 
 
-NUM_EPOCH = 100
+NUM_EPOCH = 200
 BATCH_SIZE = 32
 LEARNING_RATE = 0.001
 WEIGHT_DECAY = 0.001  # To control regularization
-LOSS = "cross_entropy" #"constrastive_loss" #"triplet_loss" #
+LOSS = "triplet_loss" #"constrastive_loss" #"cross_entropy" # "ce_and_tl"
 OPTIMIZER = "Adam"  # Adagrad "SGD"
 WEIGHTED_CLASS = True
 
 SAVE_MODEL = True
 DO_LEARN = True
-PRETRAINING = None #"autoencoder" #"triplet_loss"  #  for autoencoder and None if no pretrain
+PRETRAINING = "autoencoder" #None #
 
 DB_TRAIN = None       # If None, the instances of the training and test sets belong to different BD
 DIFF_FACES = True     # If true, we have different faces in the training and the testing set
@@ -42,13 +42,13 @@ NAME_MODEL = "models/siameseFace" + "_ds" + used_db + (
 #########################################
 
 def main(loss_type=LOSS, batch_size=BATCH_SIZE, learning_rate=LEARNING_RATE, weight_decay=WEIGHT_DECAY):
-    autoencoder = AutoEncoder(device=DEVICE).to(DEVICE)
+    hyp_par = {"lr": learning_rate, "wd": weight_decay}
     visualization = True
 
     # ----------------------------------------------
     # Definition of a training and a testing set
     # ----------------------------------------------
-    # Build your dataset from the processed data
+
     fileset = from_zip_to_data(WITH_PROFILE)
 
     print("Training and Testing Sets Definition ... \n")
@@ -59,67 +59,43 @@ def main(loss_type=LOSS, batch_size=BATCH_SIZE, learning_rate=LEARNING_RATE, wei
         #  training mode
         # -----------------------
 
-        losses_test = {"Pretrained Model": [], "Non-pretrained Model": []}
-        acc_test = {"Pretrained Model": [], "Non-pretrained Model": []}
-
         face_train = Face_DS(training_set, transform=TRANS, device=DEVICE) # Triplet Version
         face_test = Face_DS(testing_set, transform=TRANS, device=DEVICE)   # Triplet Version
         train_loader = torch.utils.data.DataLoader(face_train, batch_size=batch_size, shuffle=True)
         test_loader = torch.utils.data.DataLoader(face_test, batch_size=batch_size, shuffle=False)
 
+        model = Model(train_loader, loss_type, tl=test_loader, hyper_par=hyp_par, opt_type=OPTIMIZER, weighted_class=WEIGHTED_CLASS)
+
         if PRETRAINING is not None:
             # ---------- Pretraining using an autoencoder or classical model --------------
-            train_data = Face_DS(training_set, transform=TRANS,
-                                 device=DEVICE, triplet_version=False) if PRETRAINING is "autoencoder" else face_train
-
-            model = pretraining(train_data, autoencoder, batch_size=batch_size, loss_type=PRETRAINING)
-            train_nonpretrained(train_loader, test_loader, losses_test, acc_test, NUM_EPOCH, loss_type, OPTIMIZER)
-        else:
-            model = autoencoder.encoder
-
-        # ------ Optimizer Definition ------
-        optimizer = get_optimizer(model, OPTIMIZER, learning_rate, weight_decay)
-
-        losses_train = []
-        weights = (1, 1)
+            train_data = Face_DS(training_set, transform=TRANS, device=DEVICE, triplet_version=False)
+            model.pretraining(train_data, num_epochs=NUM_EPOCH, batch_size=batch_size)
+            model.train_nonpretrained(NUM_EPOCH, optimizer_type=OPTIMIZER)
 
         # ------- Model Training ---------
         for epoch in range(NUM_EPOCH):
-            loss_list = train(model, DEVICE, train_loader, epoch, optimizer, loss_type, weights=weights if WEIGHTED_CLASS else (1, 1))
-            loss, acc, weights = test(model, DEVICE, test_loader, loss_type)
-
-            # Record for later visualization
-            losses_train.append(loss_list)
-            losses_test["Pretrained Model"].append(loss)
-            acc_test["Pretrained Model"].append(acc)
+            model.train(epoch)
+            model.test()
 
             # --------- STOP if no relevant learning after some epoch ----------
-            if False and 14 < epoch and sum(acc_test["Pretrained Model"]) / len(acc_test["Pretrained Model"]) < 55:
+            curr_avg_acc = sum(model.acc_test["Pretrained Model"]) / len(model.acc_test["Pretrained Model"])
+            if False and 14 < epoch and curr_avg_acc < 55:
                 print("The accuracy is bad => Stop Training")
                 visualization = False
                 break
 
         # ------- Model Saving ---------
-        if SAVE_MODEL:
-            torch.save(model, NAME_MODEL)
-            with open(NAME_MODEL.split(".pt")[0] + '_testdata.pkl', 'wb') as output:
-                pickle.dump(testing_set, output, pickle.HIGHEST_PROTOCOL)
-            print("Model is saved!")
+        if SAVE_MODEL: model.save_model(NAME_MODEL, testing_set)
 
         # ------- Visualization: Evolution of the performance ---------
         if visualization:
-            name_fig = "graphs/ds" + used_db + "_" + str(NUM_EPOCH) + "_" + str(batch_size) \
-                       + "_" + loss_type + "_arch" + TYPE_ARCH
-            visualization_train(range(0, NUM_EPOCH, int(round(NUM_EPOCH / 5))), losses_train,
-                                save_name=name_fig + "_train.png")
-
-            visualization_test(losses_test, acc_test, save_name=name_fig + "_test")
+            model.visualization(NUM_EPOCH, used_db)
 
             # ------- Record: Evolution of the performance ---------
             info_data = [used_db, DIFF_FACES, WITH_PROFILE, DB_TRAIN]
             info_training = [PRETRAINING, NUM_EPOCH, batch_size, weight_decay, learning_rate,
                              TYPE_ARCH, OPTIMIZER, loss_type, WEIGHTED_CLASS, MARGIN]
-            info_result = [losses_test["Pretrained Model"], acc_test["Pretrained Model"]]
+            info_result = [model.losses_test["Pretrained Model"], model.acc_test["Pretrained Model"]]
             store_in_csv(info_data, info_training, info_result)
 
     else:
@@ -149,7 +125,7 @@ def main(loss_type=LOSS, batch_size=BATCH_SIZE, learning_rate=LEARNING_RATE, wei
 
         # print("One data given to the onshot function is: " + str(data[0]))
 
-        same = oneshot(model, data)
+        same = model.network.predict(data)
         if same == 0:
             print('=> PREDICTION: These two images represent the same person')
         else:

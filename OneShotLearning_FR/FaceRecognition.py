@@ -1,7 +1,7 @@
 from random import shuffle, randint
 import torch
 from Dataprocessing import from_zip_to_data
-from Main import TRANS, WITH_PROFILE  # NAME_MODEL
+from Main import TRANS, WITH_PROFILE, NAME_MODEL
 
 # ================================================================
 #                   GLOBAL VARIABLES
@@ -71,7 +71,7 @@ class FaceRecognition:
                     if detailed_print: picture.display_im(to_print="The face which is compared is: ")
                     fr_2 = picture.get_feature_repres(self.siamese_model)
 
-                    same = self.siamese_model.get_final_output(fr_1, fr_2, as_output=False)
+                    same = self.siamese_model.output_from_embedding(fr_1, fr_2)
 
                     dist = get_distance(fr_1, fr_2)
                     distances[person] = dist if person not in distances else distances[person] + dist
@@ -128,5 +128,5 @@ def get_distance(feature_repr1, feature_repr2):
 
 
 if __name__ == '__main__':
-    fr = FaceRecognition("models/siameseFace_ds12_diff_100_16.pt")
+    fr = FaceRecognition(NAME_MODEL)
     fr.recognition()

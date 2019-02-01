@@ -34,7 +34,7 @@ if platform.system() == "Darwin":
 else:
     # if the 2th db not used, replace "yalefaces" by ""
     DB_TO_USE = ["AberdeenCrop", "GTdbCrop", "yalefaces", "faces94", "Iranian", "pain_crops", "utrecht"]
-    MAIN_ZIP = "/data/gbrieven/CASIA-WebFace.zip" #"/data/gbrieven/gbrieven.zip"
+    MAIN_ZIP = "/data/gbrieven/gbrieven.zip" # "/data/gbrieven/CASIA-WebFace.zip"
 
 if MAIN_ZIP.split("/")[-1] == 'CASIA-WebFace.zip':
     DB_TO_USE = None
@@ -280,8 +280,8 @@ class FaceImage():
         if self.feature_repres is not None:
             return self.feature_repres
         else:
-            data = [torch.unsqueeze(self.trans_img, 0)]
-            self.feature_repres = model(data)
+            data = torch.unsqueeze(self.trans_img, 0)
+            self.feature_repres = model.embedding_net(data)
             return self.feature_repres
 
 
