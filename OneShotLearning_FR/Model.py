@@ -10,14 +10,12 @@ from torch import optim
 #       GLOBAL VARIABLES                #
 #########################################
 
-# Parameters to predict if 2 faces represent the same person
-WITH_UPDATE_MARG = False
 
 MARGIN = 2.0
 MOMENTUM = 0.9
 N_TEST_IMG = 5
 
-NUM_EPOCHS_PRETRAINING = 500
+NUM_EPOCHS_PRETRAINING = 200
 
 # Specifies where the torch.tensor is allocated
 DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -36,28 +34,31 @@ class Model:
         self.train_loader = train_loader
         self.test_loader = tl
 
+        # ----------------- Network Definition -------------
         if loss_type == "triplet_loss":
             self.network = Tripletnet()
         elif loss_type == "constrastive_loss":
             self.network = ContrastiveLoss()
-        elif loss_type == "cross_entropy":
-            self.network = SoftMax_Net()
         elif embedding_net is not None:
             self.network = AutoEncoder(embedding_net)
+        elif loss_type[:len("cross_entropy")] == "cross_entropy":
+            self.network = SoftMax_Net() if len(loss_type) == len("cross_entropy") else SoftMax_Net(with_center_loss=True)
 
         self.loss_type = loss_type
+
+        # ----------------- Optimizer Definition -------------
         self.lr = 0.001 if hyper_par is None else hyper_par["lr"]
         self.wd = 0.001 if hyper_par is None else hyper_par["wd"]
         self.optimizer = self.get_optimizer(opt_type=opt_type)
+
         self.class_weights = [1, 1]
         self.weighted_classes = weighted_class
-        self.batch_size = len(self.train_loader)
+
         self.eval_dic = {"nb_correct": 0, "nb_labels": 0, "recall_pos": 0, "recall_neg": 0, "f1_pos": 0, "f1_neg": 0}
-        self.update_marg = False if loss_type == "cross_entropy" else WITH_UPDATE_MARG
 
         # For Visualization
         self.losses_test = {"Pretrained Model": [], "Non-pretrained Model": []}
-        self.acc_test = {"Pretrained Model": [], "Non-pretrained Model": []}
+        self.f1_test = {"Pretrained Model": [], "Non-pretrained Model": []}
         self.losses_train = []
 
     '''------------------------ pretraining ----------------------------------------------
@@ -85,13 +86,12 @@ class Model:
     def train_nonpretrained(self, num_epochs, optimizer_type):
         model_comp = Model(self.train_loader, self.loss_type, tl=self.test_loader, opt_type=optimizer_type)
 
-        # ------- Model Training ---------
         for epoch in range(num_epochs):
             print("-------------- Model that was not pretrained ------------------")
             model_comp.train(epoch)
-            loss_notPret, acc_notPret = model_comp.test()
+            loss_notPret, f1_notPret = model_comp.test()
             self.losses_test["Non-pretrained Model"].append(loss_notPret)
-            self.acc_test["Non-pretrained Model"].append(acc_notPret)
+            self.f1_test["Non-pretrained Model"].append(f1_notPret)
 
     '''---------------------------- train --------------------------------
      This function trains the network attached to the model  
@@ -123,6 +123,7 @@ class Model:
 
             loss.backward()  # backpropagation, compute gradients
             self.optimizer.step()  # apply gradients
+            loss_list.append(loss.item())
 
             # -----------------------
             #   Visualization
@@ -132,28 +133,30 @@ class Model:
                     batch_size = len(data)
                 else:
                     batch_size = len(data[0])
-                loss_list.append(loss.item())
                 print('Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}'.format(
                     epoch, batch_idx * batch_size, len(self.train_loader.dataset),
                            100. * batch_idx * batch_size / len(self.train_loader.dataset),
                     loss.item()))  # len(data[0]) = batch_size
 
+        if not autoencoder: self.update_weights()
         self.losses_train.append(loss_list)
 
     '''---------------------------- test --------------------------------
      This function tests the given model 
      OUT: loss: current loss once evaluated on the testing set
-          accuracy: current accuracy once evaluated on the testing set
+          f1-measure: current f1-measure once evaluated on the testing set
      -----------------------------------------------------------------------'''
 
-    def test(self):
+    def test(self, for_weight_update=False):
         self.network.eval()
         self.reset_eval()
 
         with torch.no_grad():
             loss_test = 0
 
-            for batch_idx, (data, target) in enumerate(self.test_loader):
+            data_loader = self.train_loader if for_weight_update else self.test_loader
+
+            for batch_idx, (data, target) in enumerate(data_loader):
                 try:
                     loss = self.network.get_loss(data, target, self.class_weights)
                     out_pos, out_neg = self.network(data)
@@ -172,51 +175,56 @@ class Model:
                     acc_neg = torch.sum(torch.argmax(out_neg, dim=1) == tar_neg).cpu()  # = 1
 
                 loss_test += loss
-                self.get_evaluation(acc_pos, acc_neg, len(tar_pos), len(tar_neg), self.eval_dic)
-                if WITH_UPDATE_MARG: self.network.update_perc_marg_dist(self.eval_dic["f1_pos"],
-                                                                        self.eval_dic["f1_neg"])
+                self.get_evaluation(acc_pos, acc_neg, len(tar_pos), len(tar_neg))
 
-        acc = self.print_eval_model(loss_test)
-        self.update_weights()
-
-        self.losses_test["Pretrained Model"].append(round(float(loss_test), 2))
-        self.acc_test["Pretrained Model"].append(acc)
-        return round(float(loss_test), 2), acc
+        if not for_weight_update:
+            f1_measure = self.print_eval_model(loss_test)
+            self.losses_test["Pretrained Model"].append(round(float(loss_test), 2))
+            self.f1_test["Pretrained Model"].append(f1_measure)
+            return round(float(loss_test), 2), f1_measure
 
     '''---------------------------- update_weights ------------------------------
      This function updates the class weights considering the current f1 measures
      ---------------------------------------------------------------------------'''
 
     def update_weights(self):
+        self.test(for_weight_update=True)
+        f1_neg_avg = self.eval_dic["f1_neg"] / len(self.train_loader)
+        f1_pos_avg = self.eval_dic["f1_pos"] / len(self.train_loader)
+        print("f1 score of train: " + str(f1_pos_avg) + " and " + str(f1_neg_avg))
+
         if self.weighted_classes:
-            diff = abs(self.eval_dic["f1_neg"] / self.batch_size - self.eval_dic["f1_pos"] / self.batch_size)
+            diff = abs(f1_neg_avg - f1_pos_avg)
             # If diff = 0, then weight = 1 (no change)
-            if self.eval_dic["f1_pos"] / self.batch_size < self.eval_dic["f1_neg"] / self.batch_size:
+            if f1_pos_avg<f1_neg_avg:
                 # weight_neg -= diff
                 self.class_weights[0] += diff
             else:
                 # weight_pos -= diff
                 self.class_weights[1] += diff
+        print("Weights are " + str(self.class_weights[0]) + " and " + str(self.class_weights[1]))
 
     '''---------------------- print_eval_model ----------------------------------
      This function prints the different current values of the accuracy, the r
      recalls (related to both pos and neg classes), the f1-measure and the loss
+     OUT: the avg of the f1 measures related to each classes 
      ---------------------------------------------------------------------------'''
 
     def print_eval_model(self, loss_test):
         acc = 100. * self.eval_dic["nb_correct"] / self.eval_dic["nb_labels"]
-        loss_test = loss_test / len(self.test_loader)  # avg of the loss
+        nb_test = len(self.test_loader)
+        loss_test = loss_test / nb_test # avg of the loss
 
         print(" \n------------------------------------------------------------------ ")
         print('Test accuracy: {}/{} ({:.3f}%)\tLoss: {:.6f}'.format(self.eval_dic["nb_correct"],
                                                                     self.eval_dic["nb_labels"], acc, loss_test))
-        print("Recall Pos is: " + str(100. * self.eval_dic["recall_pos"] / self.batch_size) +
-              "   Recall Neg is: " + str(round(100. * self.eval_dic["recall_neg"] / self.batch_size, 2)))
-        print("f1 Pos is: " + str(100. * self.eval_dic["f1_pos"] / self.batch_size) +
-              "          f1 Neg is: " + str(round(100. * self.eval_dic["f1_neg"] / self.batch_size, 2)))
+        print("Recall Pos is: " + str(100. * self.eval_dic["recall_pos"] / nb_test) +
+              "   Recall Neg is: " + str(round(100. * self.eval_dic["recall_neg"] / nb_test, 2)))
+        print("f1 Pos is: " + str(100. * self.eval_dic["f1_pos"] / nb_test) +
+              "          f1 Neg is: " + str(round(100. * self.eval_dic["f1_neg"] / nb_test, 2)))
         print(" ------------------------------------------------------------------\n ")
 
-        return acc
+        return round(100. * 0.5 * (self.eval_dic["f1_neg"] + self.eval_dic["f1_pos"]) / nb_test, 2)
 
     '''------------------------- get_optimizer -------------------------------- '''
 
@@ -239,27 +247,28 @@ class Model:
         "nb_correct", "nb_labels", "recall_pos", "recall_neg", "f1_pos", "f1_neg"
     ------------------------------------------------------------------------------'''
 
-    def get_evaluation(self, tp, tn, p, n, eval_dic):
+    def get_evaluation(self, tp, tn, p, n):
+
         try:
-            rec_pos = float(tp) / (float(tp) + (p - float(tp)))
-            eval_dic["recall_pos"] += rec_pos
+            rec_pos = float(tp) / p
+            self.eval_dic["recall_pos"] += rec_pos
             prec_pos = float(tp) / (float(tp) + (n - float(tn)))
-            eval_dic["f1_pos"] += (2 * rec_pos * prec_pos) / (prec_pos + rec_pos)
+            self.eval_dic["f1_pos"] += (2 * rec_pos * prec_pos) / (prec_pos + rec_pos)
 
         except ZeroDivisionError:  # the tp is 0
             pass
 
         try:
-            rec_neg = float(tn) / (float(tn) + (n - float(tn)))
-            eval_dic["recall_neg"] += rec_neg
+            rec_neg = float(tn) / n
+            self.eval_dic["recall_neg"] += rec_neg
             prec_neg = float(tn) / (float(tn) + (p - float(tp)))
-            eval_dic["f1_neg"] += (2 * rec_neg * prec_neg) / (prec_neg + rec_neg)
+            self.eval_dic["f1_neg"] += (2 * rec_neg * prec_neg) / (prec_neg + rec_neg)
 
         except ZeroDivisionError:  # the tn is 0
             pass
 
-        eval_dic["nb_correct"] += (tp + tn)
-        eval_dic["nb_labels"] += p + n
+        self.eval_dic["nb_correct"] += (tp + tn)
+        self.eval_dic["nb_labels"] += p + n
 
     ''' ------------------------------ 
             reset_eval 
@@ -288,10 +297,15 @@ class Model:
             visualization 
     -------------------------------- '''
 
-    def visualization(self, num_epoch, used_db):
-        name_fig = "graphs/ds" + used_db + "_" + str(num_epoch) + "_" + str(self.batch_size) \
+    def visualization(self, num_epoch, used_db, batch_size):
+
+        name_fig = "graphs/ds" + used_db + "_" + str(num_epoch) + "_" + str(batch_size) \
                    + "_" + self.loss_type + "_arch" + TYPE_ARCH
         visualization_train(range(0, num_epoch, int(round(num_epoch / 5))), self.losses_train,
                             save_name=name_fig + "_train.png")
 
-        visualization_test(self.losses_test, self.acc_test, save_name=name_fig + "_test")
+        visualization_test(self.losses_test, self.f1_test, save_name=name_fig + "_test")
+
+        if self.loss_type[:len("cross_entropy")] == "cross_entropy":
+            self.network.visualize_last_output(next(iter(self.test_loader))[0])
+

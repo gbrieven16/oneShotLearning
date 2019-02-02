@@ -45,9 +45,6 @@ class DistanceBased_Net(nn.Module):
             self.embedding_net = AlexNet()
 
         self.dist_threshold = 0.02
-        self.with_update_marg = False
-        self.marg_per_disturb = 0  # % of the disturb we add to the disturb to predict if 2 images are the same or not
-        self.marg_per_distance = 0
 
         self.to(DEVICE)
     '''---------------------------- get_distance --------------------------------- 
@@ -126,21 +123,6 @@ class DistanceBased_Net(nn.Module):
         avg_distb = float(sum(distb)) / dista.size()[0]
         self.dist_threshold = (self.dist_threshold + avg_dista + avg_distb) / 3
 
-    '''---------------- update_perc_marg_dist ------------------------------ 
-       This function updates the marg_per_distance and the marg_per_disturb
-       such that: if f1_pos<f1_neg: MARG_PER_DISTANCE has to be increase and/or
-                                    MARG_PER_DISTURB has to be decreased 
-       (Just influence on the prediction phase) 
-    -----------------------------------------------------------------------'''
-
-    def update_perc_marg_dist(self, f1_pos, f1_neg):
-        if f1_pos < f1_neg:
-            self.marg_per_distance += 0.1
-            self.marg_per_disturb -= 0.1
-        else:
-            self.marg_per_distance -= 0.1
-            self.marg_per_disturb += 0.1
-
 
 # ================================================================
 #                    CLASS: Tripletnet
@@ -172,23 +154,18 @@ class ContrastiveLoss(DistanceBased_Net):
     Takes embeddings of two samples and a target label == 0 if samples are from the same class and label == 1 otherwise
     """
 
-    def __init__(self, margin=0.02):
+    def __init__(self):
         super(ContrastiveLoss, self).__init__()
-        self.margin = margin
-        self.eps = 1e-2
-        self.dist_threshold = 0.02
-        self.with_update_marg = False
-        self.marg_per_disturb = 0  # % of the disturbance we add to the disturbance to predict if 2 images are the same or not
-        self.marg_per_distance = 0
+        self.eps = 1e-9
 
     def get_loss(self, data, target, class_weights):
         distance, disturb = self.get_distance(data[0], data[2], data[1])
-        loss_pos = 0.5 * disturb
-        loss_neg = 0.5 * f.relu(self.margin - (distance + self.eps).sqrt()).pow(2)
+        loss_pos = (0.5 * disturb.pow(2))
+        loss_neg = (0.5 * f.relu(2*self.dist_threshold - distance).pow(2)) # 2*DIST_THRESHOLD = choice
         # loss.mean() or loss.sum()
 
         self.update_dist_threshold(distance, disturb)
-        return class_weights[0] * loss_pos + class_weights[1] * loss_neg
+        return (class_weights[0] * loss_pos + class_weights[1] * loss_neg).mean()
 
 
 # ============================================================================================
@@ -207,13 +184,12 @@ class CenterLoss(nn.Module):
         feat_dim (int): feature dimension.
     """
 
-    def __init__(self, num_classes=10, feat_dim=2, use_gpu=True):
+    def __init__(self, feat_dim, num_classes=2):
         super(CenterLoss, self).__init__()
         self.num_classes = num_classes
         self.feat_dim = feat_dim
-        self.use_gpu = use_gpu
 
-        if self.use_gpu:
+        if torch.cuda.is_available():
             self.centers = nn.Parameter(torch.randn(self.num_classes, self.feat_dim).cuda())
         else:
             self.centers = nn.Parameter(torch.randn(self.num_classes, self.feat_dim))
@@ -225,12 +201,16 @@ class CenterLoss(nn.Module):
             labels: ground truth labels with shape (batch_size).
         """
         batch_size = x.size(0)
+
         distmat = torch.pow(x, 2).sum(dim=1, keepdim=True).expand(batch_size, self.num_classes) + \
                   torch.pow(self.centers, 2).sum(dim=1, keepdim=True).expand(self.num_classes, batch_size).t()
+
         distmat.addmm_(1, -2, x, self.centers.t())
 
         classes = torch.arange(self.num_classes).long()
-        if self.use_gpu: classes = classes.cuda()
+        if torch.cuda.is_available():
+            classes = classes.cuda()
+
         labels = labels.unsqueeze(1).expand(batch_size, self.num_classes)
         mask = labels.eq(classes.expand(batch_size, self.num_classes))
 
@@ -250,7 +230,7 @@ class CenterLoss(nn.Module):
 # ================================================================
 
 class SoftMax_Net(nn.Module):
-    def __init__(self):
+    def __init__(self, with_center_loss=False):
         super(SoftMax_Net, self).__init__()
 
         if TYPE_ARCH == "1default":
@@ -258,7 +238,10 @@ class SoftMax_Net(nn.Module):
         elif TYPE_ARCH == "4AlexNet":
             self.embedding_net = AlexNet()
 
-        self.final_layer = nn.Linear(DIM_LAST_LAYER, 2)  # 2 = nb_classes
+        self.final_layer = nn.Linear(DIM_LAST_LAYER, 2).to(DEVICE)  # 2 = nb_classes
+        self.loss_cur = 0
+
+        self.center_loss = CenterLoss(DIM_LAST_LAYER, 2) if with_center_loss else None
 
     def forward(self, data):
         # Computation of the difference of the 2 feature representations
@@ -268,9 +251,18 @@ class SoftMax_Net(nn.Module):
         disturb = torch.abs(feature_repr_pos - feature_repr_anch)
         distance = torch.abs(feature_repr_neg - feature_repr_anch)
 
+        # ---------- Center Loss Consideration ----------------
+        if self.center_loss is not None:
+            self.loss_cur = 0
+            target_pos = torch.zeros([distance.size()[0]], dtype=torch.float64).type(torch.LongTensor).to(DEVICE)
+            target_neg = torch.ones([distance.size()[0]], dtype=torch.float64).type(torch.LongTensor).to(DEVICE)
+
+            loss_neg = self.center_loss(distance, target_neg)
+            loss_pos = self.center_loss(disturb, target_pos)
+
+            self.loss_cur = loss_neg + loss_pos
+
         return self.final_layer(disturb), self.final_layer(distance)
-        # print("Last values are " + str(last_values))
-        # print("Processed distance is " + str(self.avg_val_tensor(difference).requires_grad_(True)))
         # return self.avg_val_tensor(difference).requires_grad_(True) #
 
     def predict(self, data):
@@ -306,8 +298,23 @@ class SoftMax_Net(nn.Module):
         output_positive, output_negative = self.forward(data)
         loss_positive = f.cross_entropy(output_positive, target_positive)
         loss_negative = f.cross_entropy(output_negative, target_negative)
-        return class_weights[0] * loss_positive + class_weights[1] * loss_negative
+        return class_weights[0] * loss_positive + class_weights[1] * loss_negative + self.loss_cur
 
+    def visualize_last_output(self, data):
+        out_pos, out_neg = self.forward(data)
+        x = list(np.array(out_pos[:, 0].detach().cpu()))
+        y = list(np.array(out_pos[:, 1].detach().cpu()))
+
+        x.extend(list(np.array(out_neg[:, 0].detach().cpu())))
+        y.extend(list(np.array(out_neg[:, 1].detach().cpu())))
+
+        color0 = ["red" for i in range(len(out_pos[:, 0]))]
+        color1 = ["green" for i in range(len(out_neg[:, 0]))]
+
+        plt.show()
+        plt.scatter(x, y, color=color0+color1)
+        plt.show()
+        plt.savefig("output_visualization")
 
 # ================================================================
 #                    CLASS: BasicNet
@@ -330,12 +337,12 @@ class BasicNet(nn.Module):
         self.dropout = nn.Dropout(P_DROPOUT)
         self.to(DEVICE)
 
+
         # Last layer assigning a number to each class from the previous layer
         # self.linear2 = nn.Linear(512, 2)
 
     def forward(self, data):
-
-        x = self.conv1(data)
+        x = self.conv1(data.to(DEVICE))
         if WITH_NORM_BATCH: x = self.conv1_bn(x)
         x = f.relu(x)
         x = self.dropout(x)
@@ -390,7 +397,7 @@ class AlexNet(nn.Module):
         # self.final_layer = nn.Linear(4096, num_classes)
 
     def forward(self, data):
-        x = self.features(data)
+        x = self.features(data.to(DEVICE))
         x = x.view(x.size(0), 16 * 4 * 4)
         return self.linearization(x)
 

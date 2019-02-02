@@ -12,17 +12,17 @@ from Visualization import store_in_csv
 #########################################
 
 
-NUM_EPOCH = 200
+NUM_EPOCH = 100
 BATCH_SIZE = 32
 LEARNING_RATE = 0.001
 WEIGHT_DECAY = 0.001  # To control regularization
-LOSS = "triplet_loss" #"constrastive_loss" #"cross_entropy" # "ce_and_tl"
+LOSS = "constrastive_loss" #"cross_entropy" _with_cl"  "cross_entropy" # "ce_and_tl"
 OPTIMIZER = "Adam"  # Adagrad "SGD"
 WEIGHTED_CLASS = True
 
 SAVE_MODEL = True
 DO_LEARN = True
-PRETRAINING = "autoencoder" #None #
+PRETRAINING = None #"autoencoder" #None #
 
 DB_TRAIN = None       # If None, the instances of the training and test sets belong to different BD
 DIFF_FACES = True     # If true, we have different faces in the training and the testing set
@@ -78,9 +78,9 @@ def main(loss_type=LOSS, batch_size=BATCH_SIZE, learning_rate=LEARNING_RATE, wei
             model.test()
 
             # --------- STOP if no relevant learning after some epoch ----------
-            curr_avg_acc = sum(model.acc_test["Pretrained Model"]) / len(model.acc_test["Pretrained Model"])
-            if False and 14 < epoch and curr_avg_acc < 55:
-                print("The accuracy is bad => Stop Training")
+            curr_avg_f1 = sum(model.f1_test["Pretrained Model"]) / len(model.f1_test["Pretrained Model"])
+            if False and 14 < epoch and curr_avg_f1 < 55:
+                print("The f1 measure is bad => Stop Training")
                 visualization = False
                 break
 
@@ -89,13 +89,14 @@ def main(loss_type=LOSS, batch_size=BATCH_SIZE, learning_rate=LEARNING_RATE, wei
 
         # ------- Visualization: Evolution of the performance ---------
         if visualization:
-            model.visualization(NUM_EPOCH, used_db)
+
+            model.visualization(NUM_EPOCH, used_db, batch_size)
 
             # ------- Record: Evolution of the performance ---------
             info_data = [used_db, DIFF_FACES, WITH_PROFILE, DB_TRAIN]
             info_training = [PRETRAINING, NUM_EPOCH, batch_size, weight_decay, learning_rate,
                              TYPE_ARCH, OPTIMIZER, loss_type, WEIGHTED_CLASS, MARGIN]
-            info_result = [model.losses_test["Pretrained Model"], model.acc_test["Pretrained Model"]]
+            info_result = [model.losses_test["Pretrained Model"], model.f1_test["Pretrained Model"]]
             store_in_csv(info_data, info_training, info_result)
 
     else:

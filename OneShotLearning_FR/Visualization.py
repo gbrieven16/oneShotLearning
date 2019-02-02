@@ -174,7 +174,7 @@ results related to the different scenarios that were experimented
 IN: List of information to record about:
     data = [used_db, DIFF_FACES, WITH_PROFILE, DB_TRAIN]
     training = [pretrain_loss, nb_ep, bs, wd, lr, arch, opt, loss_type, margin]
-    result = [losses_test, acc_test]
+    result = [losses_test, f1_test]
 -------------------------------------------------------------------'''
 
 
@@ -190,7 +190,7 @@ def store_in_csv(data, training, result):
 
     # titles = ["Name BD", "IsDiffFaces", "IsWithProfile", "Db_train", With Pretraining,
     #  "NbEpoches", "BS", "WD", "LR", "ArchType", "Optimizer", "LossType", "Weighted Classes",
-    # "Loss1", "Loss2", "Loss3", "Acc1", "Acc2", 'Acc3']
+    # "Loss1", "Loss2", "Loss3", "F11", "F12", 'F13']
 
     with open(CSV_NAME, 'a') as f:
         writer = csv.writer(f, delimiter=";")
@@ -205,6 +205,7 @@ IN: epoch_list: list of specific epochs
 
 
 def visualization_train(epoch_list, loss_list, save_name=None):
+
     title = "Evolution of the loss for different epoches"
     perc_train = [float(x) / len(loss_list[0]) for x in range(0, len(loss_list[0]))]
     dictionary = {}
@@ -217,9 +218,9 @@ def visualization_train(epoch_list, loss_list, save_name=None):
 '''------------------ visualization_test ----------------------------- '''
 
 
-def visualization_test(loss, acc, save_name=None):
+def visualization_test(loss, f1, save_name=None):
     title_loss = "Comparison of the evolution of the losses"
-    title_acc = "Comparison of the evolution of the accuracies"
+    title_f1 = "Comparison of the evolution of the f1-measure"
 
     key1 = list(loss.keys())[0]
     key2 = list(loss.keys())[1]
@@ -227,17 +228,17 @@ def visualization_test(loss, acc, save_name=None):
     if len(loss[key2]) == 0:
         line_graph(range(0, len(loss[key1]), 1), loss[key1], "Loss according to the epochs", x_label="Epoch",
                    y_label="Loss", save_name=save_name + "_loss.png")
-        line_graph(range(0, len(acc[key1]), 1), acc[key1], "Accuracy according to the epochs", x_label="Epoch",
-                   y_label="Accuracy", save_name=save_name + "_acc.png")
+        line_graph(range(0, len(f1[key1]), 1), f1[key1], "f1-measure according to the epochs", x_label="Epoch",
+                   y_label="f1-measure", save_name=save_name + "_f1.png")
     else:
         dictionary_loss = {key1: loss[key1], key2: loss[key2]}
-        dictionary_acc = {key1: acc[key1], key2: acc[key2]}
+        dictionary_f1 = {key1: f1[key1], key2: f1[key2]}
         epoches = list(range(0, len(loss[key1]), 1))
 
         multi_line_graph(dictionary_loss, epoches, title_loss, x_label="epoch", y_label="Loss",
                          save_name=save_name + "_loss.png")
-        multi_line_graph(dictionary_acc, epoches, title_acc, x_label="epoch", y_label="Acc",
-                         save_name=save_name + "_acc.png")
+        multi_line_graph(dictionary_f1, epoches, title_f1, x_label="epoch", y_label="f1",
+                         save_name=save_name + "_f1.png")
 
 
 if __name__ == '__main__':

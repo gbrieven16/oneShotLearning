@@ -46,8 +46,8 @@ SEED = 4  # When data is shuffled
 EXTENSION = ".jpg"
 SEPARATOR = "_"  # !!! Format of the dabase: name[!]_id !!!
 RATION_TRAIN_SET = 0.75
-MAX_NB_ENTRY = 100000
-MAX_NB_IM_PER_PERSON = 30
+MAX_NB_ENTRY = 500000
+MAX_NB_IM_PER_PERSON = 20
 
 
 # ================================================================
@@ -173,8 +173,8 @@ class Fileset:
         # CASE 1: same people in the training and the testing set
         ############################################################
         if not diff_faces and db_train is None:
-            training_set.data_list = self.data_list[:round(RATION_TRAIN_SET * len(self.data_list))]
-            testing_set.data_list = self.data_list[round(RATION_TRAIN_SET * len(self.data_list)):]
+            training_set.data_list = self.data_list[:int(round(RATION_TRAIN_SET * len(self.data_list)))]
+            testing_set.data_list = self.data_list[int(round(RATION_TRAIN_SET * len(self.data_list))):]
 
         ##############################################################
         # CASE 2: different people in the training and the testing set
