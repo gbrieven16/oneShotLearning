@@ -12,7 +12,6 @@ from PIL import Image
 from io import BytesIO
 
 import matplotlib
-
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
@@ -29,11 +28,11 @@ warnings.filterwarnings('ignore')
 
 if platform.system() == "Darwin":
     # if the 2th db not used, replace "yalefaces" by ""
-    DB_TO_USE = ["AberdeenCrop"]
-    MAIN_ZIP = 'datasets/ds0123456.zip'
+    DB_TO_USE = ["AberdeenCrop", "Iranian", "painCrops", "utrecht"]
+    MAIN_ZIP = 'datasets/ds0123456.zip' # CASIA-WebFace.zip' #
 else:
     # if the 2th db not used, replace "yalefaces" by ""
-    DB_TO_USE = ["AberdeenCrop", "GTdbCrop", "yalefaces", "faces94", "Iranian", "pain_crops", "utrecht"]
+    DB_TO_USE = ["AberdeenCrop", "GTdbCrop", "yalefaces", "faces94", "Iranian", "painCrops", "utrecht"]
     MAIN_ZIP = "/data/gbrieven/gbrieven.zip" # "/data/gbrieven/CASIA-WebFace.zip"
 
 if MAIN_ZIP.split("/")[-1] == 'CASIA-WebFace.zip':
@@ -49,6 +48,11 @@ RATION_TRAIN_SET = 0.75
 MAX_NB_ENTRY = 500000
 MAX_NB_IM_PER_PERSON = 20
 
+RATIO_HORIZ_CROP = 0.15
+RESOLUTION = (150, 200)
+CENTER_CROP = (150, 200)
+TRANS = transforms.Compose([transforms.CenterCrop(CENTER_CROP), transforms.ToTensor(),
+                            transforms.Normalize((0.5,), (1.0,))]) # TO REMOVE, just for test
 
 # ================================================================
 #                    CLASS: Data
@@ -138,6 +142,35 @@ class Data:
 
         return label, id, extension
 
+    '''---------------- resize_image --------------------------------
+     This function resizes the image to RESOLUTION and first crops
+     the image if the width is larger that heights by deleting 
+     RATIO_HORIZ_CROP of the horizontal part on the left and on the 
+     right. 
+     OUT: the image data which has been processed 
+     ---------------------------------------------------------------'''
+    def resize_image(self):
+
+        with zipfile.ZipFile(MAIN_ZIP, 'r') as archive:
+
+            # Get image resolution
+            original_image = Image.open(BytesIO(archive.read(self.filename))).convert("RGB")
+            original_res = original_image.size
+
+            # ----- If Horizontal Image => Crop -----
+            if original_res[1] < original_res[0]:
+                left = RATIO_HORIZ_CROP*original_res[0]
+                right = (1-RATIO_HORIZ_CROP)*original_res[0]
+                lower = original_res[1]
+                upper = 0
+                original_image = original_image.crop(box=(left, upper, right, lower))
+
+            # ----- Set the resolution -----
+            resized_image = original_image.resize(RESOLUTION)
+            #plt.imshow(resized_image)
+            #plt.show()
+
+            return resized_image
 
 # ================================================================
 #                    CLASS: Fileset
@@ -163,7 +196,7 @@ class Fileset:
      REM: no instantiation of the db_source variable ... 
      --------------------------------------------------------------------------------'''
 
-    def get_train_and_test_sets(self, diff_faces, db_train=False):
+    def get_train_and_test_sets(self, diff_faces, db_train=None):
 
         random.Random(SEED).shuffle(self.data_list)
         training_set = Fileset()
@@ -223,19 +256,18 @@ class Fileset:
         #################################
         # Order the picture per label
         #################################
-        with zipfile.ZipFile(MAIN_ZIP, 'r') as archive:
-            for i, data in enumerate(self.data_list):
-                personNames = data.name_person
+        for i, data in enumerate(self.data_list):
+            personNames = data.name_person
+            res_image = data.resize_image()
+            formatted_image = transform(res_image)
+            img = FaceImage(data.filename, formatted_image)
 
-                formatted_image = transform(Image.open(BytesIO(archive.read(data.filename))).convert("RGB"))
-                img = FaceImage(data.filename, formatted_image)
-
-                try:
-                    if len(faces_dic[personNames]) < max_nb_pictures:
-                        faces_dic[personNames].append(img)
-                except KeyError:
-                    if nb_people is None or len(faces_dic) < nb_people:
-                        faces_dic[personNames] = [img]
+            try:
+                if len(faces_dic[personNames]) < max_nb_pictures:
+                    faces_dic[personNames].append(img)
+            except KeyError:
+                if nb_people is None or len(faces_dic) < nb_people:
+                    faces_dic[personNames] = [img]
         return faces_dic
 
     '''---------------------------- ds_to_zip --------------------------------
@@ -291,7 +323,7 @@ class FaceImage():
 
 
 class Face_DS(torch.utils.data.Dataset):
-    def __init__(self, fileset, transform=None, to_print=False, device="cpu", triplet_version=True):
+    def __init__(self, fileset, transform=TRANS, to_print=False, device="cpu", triplet_version=True):
 
         self.to_print = to_print
         self.transform = transforms.ToTensor() if transform is None else transform
@@ -467,7 +499,7 @@ def from_zip_to_data(with_profile):
             if go_to_next_folder:
                 continue
 
-            # Just keep a limited among of pictures per person
+            # --- Just keep a limited among of pictures per person ---
             try:
                 if previous_person == fn.split("/")[1]:
                     if MAX_NB_IM_PER_PERSON < nb_entry_pers:
@@ -487,14 +519,17 @@ def from_zip_to_data(with_profile):
             if (with_profile or not new_data.lateral_face) and (DB_TO_USE is None or new_data.db in DB_TO_USE):
                 dataset.add_data(new_data)
 
+            # ------ Limitation of the total number of instances ------
             nb_entry += 1
             if MAX_NB_ENTRY < nb_entry:
                 break
 
     print("Loading Time: " + str(time.time() - t))
-    print("Data has been loaded!\n")
+    print(str(len(dataset.data_list)) + " pictures have been loaded!\n")
     return dataset
 
 
 if __name__ == "__main__":
-    from_zip_to_data(False)
+
+    fileset = from_zip_to_data(True)
+

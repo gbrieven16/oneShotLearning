@@ -297,15 +297,15 @@ class Model:
             visualization 
     -------------------------------- '''
 
-    def visualization(self, num_epoch, used_db, batch_size):
+    def visualization(self, num_epoch, used_db, batch_size, opt_type):
 
         name_fig = "graphs/ds" + used_db + "_" + str(num_epoch) + "_" + str(batch_size) \
-                   + "_" + self.loss_type + "_arch" + TYPE_ARCH
+                   + "_" + self.loss_type + "_arch" + TYPE_ARCH + "_opti" + opt_type
         visualization_train(range(0, num_epoch, int(round(num_epoch / 5))), self.losses_train,
                             save_name=name_fig + "_train.png")
 
         visualization_test(self.losses_test, self.f1_test, save_name=name_fig + "_test")
 
         if self.loss_type[:len("cross_entropy")] == "cross_entropy":
-            self.network.visualize_last_output(next(iter(self.test_loader))[0])
+            self.network.visualize_last_output(next(iter(self.test_loader))[0], name_fig + "outputVis")
 
