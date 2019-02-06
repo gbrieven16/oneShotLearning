@@ -57,7 +57,7 @@ def multi_line_graph(dictionary, x_elements, title, x_label="x", y_label="Score"
 
     # --------- Legend -----------------------------
 
-    legend = plt.legend(loc='upper right', shadow=True)
+    legend = plt.legend(loc='lower right', shadow=True)
     frame = legend.get_frame()
     frame.set_facecolor('0.90')
 

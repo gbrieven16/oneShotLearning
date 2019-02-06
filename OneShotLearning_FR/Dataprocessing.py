@@ -2,6 +2,7 @@ import time
 import torch.utils.data
 import zipfile
 import os
+import pickle
 import platform
 import random
 from random import shuffle
@@ -12,6 +13,7 @@ from PIL import Image
 from io import BytesIO
 
 import matplotlib
+
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
@@ -29,11 +31,11 @@ warnings.filterwarnings('ignore')
 if platform.system() == "Darwin":
     # if the 2th db not used, replace "yalefaces" by ""
     DB_TO_USE = ["AberdeenCrop", "Iranian", "painCrops", "utrecht"]
-    MAIN_ZIP = 'datasets/ds0123456.zip' # CASIA-WebFace.zip' #
+    MAIN_ZIP = 'datasets/ds0123456.zip'  # CASIA-WebFace.zip' #
 else:
     # if the 2th db not used, replace "yalefaces" by ""
     DB_TO_USE = ["AberdeenCrop", "GTdbCrop", "yalefaces", "faces94", "Iranian", "painCrops", "utrecht"]
-    MAIN_ZIP = "/data/gbrieven/gbrieven.zip" # "/data/gbrieven/CASIA-WebFace.zip"
+    MAIN_ZIP = "/data/gbrieven/gbrieven.zip"  # "/data/gbrieven/CASIA-WebFace.zip"
 
 if MAIN_ZIP.split("/")[-1] == 'CASIA-WebFace.zip':
     DB_TO_USE = None
@@ -52,7 +54,8 @@ RATIO_HORIZ_CROP = 0.15
 RESOLUTION = (150, 200)
 CENTER_CROP = (150, 200)
 TRANS = transforms.Compose([transforms.CenterCrop(CENTER_CROP), transforms.ToTensor(),
-                            transforms.Normalize((0.5,), (1.0,))]) # TO REMOVE, just for test
+                            transforms.Normalize((0.5,), (1.0,))])  # TO REMOVE, just for test
+
 
 # ================================================================
 #                    CLASS: Data
@@ -125,7 +128,7 @@ class Data:
 
         # Check if there's no separator _ inside the name (if so delete it) f4001.jpg
         label = self.filename.translate(str.maketrans('', '', digits)).split(".")[0]
-        extension = ".jpg" # First default value
+        extension = ".jpg"  # First default value
 
         try:
             digits_in_name = list(filter(str.isdigit, self.filename))
@@ -149,28 +152,29 @@ class Data:
      right. 
      OUT: the image data which has been processed 
      ---------------------------------------------------------------'''
+
     def resize_image(self):
 
         with zipfile.ZipFile(MAIN_ZIP, 'r') as archive:
-
             # Get image resolution
             original_image = Image.open(BytesIO(archive.read(self.filename))).convert("RGB")
             original_res = original_image.size
 
             # ----- If Horizontal Image => Crop -----
             if original_res[1] < original_res[0]:
-                left = RATIO_HORIZ_CROP*original_res[0]
-                right = (1-RATIO_HORIZ_CROP)*original_res[0]
+                left = RATIO_HORIZ_CROP * original_res[0]
+                right = (1 - RATIO_HORIZ_CROP) * original_res[0]
                 lower = original_res[1]
                 upper = 0
                 original_image = original_image.crop(box=(left, upper, right, lower))
 
             # ----- Set the resolution -----
             resized_image = original_image.resize(RESOLUTION)
-            #plt.imshow(resized_image)
-            #plt.show()
+            # plt.imshow(resized_image)
+            # plt.show()
 
             return resized_image
+
 
 # ================================================================
 #                    CLASS: Fileset
@@ -197,7 +201,7 @@ class Fileset:
      --------------------------------------------------------------------------------'''
 
     def get_train_and_test_sets(self, diff_faces, db_train=None):
-
+        print("Training and Testing Sets Definition ... \n")
         random.Random(SEED).shuffle(self.data_list)
         training_set = Fileset()
         testing_set = Fileset()
@@ -323,7 +327,7 @@ class FaceImage():
 
 
 class Face_DS(torch.utils.data.Dataset):
-    def __init__(self, fileset, transform=TRANS, to_print=False, device="cpu", triplet_version=True):
+    def __init__(self, fileset, transform=TRANS, to_print=False, device="cpu", triplet_version=True, save=None):
 
         self.to_print = to_print
         self.transform = transforms.ToTensor() if transform is None else transform
@@ -344,6 +348,10 @@ class Face_DS(torch.utils.data.Dataset):
             self.image_data(faces_dic, device=device)
 
         self.print_data_report(faces_dic)
+        if save is not None:
+            db = MAIN_ZIP.split("/")[-1].split(".")[0]
+            pickle.dump(self, open(save + db + ".pkl", "wb"), protocol=2)
+            print("The set has been saved!\n")
 
     # You must override __getitem__ and __len__
     def __getitem__(self, index, visualization=False):
@@ -446,6 +454,24 @@ class Face_DS(torch.utils.data.Dataset):
         print(" ------------------------------------------------------------------------\n")
 
 
+'''---------------- load_sets -------------------------------- 
+This function load the training and the testing sets derived
+from the specified db, if there's any 
+-------------------------------------------------------------- '''
+
+
+def load_sets():
+    # Try to Load train and test sets that were already defined
+    db = MAIN_ZIP.split("/")[-1].split(".")[0]
+
+    with open("trainset_" + db + ".pkl", "rb") as f:
+        training_set = pickle.load(f)
+    with open("testset_" + db + ".pkl", "rb") as f:
+        testing_set = pickle.load(f)
+
+    return training_set, testing_set
+
+
 '''--------------------- from_zip_to_data --------------------------------
  This function adds to MAIN_ZIP the processed content of ZIP_TO_PROCESS
  --------------------------------------------------------------------------'''
@@ -511,7 +537,7 @@ def from_zip_to_data(with_profile):
                 else:
                     nb_entry_pers = 1
                     previous_person = fn.split("/")[1]
-            except IndexError: # case where the structure of the db isn't through folders
+            except IndexError:  # case where the structure of the db isn't through folders
                 pass
 
             new_data = Data(file_list[i], fn, MAIN_ZIP, False)
@@ -530,6 +556,5 @@ def from_zip_to_data(with_profile):
 
 
 if __name__ == "__main__":
-
-    fileset = from_zip_to_data(True)
-
+    load_sets()
+    #fileset = from_zip_to_data(True)

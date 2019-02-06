@@ -2,7 +2,7 @@ import torch
 from NeuralNetwork import TYPE_ARCH
 from Model import Model, MARGIN, DEVICE
 
-from Dataprocessing import Face_DS, from_zip_to_data, DB_TO_USE, MAIN_ZIP, CENTER_CROP
+from Dataprocessing import Face_DS, from_zip_to_data, DB_TO_USE, MAIN_ZIP, CENTER_CROP, load_sets
 from Visualization import store_in_csv
 
 #########################################
@@ -41,13 +41,7 @@ def main(loss_type=LOSS, batch_size=BATCH_SIZE, learning_rate=LEARNING_RATE, wei
     hyp_par = {"lr": learning_rate, "wd": weight_decay}
     visualization = True
 
-    # ----------------------------------------------
-    # Definition of a training and a testing set
-    # ----------------------------------------------
-
     fileset = from_zip_to_data(WITH_PROFILE)
-
-    print("Training and Testing Sets Definition ... \n")
     training_set, testing_set = fileset.get_train_and_test_sets(DIFF_FACES, db_train=DB_TRAIN)
 
     if DO_LEARN:
@@ -55,8 +49,13 @@ def main(loss_type=LOSS, batch_size=BATCH_SIZE, learning_rate=LEARNING_RATE, wei
         #  training mode
         # -----------------------
 
-        face_train = Face_DS(training_set, device=DEVICE)  # Triplet Version
-        face_test = Face_DS(testing_set, device=DEVICE)  # Triplet Version
+        try:
+            face_train, face_test = load_sets()
+            print("The training and the testing sets have been loaded!")
+        except FileNotFoundError:
+            face_train = Face_DS(training_set, device=DEVICE, save="trainset_")  # Triplet Version
+            face_test = Face_DS(testing_set, device=DEVICE, save="testset_")  # Triplet Version
+
         train_loader = torch.utils.data.DataLoader(face_train, batch_size=batch_size, shuffle=True)
         test_loader = torch.utils.data.DataLoader(face_test, batch_size=batch_size, shuffle=False)
 

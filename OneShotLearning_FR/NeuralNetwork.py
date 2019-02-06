@@ -349,6 +349,9 @@ class SoftMax_Net(nn.Module):
         #print("Losses are: " + str(str(float(self.loss_cur))) + " and " + str(float(class_weights[0] * loss_positive + class_weights[1] * loss_negative)))
         return class_weights[0] * loss_positive + class_weights[1] * loss_negative + self.loss_cur
 
+    """ ----------------------  visualize_last_output --------------------------------
+    REM: would be more relevant if the pairs of point could be identified 
+    -------------------------------------------------------------------------------- """
     def visualize_last_output(self, data, name_fig):
         out_pos, out_neg = self.forward(data)
         x = list(np.array(out_pos[:, 0].detach().cpu()))
@@ -375,14 +378,13 @@ class BasicNet(nn.Module):
         super(BasicNet, self).__init__()
 
         # ----------- For Feature Representation -----------------
-        self.conv1 = nn.Conv2d(3, 64, 7)
+        self.conv1 = nn.Conv2d(3, 64, kernel_size=7) #, padding=2)
         self.conv1_bn = nn.BatchNorm2d(64)
         self.conv2 = nn.Conv2d(64, 128, 5)
         self.conv2_bn = nn.BatchNorm2d(128)
         self.pool4 = nn.MaxPool2d(4)
-        self.conv3 = nn.Conv2d(128, 256, 5)
+        self.conv3 = nn.Conv2d(128, 256, kernel_size=5)
         self.conv3_bn = nn.BatchNorm2d(256)
-        #self.linear1 = nn.Linear(2304, DIM_LAST_LAYER)   28 - 2304 # 100 - 389376
         self.linear1 = nn.Linear(256, DIM_LAST_LAYER)
         self.dropout = nn.Dropout(P_DROPOUT)
         self.to(DEVICE)
@@ -404,7 +406,6 @@ class BasicNet(nn.Module):
         x = self.dropout(x)
         x = self.pool4(x)
 
-
         x = self.conv3(x)
         if WITH_NORM_BATCH: x = self.conv3_bn(x)
         x = f.relu(x)
@@ -425,18 +426,19 @@ class AlexNet(nn.Module):
         super(AlexNet, self).__init__()
 
         self.features = nn.Sequential(
-            nn.Conv2d(3, 64, kernel_size=7, stride=4, padding=2),
+            nn.Conv2d(3, 64, kernel_size=11, stride=4),
             nn.ReLU(inplace=True),
-            nn.MaxPool2d(kernel_size=3, stride=2),
+            nn.MaxPool2d(kernel_size=11, stride=2),
             nn.Conv2d(64, 192, kernel_size=5, padding=2),
             nn.ReLU(inplace=True),
-            nn.Conv2d(192, 384, kernel_size=3, padding=1),
+            nn.Conv2d(192, 384, kernel_size=7, padding=1),
             nn.ReLU(inplace=True),
-            nn.Conv2d(384, 256, kernel_size=3, padding=1),
+            nn.MaxPool2d(kernel_size=5, stride=2),
+            nn.Conv2d(384, 256, kernel_size=5, padding=1),
             nn.ReLU(inplace=True),
             nn.Conv2d(256, 256, kernel_size=3, padding=1),
             nn.ReLU(inplace=True),
-            nn.MaxPool2d(kernel_size=3, stride=2),
+            nn.MaxPool2d(kernel_size=5, stride=2),
         )
         self.linearization = nn.Sequential(
             nn.Dropout(),
@@ -451,7 +453,6 @@ class AlexNet(nn.Module):
 
     def forward(self, data):
         x = self.features(data.to(DEVICE))
-        #x = x.view(x.size(0), 16 * 4 * 4) 204800
         x = x.view(x.size(0), 22 * 32 * 32) # 720896 / 32 = 22528.0
         return self.linearization(x)
 

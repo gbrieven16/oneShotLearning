@@ -1,4 +1,4 @@
-Name BD;IsDiffFaces;Crop Value;Db_Train;With Pretraining;NbEpoches;BS;WD;LR; Archit;Optimizer; LossType;Weighted Classes;Loss1;Loss2;Loss3;Acc1;Acc2;Acc3
+Name BD;IsDiffFaces;Crop Value;Db_Train;With Pretraining;NbEpoches;BS;WD;LR; Archit;Optimizer; LossType;Weighted Classes;Loss1;Loss2;Loss3;f1_score1;f1_score2;f1_score3
 ds_0123456;True;28;No Specification;No;100;32;1;1;3def_batchNorm;Adam;cross_entropy;False ;1.02593994140625;1.4785494804382324;1.1189171075820923;73.0;78.0;81.0
 ds_0123456;True;28;No Specification;No;100;32;1;1;2def_drop;Adam;cross_entropy;False ;1.139466643333435;0.7855217456817627;0.7634859681129456;61.0;83.0;84.0
 ds_0123456;True;28;No Specification;No;100;32;1;1;1default;Adam;cross_entropy;False ;1.009122371673584;0.9068335890769958;1.3942216634750366;73.0;85.0;83.0
@@ -32,3 +32,5 @@ ds_0123456;True;28;;autoencoder;100;32;1;1;4AlexNet;SGD;triplet_loss;;0.8;0.7;0.
 ds_0123456;False;28;;autoencoder;100;32;1;1;1default;Adagrad;triplet_loss;True;12.13;9.39;8.2;83.0;86.0;86.0
 ds_0123456;True;100;;;100;32;1;1;4AlexNet;Adam;triplet_loss;True;19.2;7.18;8.46;79.8;83.62;86.14
 ds_0123456;True;100;;autoencoder;100;32;1;1;4AlexNet;Adam;triplet_loss;True;17.21;7.73;7.83;82.05;88.43;87.33
+ds_0123456;True;(150, 200);;;100;32;1;1;1default;Adam;triplet_loss;True;4.68;3.43;3.38;90.99;92.37;91.35
+ds_0123456;True;(150, 200);;autoencoder;100;32;1;1;1default;Adam;cross_entropy_with_cl;True;26129.8;67.31;105.49;85.73;77.61;77.84
