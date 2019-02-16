@@ -188,6 +188,10 @@ def store_in_csv(data, training, result):
     curr_evaluation = [float(result[0][0]), float(result[0][int(round(len(result[0])) / 2)]), float(result[0][-1]),
                        float(result[1][0]), float(result[1][int(round(len(result[1]) / 2))]), float(result[1][-1])]
 
+    best_f1 = float(max(result[1]))
+    best_epoch = result[1].index(best_f1)
+    print("IN STORE IN CSV: best f1 is " + str(best_f1))
+
     # titles = ["Name BD", "IsDiffFaces", "IsWithProfile", "Db_train", With Pretraining,
     #  "NbEpoches", "BS", "WD", "LR", "ArchType", "Optimizer", "LossType", "Weighted Classes",
     # "Loss1", "Loss2", "Loss3", "F11", "F12", 'F13']

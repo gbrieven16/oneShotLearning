@@ -1,9 +1,12 @@
 import torch
+import pickle
+from functools import partial
 from NeuralNetwork import TYPE_ARCH
 from Model import Model, MARGIN, DEVICE
 
 from Dataprocessing import Face_DS, from_zip_to_data, DB_TO_USE, MAIN_ZIP, CENTER_CROP, load_sets
 from Visualization import store_in_csv
+from Classification import Classifier
 
 #########################################
 #       GLOBAL VARIABLES                #
@@ -14,13 +17,13 @@ NUM_EPOCH = 100
 BATCH_SIZE = 32
 LEARNING_RATE = 0.001
 WEIGHT_DECAY = 0.001  # To control regularization
-LOSS = "triplet_loss" #"cross_entropy_with_cl"  # "constrastive_loss"   "cross_entropy" # "ce_and_tl"
+LOSS = "ce_classif" #"triplet_loss" "cross_entropy_with_cl" "constrastive_loss"
 OPTIMIZER = "Adam"  # Adagrad "SGD"
 WEIGHTED_CLASS = True
 
 SAVE_MODEL = True
-DO_LEARN = True
-PRETRAINING = None # "autoencoder" #None #
+MODE = "classifier training"
+PRETRAINING = "autoencoder"
 
 DB_TRAIN = None  # If None, the instances of the training and test sets belong to different BD
 DIFF_FACES = True  # If true, we have different faces in the training and the testing set
@@ -37,35 +40,33 @@ NAME_MODEL = "models/siameseFace" + "_ds" + used_db + (
 #       FUNCTION main                   #
 #########################################
 
-def main(loss_type=LOSS, batch_size=BATCH_SIZE, learning_rate=LEARNING_RATE, weight_decay=WEIGHT_DECAY):
-    hyp_par = {"lr": learning_rate, "wd": weight_decay}
+def main(loss_type=LOSS, batch_size=BATCH_SIZE, lr=LEARNING_RATE, wd=WEIGHT_DECAY, db_train=DB_TRAIN):
+    hyp_par = {"lr": lr, "wd": wd}
+    train_param = {"loss_type": loss_type, "hyper_par": hyp_par, "opt_type": OPTIMIZER,"weighted_class": WEIGHTED_CLASS}
     visualization = True
 
     fileset = from_zip_to_data(WITH_PROFILE)
-    training_set, testing_set = fileset.get_train_and_test_sets(DIFF_FACES, db_train=DB_TRAIN)
 
-    if DO_LEARN:
+    if MODE == "learn":
         # -----------------------
         #  training mode
         # -----------------------
+        training_set, testing_set = fileset.get_train_and_test_sets(DIFF_FACES, db_train=DB_TRAIN)
 
         try:
             face_train, face_test = load_sets()
             print("The training and the testing sets have been loaded!")
-        except FileNotFoundError:
+        except IOError:  # FileNotFoundError:
             face_train = Face_DS(training_set, device=DEVICE, save="trainset_")  # Triplet Version
             face_test = Face_DS(testing_set, device=DEVICE, save="testset_")  # Triplet Version
 
         train_loader = torch.utils.data.DataLoader(face_train, batch_size=batch_size, shuffle=True)
         test_loader = torch.utils.data.DataLoader(face_test, batch_size=batch_size, shuffle=False)
+        model = Model(train_param, train_loader=train_loader, test_loader=test_loader)
 
-        model = Model(train_loader, loss_type, tl=test_loader, hyper_par=hyp_par, opt_type=OPTIMIZER,
-                      weighted_class=WEIGHTED_CLASS)
-
-        if PRETRAINING is not None:
+        if PRETRAINING == "autoencoder":
             # ---------- Pretraining using an autoencoder or classical model --------------
-            train_data = Face_DS(training_set, device=DEVICE, triplet_version=False)
-            model.pretraining(train_data, num_epochs=NUM_EPOCH, batch_size=batch_size)
+            model.pretraining(training_set, num_epochs=NUM_EPOCH, batch_size=batch_size)
             model.train_nonpretrained(NUM_EPOCH, optimizer_type=OPTIMIZER)
 
         # ------- Model Training ---------
@@ -89,25 +90,23 @@ def main(loss_type=LOSS, batch_size=BATCH_SIZE, learning_rate=LEARNING_RATE, wei
 
             # ------- Record: Evolution of the performance ---------
             info_data = [used_db, DIFF_FACES, CENTER_CROP, DB_TRAIN]
-            info_training = [PRETRAINING, NUM_EPOCH, batch_size, weight_decay, learning_rate,
+            info_training = [PRETRAINING, NUM_EPOCH, batch_size, wd, lr,
                              TYPE_ARCH, OPTIMIZER, loss_type, WEIGHTED_CLASS, MARGIN]
             info_result = [model.losses_test["Pretrained Model"], model.f1_test["Pretrained Model"]]
             store_in_csv(info_data, info_training, info_result)
 
-    else:
-        # -----------------------
-        #  prediction mode
-        # -----------------------
+    elif MODE == "prediction":
+        # --------------------------------------------
+        #  prediction mode: 1 prediction
+        # --------------------------------------------
 
-        dataset = Face_DS(testing_set, to_print=True, device=DEVICE)
+        dataset = Face_DS(fileset, to_print=True, device=DEVICE)
 
         # batch_size = Nb of pairs you want to test
         prediction_loader = torch.utils.data.DataLoader(dataset, batch_size=1, shuffle=True)
         model = torch.load(NAME_MODEL)
 
-        # ---------------------------------------------------------------------
-        # Data: list containing the tensor representations of the 2 images
-        # ---------------------------------------------------------------------
+        # ------------ Data: list containing the tensor representations of the 2 images ---
         data = []
         should_be_the_same = False
 
@@ -127,6 +126,72 @@ def main(loss_type=LOSS, batch_size=BATCH_SIZE, learning_rate=LEARNING_RATE, wei
         else:
             print("=> PREDICTION: These two images don't represent the same person")
 
+    elif MODE == "evaluation":
+        # -----------------------------------------------------------------
+        #  Evaluation Mode (where MAIN_ZIP content is used for testing)
+        # -----------------------------------------------------------------
+
+        pickle.load = partial(pickle.load, encoding="latin1")
+        pickle.Unpickler = partial(pickle.Unpickler, encoding="latin1")
+        model_name = "models/siameseFace_ds0123456_diff_100_32_constrastive_loss.pt"
+        network = torch.load(model_name, map_location=lambda storage, loc: storage, pickle_module=pickle)
+
+        testset = Face_DS(fileset, to_print=False, device=DEVICE)
+        pred_loader = torch.utils.data.DataLoader(testset, batch_size=BATCH_SIZE, shuffle=True)
+
+        model = Model(test_loader=pred_loader, network=network)
+        print("Model Testing ...")
+        model.test()
+
+    elif MODE == "classifier training":
+        # -----------------------------------
+        # Classification Approach (baseline)
+        # -----------------------------------
+
+        # Building of the dataset
+        training_set, testing_set = fileset.get_train_and_test_sets(DIFF_FACES, db_train=DB_TRAIN, classification=True)
+
+        train_data = Face_DS(training_set, device=DEVICE, triplet_version=False)
+        test_data = Face_DS(testing_set, device=DEVICE, triplet_version=False)
+
+        train_loader = torch.utils.data.DataLoader(train_data, batch_size=BATCH_SIZE, shuffle=True)
+        test_loader = torch.utils.data.DataLoader(test_data, batch_size=BATCH_SIZE, shuffle=False)
+
+        # ------- Classifier Definition ---------
+        classifier = Classifier(train_param=train_param, test_loader=test_loader, train_loader=train_loader,
+                                nb_classes=train_data.nb_classes)
+
+        if PRETRAINING == "autoencoder":
+            # ---------- Pretraining using an autoencoder or classical model --------------
+            classifier.pretraining(training_set, num_epochs=NUM_EPOCH, batch_size=batch_size)
+            classifier.train_nonpretrained(NUM_EPOCH, optimizer_type=OPTIMIZER)
+
+        # ------- Model Training ---------
+        for epoch in range(NUM_EPOCH):
+            classifier.train(epoch)
+            classifier.test()
+
 
 if __name__ == '__main__':
     main()
+    test = 2
+
+    # -----------------------------------------------------------------------
+    # Test 1: Confusion Matrix with different db for training and testing
+    # -----------------------------------------------------------------------
+    if test == 1:
+        pickle.load = partial(pickle.load, encoding="latin1")
+        pickle.Unpickler = partial(pickle.Unpickler, encoding="latin1")
+        m_name = "models/siameseFace_ds0123456_diff_100_32_constrastive_loss.pt"
+        network = torch.load(m_name, map_location=lambda storage, loc: storage, pickle_module=pickle)
+        dbs_test = ['CASIA-WebFace.zip', "lfw.zip", "cfd.zip", "cfp.zip"]
+        for i, filename in enumerate(dbs_test):
+            fileset = from_zip_to_data(WITH_PROFILE, fname=MAIN_ZIP)
+            testset = Face_DS(fileset, to_print=False, device=DEVICE)
+            prediction_loader = torch.utils.data.DataLoader(testset, batch_size=BATCH_SIZE, shuffle=True)
+
+            model = Model(test_loader=prediction_loader, network=network)
+            print("Model Testing on " + filename + " ...")
+            model.test()
+
+

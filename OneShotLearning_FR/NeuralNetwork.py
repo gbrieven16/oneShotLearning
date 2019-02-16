@@ -22,7 +22,7 @@ TYPE_ARCH (related to the embedding Network)
 4: AlexNet architecture 
 """
 
-TYPE_ARCH = "1default" #"2def_drop" # "3def_bathNorm" #"1default"  #
+TYPE_ARCH = "1default"  # "2def_drop" # "3def_bathNorm" #"1default"  #
 DIM_LAST_LAYER = 4096 if TYPE_ARCH == "4AlexNet" else 512
 
 P_DROPOUT = 0.2  # Probability of each element to be dropped
@@ -46,9 +46,10 @@ class DistanceBased_Net(nn.Module):
         elif TYPE_ARCH == "4AlexNet":
             self.embedding_net = AlexNet()
 
-        self.dist_threshold = 0.02
+        self.dist_threshold = DIST_THRESHOLD
 
         self.to(DEVICE)
+
     '''---------------------------- get_distance --------------------------------- 
        This function gives the distance between the pairs (anchor, positive)
        and (anchor negative) based on their feature representation.
@@ -135,10 +136,10 @@ class Tripletnet(DistanceBased_Net):
     def __init__(self):
         super(Tripletnet, self).__init__()
 
-    def get_loss(self, data, target, class_weights):
+    def get_loss(self, data, target, class_weights, train=True):
         criterion = torch.nn.MarginRankingLoss(margin=MARGIN)
         distance, disturb = self.get_distance(data[0], data[2], data[1])
-        self.update_dist_threshold(distance, disturb)
+        if train: self.update_dist_threshold(distance, disturb)
 
         # 1 means, dista should be greater than distb
         target = torch.FloatTensor(distance.size()).fill_(1).to(DEVICE)
@@ -160,15 +161,15 @@ class ContrastiveLoss(DistanceBased_Net):
         super(ContrastiveLoss, self).__init__()
         self.eps = 1e-9
 
-    def get_loss(self, data, target, class_weights):
+    def get_loss(self, data, target, class_weights, train=True):
         # Increase the distance "expectation" when we need more differentiation
         factor = max(2, class_weights[1] - class_weights[0])
         distance, disturb = self.get_distance(data[0], data[2], data[1])
         loss_pos = (0.5 * disturb.pow(2))
-        loss_neg = (0.5 * f.relu(factor*DIST_THRESHOLD - distance).pow(2)) # 2*DIST_THRESHOLD = choice
+        loss_neg = (0.5 * f.relu(factor * DIST_THRESHOLD - distance).pow(2))  # 2*DIST_THRESHOLD = choice
         # loss.mean() or loss.sum()
 
-        self.update_dist_threshold(distance, disturb)
+        if train: self.update_dist_threshold(distance, disturb)
         return (class_weights[0] * loss_pos + class_weights[1] * loss_neg).mean()
 
 
@@ -270,11 +271,50 @@ class CenterLoss(nn.Module):
 
 
 # ================================================================
+#                   CLASS: Classif_Net
+# ================================================================
+
+class Classif_Net(nn.Module):
+    def __init__(self, nb_classes=10):
+        super(Classif_Net, self).__init__()
+
+        if TYPE_ARCH == "1default":
+            self.embedding_net = BasicNet()
+        elif TYPE_ARCH == "4AlexNet":
+            self.embedding_net = AlexNet()
+        else:
+            print("ERR: Not matching embedding network!")
+            raise Exception
+
+        self.final_layer = nn.Linear(DIM_LAST_LAYER, nb_classes).to(DEVICE)
+        self.loss_cur = 0
+
+    def forward(self, data):
+        return self.final_layer(self.embedding_net(data))
+
+    def predict(self, data):
+        feature_repr = self.embedding_net(data)
+        return self.output_from_embedding(feature_repr)
+
+    def output_from_embedding(self, embedding):
+        last_values = self.final_layer(embedding)
+        if not torch.cuda.is_available():
+            return torch.squeeze(torch.argmax(last_values, dim=1)).cpu().item()
+        else:
+            return torch.squeeze(torch.argmax(last_values, dim=1)).cuda().item()
+
+    def get_loss(self, data, target, class_weights, train=True):
+        outputs = self.forward(data)
+        loss = f.cross_entropy(outputs, target)
+        return loss
+
+
+# ================================================================
 #                   CLASS: SoftMax_Net
 # ================================================================
 
 class SoftMax_Net(nn.Module):
-    def __init__(self, with_center_loss=False):
+    def __init__(self, with_center_loss=False, nb_classes=2):
         super(SoftMax_Net, self).__init__()
 
         if TYPE_ARCH == "1default":
@@ -285,10 +325,10 @@ class SoftMax_Net(nn.Module):
             print("ERR: Not matching embedding network!")
             raise Exception
 
-        self.final_layer = nn.Linear(DIM_LAST_LAYER, 2).to(DEVICE)  # 2 = nb_classes
+        self.final_layer = nn.Linear(DIM_LAST_LAYER, nb_classes).to(DEVICE)
         self.loss_cur = 0
 
-        self.center_loss = CenterLoss(DIM_LAST_LAYER, 2) if with_center_loss else None
+        self.center_loss = CenterLoss(DIM_LAST_LAYER, nb_classes) if with_center_loss else None
 
     def forward(self, data):
         # Computation of the difference of the 2 feature representations
@@ -308,7 +348,6 @@ class SoftMax_Net(nn.Module):
             loss_pos = self.center_loss(disturb, target_pos)
 
             self.loss_cur = loss_neg + loss_pos
-
 
         return self.final_layer(disturb), self.final_layer(distance)
         # return self.avg_val_tensor(difference).requires_grad_(True) #
@@ -337,21 +376,24 @@ class SoftMax_Net(nn.Module):
 
         return torch.tensor(new_content)  # , grad_fn=<AddBackward0>)  #requires_grad=True)
 
-    def get_loss(self, data, target, class_weights):
+    def get_loss(self, data, target, class_weights, train=True):
 
         target = target.type(torch.LongTensor).to(DEVICE)
         target_positive = torch.squeeze(target[:, 0])  # = Only 0 here
         target_negative = torch.squeeze(target[:, 1])  # = Only 1 here
 
         output_positive, output_negative = self.forward(data)
+        print("output_pos is " + str(output_positive))
+        print("target_pos is " + str(target_positive))
         loss_positive = f.cross_entropy(output_positive, target_positive)
         loss_negative = f.cross_entropy(output_negative, target_negative)
-        #print("Losses are: " + str(str(float(self.loss_cur))) + " and " + str(float(class_weights[0] * loss_positive + class_weights[1] * loss_negative)))
+        # print("Losses are: " + str(str(float(self.loss_cur))) + " and " + str(float(class_weights[0] * loss_positive + class_weights[1] * loss_negative)))
         return class_weights[0] * loss_positive + class_weights[1] * loss_negative + self.loss_cur
 
     """ ----------------------  visualize_last_output --------------------------------
     REM: would be more relevant if the pairs of point could be identified 
     -------------------------------------------------------------------------------- """
+
     def visualize_last_output(self, data, name_fig):
         out_pos, out_neg = self.forward(data)
         x = list(np.array(out_pos[:, 0].detach().cpu()))
@@ -364,9 +406,10 @@ class SoftMax_Net(nn.Module):
         color1 = ["green" for i in range(len(out_neg[:, 0]))]
 
         plt.show()
-        plt.scatter(x, y, color=color0+color1)
+        plt.scatter(x, y, color=color0 + color1)
         plt.show()
         plt.savefig(name_fig)
+
 
 # ================================================================
 #                    CLASS: BasicNet
@@ -378,7 +421,7 @@ class BasicNet(nn.Module):
         super(BasicNet, self).__init__()
 
         # ----------- For Feature Representation -----------------
-        self.conv1 = nn.Conv2d(3, 64, kernel_size=7) #, padding=2)
+        self.conv1 = nn.Conv2d(3, 64, kernel_size=7)  # , padding=2)
         self.conv1_bn = nn.BatchNorm2d(64)
         self.conv2 = nn.Conv2d(64, 128, 5)
         self.conv2_bn = nn.BatchNorm2d(128)
@@ -453,8 +496,9 @@ class AlexNet(nn.Module):
 
     def forward(self, data):
         x = self.features(data.to(DEVICE))
-        x = x.view(x.size(0), 22 * 32 * 32) # 720896 / 32 = 22528.0
+        x = x.view(x.size(0), 22 * 32 * 32)  # 720896 / 32 = 22528.0
         return self.linearization(x)
+
 
 # ================================================================
 #                    CLASS: DecoderNet
@@ -467,7 +511,7 @@ class DecoderNet(nn.Module):
         self.dim1 = 11
         self.dim2 = 11 + (CENTER_CROP[1] - CENTER_CROP[0])
 
-        self.linear1 = nn.Linear(DIM_LAST_LAYER, self.nb_channels*self.dim1*self.dim2)
+        self.linear1 = nn.Linear(DIM_LAST_LAYER, self.nb_channels * self.dim1 * self.dim2)
         self.conv3 = nn.ConvTranspose2d(self.nb_channels, 3, CENTER_CROP[0] - (self.dim1 - 1))
         self.sig = nn.Sigmoid()  # compress to a range (0, 1)
         self.to(DEVICE)

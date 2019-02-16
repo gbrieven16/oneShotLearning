@@ -30,8 +30,8 @@ warnings.filterwarnings('ignore')
 
 if platform.system() == "Darwin":
     # if the 2th db not used, replace "yalefaces" by ""
-    DB_TO_USE = ["AberdeenCrop", "Iranian", "painCrops", "utrecht"]
-    MAIN_ZIP = 'datasets/ds0123456.zip'  # CASIA-WebFace.zip' #
+    DB_TO_USE = ["Iranian"]  # ["AberdeenCrop", "GTdbCrop", "yalefaces", "faces94", "Iranian", "painCrops", "utrecht"]
+    MAIN_ZIP = 'datasets/ds0123456.zip'  # "datasets/testdb.zip" "testdb.zip"  CASIA-WebFace.zip' #
 else:
     # if the 2th db not used, replace "yalefaces" by ""
     DB_TO_USE = ["AberdeenCrop", "GTdbCrop", "yalefaces", "faces94", "Iranian", "painCrops", "utrecht"]
@@ -48,7 +48,9 @@ EXTENSION = ".jpg"
 SEPARATOR = "_"  # !!! Format of the dabase: name[!]_id !!!
 RATION_TRAIN_SET = 0.75
 MAX_NB_ENTRY = 500000
+MIN_NB_IM_PER_PERSON = 1
 MAX_NB_IM_PER_PERSON = 20
+MIN_NB_PICT_CLASSIF = 4  # s.t. 25% is used for testing
 
 RATIO_HORIZ_CROP = 0.15
 RESOLUTION = (150, 200)
@@ -67,8 +69,8 @@ class Data:
         self.file = file
         self.filename = fn  # Picture of the person
         self.db_path = db_path
-        fn = fn.replace("/", "_")
-        self.db_source = fn.split("_")[0]
+        fn = fn.replace("/", SEPARATOR)
+        self.db_source = fn.split(SEPARATOR)[0]
 
         if to_process:
             name_person, index, extension = self.extract_info_from_name()
@@ -200,23 +202,48 @@ class Fileset:
      REM: no instantiation of the db_source variable ... 
      --------------------------------------------------------------------------------'''
 
-    def get_train_and_test_sets(self, diff_faces, db_train=None):
+    def get_train_and_test_sets(self, diff_faces, db_train=None, classification=False):
         print("Training and Testing Sets Definition ... \n")
-        random.Random(SEED).shuffle(self.data_list)
+
         training_set = Fileset()
         testing_set = Fileset()
 
-        ############################################################
+        # --------------------------------------------------------
         # CASE 1: same people in the training and the testing set
-        ############################################################
-        if not diff_faces and db_train is None:
+        # AND same number of picture/person in the training set
+        # --------------------------------------------------------
+        if classification:
+            nb_pict_train = int(round(RATION_TRAIN_SET * MIN_NB_PICT_CLASSIF))
+            curr_person = "none"  # !! Relies on the fact that pictures are ordered
+            curr_pictures = []
+            for i, data in enumerate(self.data_list):
+                if curr_person == data.name_person:
+                    curr_pictures.append(data)
+                else:
+                    # -------- Add to the training and testing sets the data related to the current person -------
+                    if MIN_NB_PICT_CLASSIF <= len(curr_pictures):
+                        j = 0
+                        while j < nb_pict_train:
+                            training_set.data_list.append(curr_pictures.pop())
+                            j += 1
+                        testing_set.data_list.extend(curr_pictures)
+                    # ------- Reset Setting ------------
+                    curr_person = data.name_person
+                    curr_pictures = [data]
+
+        # -------------------------------------------------------
+        # CASE 2: same people in the training and the testing set
+        # -------------------------------------------------------
+        elif not diff_faces and db_train is None:
+            random.Random(SEED).shuffle(self.data_list)
             training_set.data_list = self.data_list[:int(round(RATION_TRAIN_SET * len(self.data_list)))]
             testing_set.data_list = self.data_list[int(round(RATION_TRAIN_SET * len(self.data_list))):]
 
-        ##############################################################
-        # CASE 2: different people in the training and the testing set
-        ##############################################################
+        # -------------------------------------------------------------
+        # CASE 3: different people in the training and the testing set
+        # -------------------------------------------------------------
         elif db_train is None:
+            random.Random(SEED).shuffle(self.data_list)
             # Get all the names of the people in the ds
             all_labels = set()
             for i, data in enumerate(self.data_list):
@@ -231,9 +258,9 @@ class Fileset:
                 else:
                     testing_set.data_list.append(data)
 
-        ##############################################################
-        # CASE 3: Specific DB for training and testing sets
-        ##############################################################
+        # -------------------------------------------------------
+        # CASE 4: Specific DB for training and testing sets
+        # -------------------------------------------------------
         else:
             for i, data in enumerate(self.data_list):
                 if data.db_path in db_train:
@@ -252,14 +279,15 @@ class Fileset:
      the list of their pictures as FaceImage object
      ----------------------------------------------------------------------- '''
 
-    def order_per_personName(self, transform, nb_people=None, max_nb_pictures=MAX_NB_IM_PER_PERSON):
+    def order_per_personName(self, transform, nb_people=None, max_nb_pict=MAX_NB_IM_PER_PERSON,
+                             min_nb_pict=MIN_NB_IM_PER_PERSON):
 
         faces_dic = {}
         random.Random(SEED).shuffle(self.data_list)
 
-        #################################
+        # --------------------------------
         # Order the picture per label
-        #################################
+        # --------------------------------
         for i, data in enumerate(self.data_list):
             personNames = data.name_person
             res_image = data.resize_image()
@@ -267,11 +295,15 @@ class Fileset:
             img = FaceImage(data.filename, formatted_image)
 
             try:
-                if len(faces_dic[personNames]) < max_nb_pictures:
+                if len(faces_dic[personNames]) < max_nb_pict:
                     faces_dic[personNames].append(img)
             except KeyError:
                 if nb_people is None or len(faces_dic) < nb_people:
                     faces_dic[personNames] = [img]
+
+        # --- Remove element where value doesn't contain enough pictures -----
+        faces_dic = {label: pictures for label, pictures in faces_dic.items() if min_nb_pict <= len(pictures)}
+
         return faces_dic
 
     '''---------------------------- ds_to_zip --------------------------------
@@ -337,6 +369,7 @@ class Face_DS(torch.utils.data.Dataset):
 
         self.train_data = []
         self.train_labels = []
+        self.nb_classes = 0
 
         # ------ Build triplet supporting the dataset (ensures balanced classes) --------
         if triplet_version:
@@ -425,16 +458,22 @@ class Face_DS(torch.utils.data.Dataset):
         # self.train_data = torch.stack(self.train_data)
         self.train_labels = torch.tensor(self.train_labels).to(device)
 
-    """ --------------------- image_data ------------------------------------  """
+    """ --------------------- image_data ------------------------------------
+      This function set data by filling it with the pictures contained in 
+      face_dic (that are the elements in the values)
+      --------------------------------------------------------------------- """
 
     def image_data(self, faces_dic, device="cpu"):
 
+        label_nb = 0
         # ========= Consider each person =================
         for label, pictures_list in faces_dic.items():
             # ======== Consider each picture of each person ==========
             for i, picture in enumerate(pictures_list):
                 self.train_data.append(picture.trans_img.to(device))
-                self.train_labels.append(1)
+                self.train_labels.append(label_nb)
+            label_nb += 1
+        self.nb_classes = len(faces_dic)
         self.train_labels = torch.tensor(self.train_labels).to(device)
 
     """ ---------------------------------- print_data_report ------------------------------------  """
@@ -495,20 +534,20 @@ def include_data_to_zip():
     dataset.ds_to_zip()
 
 
-'''----------------------------- from_zip_to_data --------------------------------
+'''----------------------------- from_zip_to_data --------------------------------------------
  This function turns the content of the MAIN ZIP into a Fileset object
  !! 2 possible structures inside the main zip: 
  1. set of files whose name is like dbOrigin_person_id.jpg
- 2. set of folder (related to each person) containing files whose name is id.jpg
- ---------------------------------------------------------------------------------'''
+ 2. a folder containing folders (related to each person) containing files whose name is id.jpg
+ ---------------------------------------------------------------------------------------------'''
 
 
-def from_zip_to_data(with_profile):
+def from_zip_to_data(with_profile, fname=MAIN_ZIP):
     t = time.time()
     dataset = Fileset()
 
     print("\nData Loading ...")
-    with zipfile.ZipFile(MAIN_ZIP, 'r') as archive:
+    with zipfile.ZipFile(fname, 'r') as archive:
         file_names = archive.namelist()
         file_list = archive.filelist
 
@@ -517,7 +556,7 @@ def from_zip_to_data(with_profile):
         previous_person = ""
         go_to_next_folder = False
 
-        # Create data from each image and add it to the dataset
+        # ------ Create data from each image and add it to the dataset ----
         for i, fn in enumerate(file_names):  # fn = name[!]_id.extension
             if fn[-1] == "/":
                 go_to_next_folder = False
@@ -556,5 +595,9 @@ def from_zip_to_data(with_profile):
 
 
 if __name__ == "__main__":
-    load_sets()
-    #fileset = from_zip_to_data(True)
+    # load_sets()
+    fileset = from_zip_to_data(False)
+    training_set, testing_set = fileset.get_train_and_test_sets(True)
+
+    face_train = Face_DS(training_set, save="trainset_")  # Triplet Version
+    face_test = Face_DS(testing_set, save="testset_")  # Triplet Version

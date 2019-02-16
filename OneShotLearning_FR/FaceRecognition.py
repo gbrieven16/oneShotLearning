@@ -1,7 +1,7 @@
 from random import shuffle, randint
 import torch
-from Dataprocessing import from_zip_to_data
-from Main import TRANS, WITH_PROFILE, NAME_MODEL
+from Dataprocessing import from_zip_to_data, TRANS
+from Main import WITH_PROFILE, NAME_MODEL
 
 # ================================================================
 #                   GLOBAL VARIABLES
