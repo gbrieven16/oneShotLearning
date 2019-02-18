@@ -1,7 +1,7 @@
 import torch
 import os
 import pickle
-from NeuralNetwork import Classif_Net, AutoEncoder, TYPE_ARCH
+from NeuralNetwork import Classif_Net, AutoEncoder_Net, TYPE_ARCH
 from Visualization import visualization_test, visualization_train
 from Dataprocessing import Face_DS
 from torch import nn

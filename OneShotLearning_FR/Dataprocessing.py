@@ -30,8 +30,8 @@ warnings.filterwarnings('ignore')
 
 if platform.system() == "Darwin":
     # if the 2th db not used, replace "yalefaces" by ""
-    DB_TO_USE = None  # ["AberdeenCrop", "GTdbCrop", "yalefaces", "faces94", "Iranian", "painCrops", "utrecht"]
-    MAIN_ZIP = 'datasets/lfw.zip' #ds0123456.zip'#cfp.zip  # "testdb.zip"  CASIA-WebFace.zip' #
+    DB_TO_USE = ["Iranian"] #, "GTdbCrop", "yalefaces", "faces94", "Iranian", "painCrops", "utrecht"]
+    MAIN_ZIP = 'datasets/ds0123456.zip'  # cfp.zip  # "testdb.zip"  CASIA-WebFace.zip' #
 else:
     # if the 2th db not used, replace "yalefaces" by ""
     DB_TO_USE = ["AberdeenCrop", "GTdbCrop", "yalefaces", "faces94", "Iranian", "painCrops", "utrecht"]
@@ -46,11 +46,12 @@ NB_DIGIT_IN_ID = 1
 SEED = 4  # When data is shuffled
 EXTENSION = ".jpg"
 SEPARATOR = "_"  # !!! Format of the dabase: name[!]_id !!!
-RATION_TRAIN_SET = 1 # TO RESET !! 0.75
+RATION_TRAIN_SET = 1  # TO RESET !! 0.75
 MAX_NB_ENTRY = 500000
 MIN_NB_IM_PER_PERSON = 2
 MAX_NB_IM_PER_PERSON = 20
 MIN_NB_PICT_CLASSIF = 4  # s.t. 25% is used for testing
+NB_TRIPLET_PER_PICT = 5
 
 RATIO_HORIZ_CROP = 0.15
 RESOLUTION = (150, 200)
@@ -161,7 +162,7 @@ class Data:
             # Get image resolution
             original_image = Image.open(BytesIO(archive.read(self.filename))).convert("RGB")
             original_res = original_image.size
-            #print("original res is: " + str(original_res))
+            # print("original res is: " + str(original_res))
 
             # ----- If Horizontal Image => Crop -----
             if original_res[1] < original_res[0]:
@@ -309,7 +310,6 @@ class Fileset:
         # --- Remove element where value doesn't contain enough pictures -----
         faces_dic = {label: pictures for label, pictures in faces_dic.items() if min_nb_pict <= len(pictures)}
 
-
         return faces_dic
 
     '''---------------------------- ds_to_zip --------------------------------
@@ -428,39 +428,53 @@ class Face_DS(torch.utils.data.Dataset):
             Label = 0 if same people
             Label = 1 if different people
         --------------------------------------------------- """
-
+        print("In triplet building...")
+        print("face dic is " + str(faces_dic))
         all_labels = list(faces_dic.keys())
         nb_labels = len(all_labels)
 
         # ================= Consider each person =================
         for label, pictures_list in faces_dic.items():
-            pic_ind_pos = list(range(len(pictures_list)))
-            shuffle(pic_ind_pos)
             labels_indexes_neg = [x for x in range(0, nb_labels) if x != all_labels.index(label)]
+            pos_pict_lists = []
 
             # ================= Consider each picture of the person =================
             for i, picture_ref in enumerate(pictures_list):
+                pos_pict_list = []
+                pic_ind_pos = list(range(len(pictures_list)))
 
-                try:
-                    if not picture_ref.isIqual(pictures_list[pic_ind_pos[-1]]):
-                        picture_positive = pictures_list[pic_ind_pos.pop()]
-                    else:
-                        picture_positive = pictures_list[pic_ind_pos.pop(-2)]
-                except IndexError:
-                    # !! Means that the current label has no remaining other picture !!
-                    break
+                # ================= Consider several times the ref picture =================
+                for j in range(NB_TRIPLET_PER_PICT):  # !! TO CHECK with very small db
+                    try:
+                        curr_index_pos = random.choice(pic_ind_pos)
 
-                # Pick a random different person
-                label_neg = all_labels[random.choice(labels_indexes_neg)]
-                picture_negative = random.choice(faces_dic[label_neg])
+                        while (picture_ref.isIqual(pictures_list[curr_index_pos]) or
+                                   (curr_index_pos < i and i in pos_pict_lists[curr_index_pos])):
+                            pic_ind_pos.remove(curr_index_pos)
+                            curr_index_pos = random.choice(pic_ind_pos)
 
-                # To keep track of the image itself in order to potentially print it
-                self.train_not_formatted_data.append([picture_ref, picture_positive, picture_negative])
+                    except IndexError:
+                        # !! Means that the current label has no remaining other picture
+                        # (empty sequence of available index)
+                        break
 
-                self.train_data.append([picture_ref.trans_img.to(device), picture_positive.trans_img.to(device),
-                                        picture_negative.trans_img.to(device)])
+                    picture_positive = pictures_list[curr_index_pos]
+                    pic_ind_pos.remove(curr_index_pos)
+                    pos_pict_list.append(curr_index_pos)  # Remember the pairs that are defined to avoid redundancy
 
-                self.train_labels.append([0, 1])
+                    # Pick a random different person
+                    label_neg = all_labels[random.choice(labels_indexes_neg)]
+                    picture_negative = random.choice(faces_dic[label_neg])
+
+                    # To keep track of the image itself in order to potentially print it
+                    self.train_not_formatted_data.append([picture_ref, picture_positive, picture_negative])
+
+                    self.train_data.append([picture_ref.trans_img.to(device), picture_positive.trans_img.to(device),
+                                            picture_negative.trans_img.to(device)])
+
+                    self.train_labels.append([0, 1])
+
+                pos_pict_lists.append(pos_pict_list)
 
         # self.train_data = torch.stack(self.train_data)
         self.train_labels = torch.tensor(self.train_labels).to(device)
@@ -498,6 +512,7 @@ class Face_DS(torch.utils.data.Dataset):
         print("The number of pictures per person is between: " + str(min_nb_pictures) + " and " + str(max_nb_pictures))
         print("The average number of pictures per person is: " + str(sum(pictures_nbs) / len(pictures_nbs)))
         print(" ------------------------------------------------------------------------\n")
+
 
 # ================================================================
 #                    FUNCTIONS
@@ -605,6 +620,7 @@ def from_zip_to_data(with_profile, fname=MAIN_ZIP):
     print(str(len(dataset.data_list)) + " pictures have been loaded!\n")
     return dataset
 
+
 # ================================================================
 #                    MAIN
 # ================================================================
@@ -614,4 +630,3 @@ if __name__ == "__main__":
     fileset = from_zip_to_data(False)
     training_set, _ = fileset.get_train_and_test_sets(False)
     ts = Face_DS(training_set)  # Triplet Version
-

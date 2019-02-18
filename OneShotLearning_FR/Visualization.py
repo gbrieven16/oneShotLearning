@@ -178,7 +178,7 @@ IN: List of information to record about:
 -------------------------------------------------------------------'''
 
 
-def store_in_csv(data, training, result):
+def store_in_csv(data, training, result, train_time):
 
     if training[-2] == "triplet_loss":
         training[-2] = training[-2] + "_" + str(training[-1])
@@ -194,12 +194,12 @@ def store_in_csv(data, training, result):
 
     # titles = ["Name BD", "IsDiffFaces", "IsWithProfile", "Db_train", With Pretraining,
     #  "NbEpoches", "BS", "WD", "LR", "ArchType", "Optimizer", "LossType", "Weighted Classes",
-    # "Loss1", "Loss2", "Loss3", "F11", "F12", 'F13', "F1Best", epochBest]
+    # "Loss1", "Loss2", "Loss3", "F11", "F12", 'F13', "F1Best", epochBest, train_time]
 
     with open(CSV_NAME, 'a') as f:
         writer = csv.writer(f, delimiter=";")
         # writer.writerow(titles)
-        writer.writerow(curr_parameters + curr_evaluation + best_f1 + best_epoch)
+        writer.writerow(curr_parameters + curr_evaluation + best_f1 + best_epoch + str(train_time))
 
 
 '''------------------ visualization_train -------------------------------------------

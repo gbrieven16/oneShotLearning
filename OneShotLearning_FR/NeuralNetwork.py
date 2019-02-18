@@ -527,11 +527,11 @@ class DecoderNet(nn.Module):
 
 
 # ================================================================
-#                    CLASS: AutoEncoder
+#                    CLASS: AutoEncoder_Net
 # ================================================================
-class AutoEncoder(nn.Module):
+class AutoEncoder_Net(nn.Module):
     def __init__(self, embeddingNet):
-        super(AutoEncoder, self).__init__()
+        super(AutoEncoder_Net, self).__init__()
 
         self.encoder = embeddingNet
         self.decoder = DecoderNet()

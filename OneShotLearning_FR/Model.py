@@ -1,7 +1,7 @@
 import torch
 import os
 import pickle
-from NeuralNetwork import Tripletnet, ContrastiveLoss, SoftMax_Net, AutoEncoder, TYPE_ARCH
+from NeuralNetwork import Tripletnet, ContrastiveLoss, SoftMax_Net, AutoEncoder_Net, TYPE_ARCH
 from Visualization import visualization_test, visualization_train
 from Dataprocessing import Face_DS
 from torch import nn
@@ -62,7 +62,7 @@ class Model:
         elif train_param["loss_type"] == "constrastive_loss":
             self.network = ContrastiveLoss()
         elif train_param["loss_type"] is None:
-            self.network = AutoEncoder(embedding_net)
+            self.network = AutoEncoder_Net(embedding_net)
         elif train_param["loss_type"][:len("cross_entropy")] == "cross_entropy":
             self.network = SoftMax_Net() if len(train_param["loss_type"]) == len("cross_entropy") else SoftMax_Net(
                 with_center_loss=True)

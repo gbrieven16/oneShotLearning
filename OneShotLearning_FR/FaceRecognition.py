@@ -26,13 +26,14 @@ class FaceRecognition:
 
         # ------- Get data (from MAIN_ZIP) --------------
         fileset = from_zip_to_data(WITH_PROFILE)
-        self.gallery = fileset.order_per_personName(TRANS, nb_people=SIZE_GALLERY, same_nb_pict=True)
-        people_gallery = list(self.gallery.keys())
         self.probes = []  # list of 10 lists of lists (person, picture, index_pict)
         self.not_probes = []  # list of of 10 lists of people not in probe (so that one of their picture is missed)
 
         # ------- Build NB_REPET probes --------------
         for rep_index in range(NB_REPET):
+            self.gallery = fileset.order_per_personName(TRANS, nb_people=SIZE_GALLERY, same_nb_pict=True)
+            people_gallery = list(self.gallery.keys())
+            print("People Gallery is " + str(people_gallery))
             # Pick different people (s.t. the test pictures are related to different people)
             shuffle(people_gallery)
 
@@ -63,7 +64,7 @@ class FaceRecognition:
         nb_mistakes_dist = 0
         nb_correct_dist = 0
 
-        detailed_print = False
+        detailed_print = True
 
         # --- Go through each probe --- #
         for i, probe in enumerate(self.probes[index]):  # [[[person, picture, index], [person, picture, index]], [[
@@ -131,13 +132,13 @@ class FaceRecognition:
             else:
                 if detailed_print: print("The person wasn't recognized!\n")
                 nb_not_recognized += 1
-        print("\n -------------------------------------------------------------------------------------")
+        print("\n------------------------------------------------------------------")
         print("Report: " + str(nb_correct) + " correct, " + str(nb_mistakes) + " wrong, " + str(
             nb_not_recognized) + " undefined recognitions")
 
         print("Report with Distance: " + str(nb_correct_dist) + " correct, " + str(nb_mistakes_dist) + " wrong, " + str(
             nb_not_recognized) + " undefined recognitions")
-        print(" ---------------------------------------------------------------------------------------\n")
+        print("------------------------------------------------------------------\n")
 
         return nb_correct, nb_mistakes, nb_correct_dist, nb_mistakes_dist
 
@@ -165,7 +166,7 @@ def get_distance(feature_repr1, feature_repr2):
 # ================================================================
 
 if __name__ == '__main__':
-    fr = FaceRecognition("models/siameseFace_ds0123456_diff_100_32_cross_entropy_with_cl.pt")
+    fr = FaceRecognition("models/siameseFace_ds0123456_diff_100_32_triplet_loss.pt")
 
     # ------- Accumulators Definition --------------
     acc_nb_correct = 0

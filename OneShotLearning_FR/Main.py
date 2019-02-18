@@ -1,4 +1,5 @@
 import torch
+import time
 import pickle
 from functools import partial
 from NeuralNetwork import TYPE_ARCH
@@ -23,7 +24,7 @@ WEIGHTED_CLASS = True
 
 SAVE_MODEL = True
 MODE = "learn"  # "classifier training"
-PRETRAINING = "autoencoder"
+PRETRAINING = "autoencoder" #"autoencoder_only"
 
 DB_TRAIN = None  # If None, the instances of the training and test sets belong to different BD
 DIFF_FACES = True  # If true, we have different faces in the training and the testing set
@@ -32,21 +33,21 @@ WITH_PROFILE = False  # True if both frontally and in profile people
 used_db = MAIN_ZIP.split("/")[-1] if DB_TO_USE is None else "".join(
     [str(i) for i, db in enumerate(DB_TO_USE) if db != ""])
 
-NAME_MODEL = "models/siameseFace" + "_ds" + used_db + (
-    "_diff_" if DIFF_FACES else "_same_") + str(NUM_EPOCH) + "_" + str(BATCH_SIZE) + "_" + LOSS + ".pt"
+NAME_MODEL = "models/" + "ds" + used_db + ("_diff_" if DIFF_FACES else "_same_") \
+             + str(NUM_EPOCH) + "_" + str(BATCH_SIZE) + "_" + LOSS + "_pretrain" + PRETRAINING + ".pt"
 
 
 #########################################
 #       FUNCTION main                   #
 #########################################
 
-def main(loss_type=LOSS, batch_size=BATCH_SIZE, lr=LEARNING_RATE, wd=WEIGHT_DECAY, db_train=DB_TRAIN, fname=None):
+def main(loss_type=LOSS, batch_size=BATCH_SIZE, lr=LEARNING_RATE, wd=WEIGHT_DECAY, db_train=DB_TRAIN, fnames=None):
     hyp_par = {"lr": lr, "wd": wd}
     train_param = {"loss_type": loss_type, "hyper_par": hyp_par, "opt_type": OPTIMIZER,
                    "weighted_class": WEIGHTED_CLASS}
     visualization = True
 
-    fileset = from_zip_to_data(WITH_PROFILE, fname=fname)
+    fileset = from_zip_to_data(WITH_PROFILE, fnames=fnames)
 
     if MODE == "learn":
         # -----------------------
@@ -65,22 +66,25 @@ def main(loss_type=LOSS, batch_size=BATCH_SIZE, lr=LEARNING_RATE, wd=WEIGHT_DECA
         test_loader = torch.utils.data.DataLoader(face_test, batch_size=batch_size, shuffle=False)
         model = Model(train_param, train_loader=train_loader, test_loader=test_loader)
 
-        if PRETRAINING == "autoencoder":
+        time_init = time.time()
+
+        if PRETRAINING == "autoencoder" or PRETRAINING == "autoencoder_only":
             # ---------- Pretraining using an autoencoder or classical model --------------
             model.pretraining(training_set, num_epochs=NUM_EPOCH, batch_size=batch_size)
             model.train_nonpretrained(NUM_EPOCH, optimizer_type=OPTIMIZER)
 
         # ------- Model Training ---------
-        for epoch in range(NUM_EPOCH):
-            model.train(epoch)
-            model.test()
+        if PRETRAINING != "autoencoder_only":
+            for epoch in range(NUM_EPOCH):
+                model.train(epoch)
+                model.test()
 
-            # --------- STOP if no relevant learning after some epoch ----------
-            curr_avg_f1 = sum(model.f1_test["Pretrained Model"]) / len(model.f1_test["Pretrained Model"])
-            if False and 14 < epoch and curr_avg_f1 < 55:
-                print("The f1 measure is bad => Stop Training")
-                visualization = False
-                break
+                # --------- STOP if no relevant learning after some epoch ----------
+                curr_avg_f1 = sum(model.f1_test["Pretrained Model"]) / len(model.f1_test["Pretrained Model"])
+                if False and 14 < epoch and curr_avg_f1 < 55:
+                    print("The f1 measure is bad => Stop Training")
+                    visualization = False
+                    break
 
         # ------- Model Saving ---------
         if SAVE_MODEL: model.save_model(NAME_MODEL, testing_set)
@@ -94,7 +98,7 @@ def main(loss_type=LOSS, batch_size=BATCH_SIZE, lr=LEARNING_RATE, wd=WEIGHT_DECA
             info_training = [PRETRAINING, NUM_EPOCH, batch_size, wd, lr,
                              TYPE_ARCH, OPTIMIZER, loss_type, WEIGHTED_CLASS, MARGIN]
             info_result = [model.losses_test["Pretrained Model"], model.f1_test["Pretrained Model"]]
-            store_in_csv(info_data, info_training, info_result)
+            store_in_csv(info_data, info_training, info_result, time.time()-time_init)
 
     elif MODE == "prediction":
         # --------------------------------------------
@@ -180,21 +184,21 @@ def load_model(model_name):
 
 
 if __name__ == '__main__':
-    main()
-    test = 2
+    #main()
+    test = 1
 
     # -----------------------------------------------------------------------
     # Test 1: Confusion Matrix with different db for training and testing
     # -----------------------------------------------------------------------
     if test == 1:
-        network = load_model("models/siameseFace_ds0123456_diff_100_32_constrastive_loss.pt")
+        network = load_model("models/siameseFace_ds0123456_diff_100_32_triplet_loss.pt")
 
-        for i, filename in enumerate(['CASIA-WebFace.zip', "lfw.zip", "cfp.zip"]):
-            fileset = from_zip_to_data(WITH_PROFILE, fname=MAIN_ZIP)
+        for i, filename in enumerate(["ds0123456.zip"]): #"['CASIA-WebFace.zip', "lfw.zip", "cfp.zip"]):
+            fileset = from_zip_to_data(WITH_PROFILE, fname="datasets/" + filename)
             testset = Face_DS(fileset, to_print=False, device=DEVICE)
-            prediction_loader = torch.utils.data.DataLoader(testset, batch_size=BATCH_SIZE, shuffle=True)
+            predic_loader = torch.utils.data.DataLoader(testset, batch_size=BATCH_SIZE, shuffle=True)
 
-            model = Model(test_loader=prediction_loader, network=network)
+            model = Model(test_loader=predic_loader, network=network)
             print("Model Testing on " + filename + " ...")
             model.test()
 
@@ -211,9 +215,18 @@ if __name__ == '__main__':
     # -----------------------------------------------------------------------
     if test == 3:
         SAVE_MODEL = True
-        db_train = ["cfp.zip", "testdb.zip", "testdb.zip"]
+        db_train = ["cfp.zip", "lfw.zip", "testdb.zip"]
         for i, curr_db in enumerate(db_train):
             main(db_train=curr_db)
+
+    # -----------------------------------------------------------------------
+    # Test 4: Train embedding network using an autoencoder and directly test
+    #         face recognition
+    # -----------------------------------------------------------------------
+    if test == 4:
+        PRETRAINING = "autoencoder_only"
+        main()
+        # => Go in FaceRecognition to test
 
 
 
