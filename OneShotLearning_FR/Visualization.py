@@ -194,12 +194,12 @@ def store_in_csv(data, training, result):
 
     # titles = ["Name BD", "IsDiffFaces", "IsWithProfile", "Db_train", With Pretraining,
     #  "NbEpoches", "BS", "WD", "LR", "ArchType", "Optimizer", "LossType", "Weighted Classes",
-    # "Loss1", "Loss2", "Loss3", "F11", "F12", 'F13']
+    # "Loss1", "Loss2", "Loss3", "F11", "F12", 'F13', "F1Best", epochBest]
 
     with open(CSV_NAME, 'a') as f:
         writer = csv.writer(f, delimiter=";")
         # writer.writerow(titles)
-        writer.writerow(curr_parameters + curr_evaluation)
+        writer.writerow(curr_parameters + curr_evaluation + best_f1 + best_epoch)
 
 
 '''------------------ visualization_train -------------------------------------------

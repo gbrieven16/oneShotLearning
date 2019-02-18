@@ -281,5 +281,9 @@ class Classifier:
             self.network.visualize_last_output(next(iter(self.test_loader))[0], name_fig + "outputVis")
 
 
+# ================================================================
+#                    MAIN
+# ================================================================
+
 if __name__ == '__main__':
     pass

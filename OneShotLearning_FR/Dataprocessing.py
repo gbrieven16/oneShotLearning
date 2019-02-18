@@ -30,8 +30,8 @@ warnings.filterwarnings('ignore')
 
 if platform.system() == "Darwin":
     # if the 2th db not used, replace "yalefaces" by ""
-    DB_TO_USE = ["Iranian"]  # ["AberdeenCrop", "GTdbCrop", "yalefaces", "faces94", "Iranian", "painCrops", "utrecht"]
-    MAIN_ZIP = 'datasets/ds0123456.zip'  # "datasets/testdb.zip" "testdb.zip"  CASIA-WebFace.zip' #
+    DB_TO_USE = None  # ["AberdeenCrop", "GTdbCrop", "yalefaces", "faces94", "Iranian", "painCrops", "utrecht"]
+    MAIN_ZIP = 'datasets/lfw.zip' #ds0123456.zip'#cfp.zip  # "testdb.zip"  CASIA-WebFace.zip' #
 else:
     # if the 2th db not used, replace "yalefaces" by ""
     DB_TO_USE = ["AberdeenCrop", "GTdbCrop", "yalefaces", "faces94", "Iranian", "painCrops", "utrecht"]
@@ -40,15 +40,15 @@ else:
 if MAIN_ZIP.split("/")[-1] == 'CASIA-WebFace.zip':
     DB_TO_USE = None
 
-ZIP_TO_PROCESS = 'datasets/utrecht.zip'  # aber&GTdb_crop.zip'
+ZIP_TO_PROCESS = 'datasets/cfp.zip'  # aber&GTdb_crop.zip'
 NB_DIGIT_IN_ID = 1
 
 SEED = 4  # When data is shuffled
 EXTENSION = ".jpg"
 SEPARATOR = "_"  # !!! Format of the dabase: name[!]_id !!!
-RATION_TRAIN_SET = 0.75
+RATION_TRAIN_SET = 1 # TO RESET !! 0.75
 MAX_NB_ENTRY = 500000
-MIN_NB_IM_PER_PERSON = 1
+MIN_NB_IM_PER_PERSON = 2
 MAX_NB_IM_PER_PERSON = 20
 MIN_NB_PICT_CLASSIF = 4  # s.t. 25% is used for testing
 
@@ -161,6 +161,7 @@ class Data:
             # Get image resolution
             original_image = Image.open(BytesIO(archive.read(self.filename))).convert("RGB")
             original_res = original_image.size
+            #print("original res is: " + str(original_res))
 
             # ----- If Horizontal Image => Crop -----
             if original_res[1] < original_res[0]:
@@ -280,7 +281,7 @@ class Fileset:
      ----------------------------------------------------------------------- '''
 
     def order_per_personName(self, transform, nb_people=None, max_nb_pict=MAX_NB_IM_PER_PERSON,
-                             min_nb_pict=MIN_NB_IM_PER_PERSON):
+                             min_nb_pict=MIN_NB_IM_PER_PERSON, same_nb_pict=False):
 
         faces_dic = {}
         random.Random(SEED).shuffle(self.data_list)
@@ -301,8 +302,13 @@ class Fileset:
                 if nb_people is None or len(faces_dic) < nb_people:
                     faces_dic[personNames] = [img]
 
+        if same_nb_pict:
+            pictures_nbs = [len(pictures_list) for person_name, pictures_list in faces_dic.items()]
+            min_nb_pict = min(pictures_nbs)
+
         # --- Remove element where value doesn't contain enough pictures -----
         faces_dic = {label: pictures for label, pictures in faces_dic.items() if min_nb_pict <= len(pictures)}
+
 
         return faces_dic
 
@@ -365,6 +371,7 @@ class Face_DS(torch.utils.data.Dataset):
         self.transform = transforms.ToTensor() if transform is None else transform
 
         faces_dic = fileset.order_per_personName(self.transform)
+
         # print("after transformation" + str(faces_dic['faces94jdbenm'][0]))
 
         self.train_data = []
@@ -383,7 +390,7 @@ class Face_DS(torch.utils.data.Dataset):
         self.print_data_report(faces_dic)
         if save is not None:
             db = MAIN_ZIP.split("/")[-1].split(".")[0]
-            pickle.dump(self, open(save + db + ".pkl", "wb"), protocol=2)
+            pickle.dump(self, open("datasets/" + save + db + ".pkl", "wb"), protocol=2)
             print("The set has been saved!\n")
 
     # You must override __getitem__ and __len__
@@ -483,7 +490,7 @@ class Face_DS(torch.utils.data.Dataset):
         # Report about the quantity of data
         pictures_nbs = [len(pictures_list) for person_name, pictures_list in faces_dic.items()]
         max_nb_pictures = max(pictures_nbs)
-        min_nb_pictures = 1
+        min_nb_pictures = min(pictures_nbs)
 
         print("\n ---------------- Report about the quantity of data  -------------------- ")
         print("The total quantity of pairs used as data is: " + str(2 * len(self.train_labels)))
@@ -491,6 +498,10 @@ class Face_DS(torch.utils.data.Dataset):
         print("The number of pictures per person is between: " + str(min_nb_pictures) + " and " + str(max_nb_pictures))
         print("The average number of pictures per person is: " + str(sum(pictures_nbs) / len(pictures_nbs)))
         print(" ------------------------------------------------------------------------\n")
+
+# ================================================================
+#                    FUNCTIONS
+# ================================================================
 
 
 '''---------------- load_sets -------------------------------- 
@@ -503,15 +514,15 @@ def load_sets():
     # Try to Load train and test sets that were already defined
     db = MAIN_ZIP.split("/")[-1].split(".")[0]
 
-    with open("trainset_" + db + ".pkl", "rb") as f:
+    with open("datasets/trainset_" + db + ".pkl", "rb") as f:
         training_set = pickle.load(f)
-    with open("testset_" + db + ".pkl", "rb") as f:
+    with open("datasets/testset_" + db + ".pkl", "rb") as f:
         testing_set = pickle.load(f)
 
     return training_set, testing_set
 
 
-'''--------------------- from_zip_to_data --------------------------------
+'''--------------------- include_data_to_zip --------------------------------
  This function adds to MAIN_ZIP the processed content of ZIP_TO_PROCESS
  --------------------------------------------------------------------------'''
 
@@ -545,6 +556,7 @@ def include_data_to_zip():
 def from_zip_to_data(with_profile, fname=MAIN_ZIP):
     t = time.time()
     dataset = Fileset()
+    if fname is None: fname = MAIN_ZIP
 
     print("\nData Loading ...")
     with zipfile.ZipFile(fname, 'r') as archive:
@@ -593,11 +605,13 @@ def from_zip_to_data(with_profile, fname=MAIN_ZIP):
     print(str(len(dataset.data_list)) + " pictures have been loaded!\n")
     return dataset
 
+# ================================================================
+#                    MAIN
+# ================================================================
+
 
 if __name__ == "__main__":
-    # load_sets()
     fileset = from_zip_to_data(False)
-    training_set, testing_set = fileset.get_train_and_test_sets(True)
+    training_set, _ = fileset.get_train_and_test_sets(False)
+    ts = Face_DS(training_set)  # Triplet Version
 
-    face_train = Face_DS(training_set, save="trainset_")  # Triplet Version
-    face_test = Face_DS(testing_set, save="testset_")  # Triplet Version

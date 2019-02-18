@@ -17,12 +17,12 @@ NUM_EPOCH = 100
 BATCH_SIZE = 32
 LEARNING_RATE = 0.001
 WEIGHT_DECAY = 0.001  # To control regularization
-LOSS = "ce_classif" #"triplet_loss" "cross_entropy_with_cl" "constrastive_loss"
+LOSS = "cross_entropy"  # "ce_classif" #"triplet_loss" "cross_entropy_with_cl" "constrastive_loss"
 OPTIMIZER = "Adam"  # Adagrad "SGD"
 WEIGHTED_CLASS = True
 
 SAVE_MODEL = True
-MODE = "classifier training"
+MODE = "learn"  # "classifier training"
 PRETRAINING = "autoencoder"
 
 DB_TRAIN = None  # If None, the instances of the training and test sets belong to different BD
@@ -40,18 +40,19 @@ NAME_MODEL = "models/siameseFace" + "_ds" + used_db + (
 #       FUNCTION main                   #
 #########################################
 
-def main(loss_type=LOSS, batch_size=BATCH_SIZE, lr=LEARNING_RATE, wd=WEIGHT_DECAY, db_train=DB_TRAIN):
+def main(loss_type=LOSS, batch_size=BATCH_SIZE, lr=LEARNING_RATE, wd=WEIGHT_DECAY, db_train=DB_TRAIN, fname=None):
     hyp_par = {"lr": lr, "wd": wd}
-    train_param = {"loss_type": loss_type, "hyper_par": hyp_par, "opt_type": OPTIMIZER,"weighted_class": WEIGHTED_CLASS}
+    train_param = {"loss_type": loss_type, "hyper_par": hyp_par, "opt_type": OPTIMIZER,
+                   "weighted_class": WEIGHTED_CLASS}
     visualization = True
 
-    fileset = from_zip_to_data(WITH_PROFILE)
+    fileset = from_zip_to_data(WITH_PROFILE, fname=fname)
 
     if MODE == "learn":
         # -----------------------
         #  training mode
         # -----------------------
-        training_set, testing_set = fileset.get_train_and_test_sets(DIFF_FACES, db_train=DB_TRAIN)
+        training_set, testing_set = fileset.get_train_and_test_sets(DIFF_FACES, db_train=db_train)
 
         try:
             face_train, face_test = load_sets()
@@ -130,18 +131,13 @@ def main(loss_type=LOSS, batch_size=BATCH_SIZE, lr=LEARNING_RATE, wd=WEIGHT_DECA
         # -----------------------------------------------------------------
         #  Evaluation Mode (where MAIN_ZIP content is used for testing)
         # -----------------------------------------------------------------
+        eval_network = load_model("models/siameseFace_ds0123456_diff_100_32_constrastive_loss.pt")
+        eval_test = Face_DS(fileset, to_print=False, device=DEVICE)
+        pred_loader = torch.utils.data.DataLoader(eval_test, batch_size=BATCH_SIZE, shuffle=True)
 
-        pickle.load = partial(pickle.load, encoding="latin1")
-        pickle.Unpickler = partial(pickle.Unpickler, encoding="latin1")
-        model_name = "models/siameseFace_ds0123456_diff_100_32_constrastive_loss.pt"
-        network = torch.load(model_name, map_location=lambda storage, loc: storage, pickle_module=pickle)
-
-        testset = Face_DS(fileset, to_print=False, device=DEVICE)
-        pred_loader = torch.utils.data.DataLoader(testset, batch_size=BATCH_SIZE, shuffle=True)
-
-        model = Model(test_loader=pred_loader, network=network)
+        eval_model = Model(test_loader=pred_loader, network=eval_network)
         print("Model Testing ...")
-        model.test()
+        eval_model.test()
 
     elif MODE == "classifier training":
         # -----------------------------------
@@ -149,7 +145,7 @@ def main(loss_type=LOSS, batch_size=BATCH_SIZE, lr=LEARNING_RATE, wd=WEIGHT_DECA
         # -----------------------------------
 
         # Building of the dataset
-        training_set, testing_set = fileset.get_train_and_test_sets(DIFF_FACES, db_train=DB_TRAIN, classification=True)
+        training_set, testing_set = fileset.get_train_and_test_sets(DIFF_FACES, db_train=db_train, classification=True)
 
         train_data = Face_DS(training_set, device=DEVICE, triplet_version=False)
         test_data = Face_DS(testing_set, device=DEVICE, triplet_version=False)
@@ -172,6 +168,17 @@ def main(loss_type=LOSS, batch_size=BATCH_SIZE, lr=LEARNING_RATE, wd=WEIGHT_DECA
             classifier.test()
 
 
+'''----------------------- load_model ----------------------------------------
+ This function loads a model that was saved (under python 2.7)
+ ---------------------------------------------------------------------------'''
+
+
+def load_model(model_name):
+    pickle.load = partial(pickle.load, encoding="latin1")
+    pickle.Unpickler = partial(pickle.Unpickler, encoding="latin1")
+    return torch.load(model_name, map_location=lambda storage, loc: storage, pickle_module=pickle)  # network
+
+
 if __name__ == '__main__':
     main()
     test = 2
@@ -180,12 +187,9 @@ if __name__ == '__main__':
     # Test 1: Confusion Matrix with different db for training and testing
     # -----------------------------------------------------------------------
     if test == 1:
-        pickle.load = partial(pickle.load, encoding="latin1")
-        pickle.Unpickler = partial(pickle.Unpickler, encoding="latin1")
-        m_name = "models/siameseFace_ds0123456_diff_100_32_constrastive_loss.pt"
-        network = torch.load(m_name, map_location=lambda storage, loc: storage, pickle_module=pickle)
-        dbs_test = ['CASIA-WebFace.zip', "lfw.zip", "cfd.zip", "cfp.zip"]
-        for i, filename in enumerate(dbs_test):
+        network = load_model("models/siameseFace_ds0123456_diff_100_32_constrastive_loss.pt")
+
+        for i, filename in enumerate(['CASIA-WebFace.zip', "lfw.zip", "cfp.zip"]):
             fileset = from_zip_to_data(WITH_PROFILE, fname=MAIN_ZIP)
             testset = Face_DS(fileset, to_print=False, device=DEVICE)
             prediction_loader = torch.utils.data.DataLoader(testset, batch_size=BATCH_SIZE, shuffle=True)
@@ -193,5 +197,23 @@ if __name__ == '__main__':
             model = Model(test_loader=prediction_loader, network=network)
             print("Model Testing on " + filename + " ...")
             model.test()
+
+    # -----------------------------------------------------------------------
+    # Test 2: Classification setting
+    # -----------------------------------------------------------------------
+    if test == 2:
+        MODE = "classifier training"
+        LOSS = "ce_classif"
+        main()
+
+    # -----------------------------------------------------------------------
+    # "Test 3": Train Model from different db
+    # -----------------------------------------------------------------------
+    if test == 3:
+        SAVE_MODEL = True
+        db_train = ["cfp.zip", "testdb.zip", "testdb.zip"]
+        for i, curr_db in enumerate(db_train):
+            main(db_train=curr_db)
+
 
 
