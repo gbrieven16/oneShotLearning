@@ -174,7 +174,7 @@ results related to the different scenarios that were experimented
 IN: List of information to record about:
     data = [used_db, DIFF_FACES, WITH_PROFILE, DB_TRAIN]
     training = [pretrain_loss, nb_ep, bs, wd, lr, arch, opt, loss_type, margin]
-    result = [losses_test, f1_test]
+    result = [losses_validation, f1_validation]
 -------------------------------------------------------------------'''
 
 
@@ -199,7 +199,7 @@ def store_in_csv(data, training, result, train_time):
     with open(CSV_NAME, 'a') as f:
         writer = csv.writer(f, delimiter=";")
         # writer.writerow(titles)
-        writer.writerow(curr_parameters + curr_evaluation + best_f1 + best_epoch + str(train_time))
+        writer.writerow(curr_parameters + curr_evaluation + best_f1 + best_epoch + train_time)
 
 
 '''------------------ visualization_train -------------------------------------------
@@ -219,10 +219,10 @@ def visualization_train(epoch_list, loss_list, save_name=None):
     multi_line_graph(dictionary, perc_train, title, x_label="percentage of data", y_label="Loss", save_name=save_name)
 
 
-'''------------------ visualization_test ----------------------------- '''
+'''------------------ visualization_validation ----------------------------- '''
 
 
-def visualization_test(loss, f1, save_name=None):
+def visualization_validation(loss, f1, save_name=None):
     title_loss = "Comparison of the evolution of the losses"
     title_f1 = "Comparison of the evolution of the f1-measure"
 

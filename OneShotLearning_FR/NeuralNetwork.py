@@ -5,6 +5,7 @@ import numpy as np
 import matplotlib
 
 from Dataprocessing import CENTER_CROP
+from EmbeddingNetwork import AlexNet, BasicNet, VGG16, ResNet
 
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
@@ -22,11 +23,9 @@ TYPE_ARCH (related to the embedding Network)
 4: AlexNet architecture 
 """
 
-TYPE_ARCH = "1default"  # "2def_drop" # "3def_bathNorm" #"1default"  #
-DIM_LAST_LAYER = 4096 if TYPE_ARCH == "4AlexNet" else 512
+TYPE_ARCH = "VGG16" #"VGG16" #"1default"  "2def_drop" "3def_bathNorm" "1default" "resnet152"
+DIM_LAST_LAYER = 4096 if TYPE_ARCH == "4AlexNet" or TYPE_ARCH == "VGG16" else 512
 
-P_DROPOUT = 0.2  # Probability of each element to be dropped
-WITH_NORM_BATCH = False
 DIST_THRESHOLD = 0.02
 MARGIN = 2
 
@@ -42,9 +41,16 @@ class DistanceBased_Net(nn.Module):
         super(DistanceBased_Net, self).__init__()
 
         if TYPE_ARCH == "1default":
-            self.embedding_net = BasicNet()
+            self.embedding_net = BasicNet(DIM_LAST_LAYER)
         elif TYPE_ARCH == "4AlexNet":
-            self.embedding_net = AlexNet()
+            self.embedding_net = AlexNet(DIM_LAST_LAYER)
+        elif TYPE_ARCH == "VGG16":
+            self.embedding_net = VGG16(DIM_LAST_LAYER)
+        elif TYPE_ARCH[:len("resnet")] == "resnet":
+            self.embedding_net = ResNet(DIM_LAST_LAYER, resnet=TYPE_ARCH)
+        else:
+            print("ERR: No matching with the given architecture...")
+            raise Exception
 
         self.dist_threshold = DIST_THRESHOLD
 
@@ -98,10 +104,14 @@ class DistanceBased_Net(nn.Module):
 
         return output_positive, output_negative
 
+    '''-------------------------- predict --------------------------------- '''
+
     def predict(self, data):
         embedded1 = self.embedding_net([data[0]])
         embedded2 = self.embedding_net([data[1]])
         return self.output_from_embedding(embedded1, embedded2)
+
+    '''----------------- output_from_embedding -------------------------------- '''
 
     def output_from_embedding(self, embedding1, embedding2):
         distance, _ = self.get_distance(embedding1, embedding2, as_embedding=True)
@@ -136,6 +146,8 @@ class Tripletnet(DistanceBased_Net):
     def __init__(self):
         super(Tripletnet, self).__init__()
 
+    '''------------------ get_loss ------------------------ '''
+
     def get_loss(self, data, target, class_weights, train=True):
         criterion = torch.nn.MarginRankingLoss(margin=MARGIN)
         distance, disturb = self.get_distance(data[0], data[2], data[1])
@@ -160,6 +172,8 @@ class ContrastiveLoss(DistanceBased_Net):
     def __init__(self):
         super(ContrastiveLoss, self).__init__()
         self.eps = 1e-9
+
+    '''------------------ get_loss ------------------------ '''
 
     def get_loss(self, data, target, class_weights, train=True):
         # Increase the distance "expectation" when we need more differentiation
@@ -198,6 +212,8 @@ class CenterLoss(nn.Module):
             self.centers = nn.Parameter(torch.randn(self.num_classes, self.feat_dim).cuda())
         else:
             self.centers = nn.Parameter(torch.randn(self.num_classes, self.feat_dim))
+
+    '''------------------ forward ------------------------ '''
 
     def forward(self, x, labels):
         """
@@ -279,9 +295,13 @@ class Classif_Net(nn.Module):
         super(Classif_Net, self).__init__()
 
         if TYPE_ARCH == "1default":
-            self.embedding_net = BasicNet()
+            self.embedding_net = BasicNet(DIM_LAST_LAYER)
         elif TYPE_ARCH == "4AlexNet":
-            self.embedding_net = AlexNet()
+            self.embedding_net = AlexNet(DIM_LAST_LAYER)
+        elif TYPE_ARCH == "VGG16":
+            self.embedding_net = VGG16(DIM_LAST_LAYER)
+        elif TYPE_ARCH[:len("resnet")] == "resnet":
+            self.embedding_net = ResNet(DIM_LAST_LAYER, resnet=TYPE_ARCH)
         else:
             print("ERR: Not matching embedding network!")
             raise Exception
@@ -318,11 +338,15 @@ class SoftMax_Net(nn.Module):
         super(SoftMax_Net, self).__init__()
 
         if TYPE_ARCH == "1default":
-            self.embedding_net = BasicNet()
+            self.embedding_net = BasicNet(DIM_LAST_LAYER)
         elif TYPE_ARCH == "4AlexNet":
-            self.embedding_net = AlexNet()
+            self.embedding_net = AlexNet(DIM_LAST_LAYER)
+        elif TYPE_ARCH == "VGG16":
+            self.embedding_net = VGG16(DIM_LAST_LAYER)
+        elif TYPE_ARCH[:len("resnet")] == "resnet":
+            self.embedding_net = ResNet(DIM_LAST_LAYER, resnet=TYPE_ARCH)
         else:
-            print("ERR: Not matching embedding network!")
+            print("ERR: No matching with the given architecture...")
             raise Exception
 
         self.final_layer = nn.Linear(DIM_LAST_LAYER, nb_classes).to(DEVICE)
@@ -383,8 +407,8 @@ class SoftMax_Net(nn.Module):
         target_negative = torch.squeeze(target[:, 1])  # = Only 1 here
 
         output_positive, output_negative = self.forward(data)
-        print("output_pos is " + str(output_positive))
-        print("target_pos is " + str(target_positive))
+        #print("output_pos is " + str(output_positive))
+        #print("target_pos is " + str(target_positive))
         loss_positive = f.cross_entropy(output_positive, target_positive)
         loss_negative = f.cross_entropy(output_negative, target_negative)
         # print("Losses are: " + str(str(float(self.loss_cur))) + " and " + str(float(class_weights[0] * loss_positive + class_weights[1] * loss_negative)))
@@ -409,95 +433,6 @@ class SoftMax_Net(nn.Module):
         plt.scatter(x, y, color=color0 + color1)
         plt.show()
         plt.savefig(name_fig)
-
-
-# ================================================================
-#                    CLASS: BasicNet
-# Initial Basic Network that was trained
-# ================================================================
-
-class BasicNet(nn.Module):
-    def __init__(self):
-        super(BasicNet, self).__init__()
-
-        # ----------- For Feature Representation -----------------
-        self.conv1 = nn.Conv2d(3, 64, kernel_size=7)  # , padding=2)
-        self.conv1_bn = nn.BatchNorm2d(64)
-        self.conv2 = nn.Conv2d(64, 128, 5)
-        self.conv2_bn = nn.BatchNorm2d(128)
-        self.pool4 = nn.MaxPool2d(4)
-        self.conv3 = nn.Conv2d(128, 256, kernel_size=5)
-        self.conv3_bn = nn.BatchNorm2d(256)
-        self.linear1 = nn.Linear(256, DIM_LAST_LAYER)
-        self.dropout = nn.Dropout(P_DROPOUT)
-        self.to(DEVICE)
-
-
-        # Last layer assigning a number to each class from the previous layer
-        # self.linear2 = nn.Linear(DIM_LAST_LAYER, 2)
-
-    def forward(self, data):
-        x = self.conv1(data.to(DEVICE))
-        if WITH_NORM_BATCH: x = self.conv1_bn(x)
-        x = f.relu(x)
-        x = self.dropout(x)
-        x = self.pool4(x)
-
-        x = self.conv2(x)
-        if WITH_NORM_BATCH: x = self.conv2_bn(x)
-        x = f.relu(x)
-        x = self.dropout(x)
-        x = self.pool4(x)
-
-        x = self.conv3(x)
-        if WITH_NORM_BATCH: x = self.conv3_bn(x)
-        x = f.relu(x)
-        x = self.dropout(x)
-        x = self.pool4(x)
-
-        x = x.view(x.shape[0], -1)  # To reshape
-        x = self.linear1(x)
-        return f.relu(x)
-
-
-# ================================================================
-#                    CLASS: AlexNet
-# ================================================================
-
-class AlexNet(nn.Module):
-    def __init__(self):
-        super(AlexNet, self).__init__()
-
-        self.features = nn.Sequential(
-            nn.Conv2d(3, 64, kernel_size=11, stride=4),
-            nn.ReLU(inplace=True),
-            nn.MaxPool2d(kernel_size=11, stride=2),
-            nn.Conv2d(64, 192, kernel_size=5, padding=2),
-            nn.ReLU(inplace=True),
-            nn.Conv2d(192, 384, kernel_size=7, padding=1),
-            nn.ReLU(inplace=True),
-            nn.MaxPool2d(kernel_size=5, stride=2),
-            nn.Conv2d(384, 256, kernel_size=5, padding=1),
-            nn.ReLU(inplace=True),
-            nn.Conv2d(256, 256, kernel_size=3, padding=1),
-            nn.ReLU(inplace=True),
-            nn.MaxPool2d(kernel_size=5, stride=2),
-        )
-        self.linearization = nn.Sequential(
-            nn.Dropout(),
-            nn.Linear(22 * 32 * 32, DIM_LAST_LAYER),
-            nn.ReLU(inplace=True),
-            nn.Dropout(),
-            nn.Linear(DIM_LAST_LAYER, DIM_LAST_LAYER),
-            nn.ReLU(inplace=True),
-        )
-        self.to(DEVICE)
-        # self.final_layer = nn.Linear(DIM_LAST_LAYER, num_classes)
-
-    def forward(self, data):
-        x = self.features(data.to(DEVICE))
-        x = x.view(x.size(0), 22 * 32 * 32)  # 720896 / 32 = 22528.0
-        return self.linearization(x)
 
 
 # ================================================================
@@ -551,3 +486,4 @@ class AutoEncoder_Net(nn.Module):
             print("The picture representing the result from the decoder is saved")
             plt.savefig("Result_autoencoder_" + str(i))
             plt.show()
+

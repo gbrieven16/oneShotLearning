@@ -1,8 +1,8 @@
 import torch
 import os
 import pickle
-from NeuralNetwork import Tripletnet, ContrastiveLoss, SoftMax_Net, AutoEncoder_Net, TYPE_ARCH
-from Visualization import visualization_test, visualization_train
+from NeuralNetwork import Tripletnet, ContrastiveLoss, SoftMax_Net, AutoEncoder_Net, TYPE_ARCH, Classif_Net
+from Visualization import visualization_validation, visualization_train
 from Dataprocessing import Face_DS
 from torch import nn
 from torch import optim
@@ -15,7 +15,7 @@ from torch import optim
 MARGIN = 2.0
 MOMENTUM = 0.9
 N_TEST_IMG = 5
-PT_BS = 32 # Batch size for pretraining
+PT_BS = 32  # Batch size for pretraining
 PT_NUM_EPOCHS = 200
 
 # Specifies where the torch.tensor is allocated
@@ -30,12 +30,19 @@ DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 #  ================================================================
 
 class Model:
-    def __init__(self, train_param=None, test_loader=None, embedding_net=None, network=None, train_loader=None):
+    def __init__(self, train_param=None, train_loader=None, validation_loader=None, test_loader=None,
+                 embedding_net=None, network=None, nb_classes=None):
+
+        # Data
+        self.train_loader = train_loader
+        self.validation_loader = validation_loader  # No need if autoencoder training
+        self.test_loader = test_loader
 
         # Default Initialization
         self.network = network
         self.loss_type = "None"
-        self.train_loader = train_loader
+        self.is_classifier = False
+
         self.lr = 0.001
         self.wd = 0.001
         self.optimizer = None
@@ -43,18 +50,18 @@ class Model:
         self.weighted_classes = True
 
         if train_param is not None:
-            self.set_for_training(train_param, embedding_net)
-
-        self.test_loader = test_loader  # No need if autoencoder training
+            self.set_for_training(train_param, embedding_net, nb_classes)
 
         self.eval_dic = {"nb_correct": 0, "nb_labels": 0, "recall_pos": 0, "recall_neg": 0, "f1_pos": 0, "f1_neg": 0}
 
         # For Visualization
-        self.losses_test = {"Pretrained Model": [], "Non-pretrained Model": []}
-        self.f1_test = {"Pretrained Model": [], "Non-pretrained Model": []}
+        self.losses_validation = {"Pretrained Model": [], "Non-pretrained Model": []}
+        self.f1_validation = {"Pretrained Model": [], "Non-pretrained Model": []}
         self.losses_train = []
 
-    def set_for_training(self, train_param, embedding_net):
+    '''---------------------- set_for_training --------------------------------- '''
+
+    def set_for_training(self, train_param, embedding_net, nb_classes):
 
         # ----------------- Network Definition -------------
         if train_param["loss_type"] == "triplet_loss":
@@ -66,6 +73,12 @@ class Model:
         elif train_param["loss_type"][:len("cross_entropy")] == "cross_entropy":
             self.network = SoftMax_Net() if len(train_param["loss_type"]) == len("cross_entropy") else SoftMax_Net(
                 with_center_loss=True)
+        elif train_param["loss_type"] == "ce_classif":
+            self.network = Classif_Net(nb_classes=nb_classes)
+            self.is_classifier=True
+        else:
+            print("ERR: Mismatch with loss type")
+            raise Exception
 
         self.loss_type = train_param["loss_type"]
 
@@ -85,7 +98,7 @@ class Model:
         try:
             self.weighted_classes = train_param["weighted_class"]
         except KeyError:
-            pass   # We keep the default setting
+            pass  # We keep the default setting
 
     '''------------------------ pretraining ----------------------------------------------
        The function trains an autoencoder based on given training data 
@@ -121,20 +134,24 @@ class Model:
 
     def train_nonpretrained(self, num_epochs, optimizer_type):
         train_param = {"train_loader": self.train_loader, "loss_type": self.loss_type, "opt_type": optimizer_type}
-        model_comp = Model(train_param, test_loader=self.test_loader)
+        model_comp = Model(train_param, validation_loader=self.validation_loader, test_loader=self.test_loader)
 
         for epoch in range(num_epochs):
             print("-------------- Model that was not pretrained ------------------")
             model_comp.train(epoch)
-            loss_notPret, f1_notPret = model_comp.test()
-            self.losses_test["Non-pretrained Model"].append(loss_notPret)
-            self.f1_test["Non-pretrained Model"].append(f1_notPret)
+            loss_notPret, f1_notPret = model_comp.prediction()
+            self.losses_validation["Non-pretrained Model"].append(loss_notPret)
+            self.f1_validation["Non-pretrained Model"].append(f1_notPret)
 
     '''---------------------------- train --------------------------------
      This function trains the network attached to the model  
      -----------------------------------------------------------------------'''
 
-    def train(self, epoch, autoencoder=False):
+    def train(self, epoch, autoencoder=False, with_epoch_opt=False):
+
+        # "Active Learning": Overfitting Detection
+        if with_epoch_opt and self.is_overfitting():
+            return
 
         self.network.train()
         loss_list = []
@@ -175,60 +192,85 @@ class Model:
                            100. * batch_idx * batch_size / len(self.train_loader.dataset),
                     loss.item()))  # len(data[0]) = batch_size
 
-        if not autoencoder: self.update_weights()
+        if not autoencoder and not self.is_classifier: self.update_weights()
         self.losses_train.append(loss_list)
 
-    '''---------------------------- test --------------------------------
+    '''---------------------------- prediction --------------------------------
      This function tests the given model 
-     OUT: loss: current loss once evaluated on the testing set
+     OUT: loss: current loss once evaluated on the set
           f1-measure: current f1-measure once evaluated on the testing set
      -----------------------------------------------------------------------'''
 
-    def test(self, for_weight_update=False):
+    def prediction(self, for_weight_update=False, validation=True):
         self.network.eval()
         self.reset_eval()
 
         with torch.no_grad():
-            loss_test = 0
+            acc_loss = 0
 
-            data_loader = self.train_loader if for_weight_update else self.test_loader
+            if for_weight_update:
+                data_loader = self.train_loader
+            elif validation:
+                data_loader = self.validation_loader
+            else:
+                data_loader = self.test_loader
 
             for batch_idx, (data, target) in enumerate(data_loader):
-                print("MODEL: TEST: One batch is considered...")
                 try:
                     loss = self.network.get_loss(data, target, self.class_weights, train=False)
-                    out_pos, out_neg = self.network(data)
+                    target = target.type(torch.LongTensor).to(DEVICE)
+
+                    # ----------- Case 1: Classification ----------------
+                    if self.is_classifier:
+                        output = self.network(data)
+                        target = target.type(torch.LongTensor).to(DEVICE)
+
+                        if torch.cuda.is_available():
+                            acc = torch.sum(torch.argmax(output, dim=1) == target).cuda()  # = 0
+                        else:
+                            acc = torch.sum(torch.argmax(output, dim=1) == target).cpu()  # = 0
+
+                        acc_loss += loss
+                        self.eval_dic["nb_correct"] += acc
+                        self.eval_dic["nb_labels"] += len(target)
+
+                    # ----------- Case 2: Siamese Network ---------------
+                    else:
+                        out_pos, out_neg = self.network(data)
+                        target = target.type(torch.LongTensor).to(DEVICE)
+                        tar_pos = torch.squeeze(target[:, 0])  # = Only 0 here
+                        tar_neg = torch.squeeze(target[:, 1])  # = Only 1 here
+
+                        if torch.cuda.is_available():
+                            acc_pos = torch.sum(torch.argmax(out_pos, dim=1) == tar_pos).cuda()  # = 0
+                            acc_neg = torch.sum(torch.argmax(out_neg, dim=1) == tar_neg).cuda()  # = 1
+                        else:
+                            acc_pos = torch.sum(torch.argmax(out_pos, dim=1) == tar_pos).cpu()  # = 0
+                            acc_neg = torch.sum(torch.argmax(out_neg, dim=1) == tar_neg).cpu()  # = 1
+
+                        acc_loss += loss
+                        if not for_weight_update: self.get_evaluation(acc_pos, acc_neg, len(tar_pos), len(tar_neg))
+
                 except RuntimeError:  # The batch is "not complete"
                     break
 
-                print("MODEL: TEST: After get loss...")
-                target = target.type(torch.LongTensor).to(DEVICE)
-                tar_pos = torch.squeeze(target[:, 0])  # = Only 0 here
-                tar_neg = torch.squeeze(target[:, 1])  # = Only 1 here
+        # ----------- Evaluation on the validation set (over epochs) ---------------
+        if not for_weight_update and validation:
+            eval_measure = self.print_eval_model(acc_loss)
+            self.losses_validation["Pretrained Model"].append(round(float(acc_loss), 2))
+            self.f1_validation["Pretrained Model"].append(eval_measure)
+            return round(float(acc_loss), 2), eval_measure
 
-                if torch.cuda.is_available():
-                    acc_pos = torch.sum(torch.argmax(out_pos, dim=1) == tar_pos).cuda()  # = 0
-                    acc_neg = torch.sum(torch.argmax(out_neg, dim=1) == tar_neg).cuda()  # = 1
-                else:
-                    acc_pos = torch.sum(torch.argmax(out_pos, dim=1) == tar_pos).cpu()  # = 0
-                    acc_neg = torch.sum(torch.argmax(out_neg, dim=1) == tar_neg).cpu()  # = 1
-
-                loss_test += loss
-                self.get_evaluation(acc_pos, acc_neg, len(tar_pos), len(tar_neg))
-                print("MODEL: TEST: End Evaluation \n")
-
-        if not for_weight_update:
-            f1_measure = self.print_eval_model(loss_test)
-            self.losses_test["Pretrained Model"].append(round(float(loss_test), 2))
-            self.f1_test["Pretrained Model"].append(f1_measure)
-            return round(float(loss_test), 2), f1_measure
+        # ----------- Evaluation on the test set ---------------
+        elif not for_weight_update:
+            self.print_eval_model(acc_loss, loader="Test")
 
     '''---------------------------- update_weights ------------------------------
      This function updates the class weights considering the current f1 measures
      ---------------------------------------------------------------------------'''
 
     def update_weights(self):
-        self.test(for_weight_update=True) # To get f1_measures
+        self.prediction(for_weight_update=True)  # To get f1_measures
         f1_neg_avg = self.eval_dic["f1_neg"] / len(self.train_loader)
         f1_pos_avg = self.eval_dic["f1_pos"] / len(self.train_loader)
         print("f1 score of train: " + str(f1_pos_avg) + " and " + str(f1_neg_avg))
@@ -250,21 +292,25 @@ class Model:
      OUT: the avg of the f1 measures related to each classes 
      ---------------------------------------------------------------------------'''
 
-    def print_eval_model(self, loss_test):
+    def print_eval_model(self, loss_eval, loader="Validation"):
         acc = 100. * self.eval_dic["nb_correct"] / self.eval_dic["nb_labels"]
-        nb_test = len(self.test_loader)
-        loss_test = loss_test / nb_test  # avg of the loss
+        nb_eval = len(self.validation_loader)
+        loss_eval = loss_eval / nb_eval  # avg of the loss
 
-        print(" \n------------------------------------------------------------------ ")
+        print(" \n---------------------------" + loader + "--------------------------------- ")
         print('Test accuracy: {}/{} ({:.3f}%)\tLoss: {:.6f}'.format(self.eval_dic["nb_correct"],
-                                                                    self.eval_dic["nb_labels"], acc, loss_test))
-        print("Recall Pos is: " + str(100. * self.eval_dic["recall_pos"] / nb_test) +
-              "   Recall Neg is: " + str(round(100. * self.eval_dic["recall_neg"] / nb_test, 2)))
-        print("f1 Pos is: " + str(100. * self.eval_dic["f1_pos"] / nb_test) +
-              "          f1 Neg is: " + str(round(100. * self.eval_dic["f1_neg"] / nb_test, 2)))
-        print(" ------------------------------------------------------------------\n ")
-
-        return round(100. * 0.5 * (self.eval_dic["f1_neg"] + self.eval_dic["f1_pos"]) / nb_test, 2)
+                                                                    self.eval_dic["nb_labels"], acc, loss_eval))
+        if self.is_classifier:
+            print("Baseline: " + str(1 / self.eval_dic["nb_labels"]))
+            print(" ------------------------------------------------------------------\n ")
+            return acc
+        else:
+            print("Recall Pos is: " + str(100. * self.eval_dic["recall_pos"] / nb_eval) +
+                  "   Recall Neg is: " + str(round(100. * self.eval_dic["recall_neg"] / nb_eval, 2)))
+            print("f1 Pos is: " + str(100. * self.eval_dic["f1_pos"] / nb_eval) +
+                  "          f1 Neg is: " + str(round(100. * self.eval_dic["f1_neg"] / nb_eval, 2)))
+            print(" ------------------------------------------------------------------\n ")
+            return round(100. * 0.5 * (self.eval_dic["f1_neg"] + self.eval_dic["f1_pos"]) / nb_eval, 2)
 
     '''------------------------- get_optimizer -------------------------------- '''
 
@@ -310,6 +356,8 @@ class Model:
         self.eval_dic["nb_correct"] += (tp + tn)
         self.eval_dic["nb_labels"] += p + n
 
+        return
+
     ''' ------------------------------ 
             reset_eval 
     -------------------------------- '''
@@ -322,15 +370,15 @@ class Model:
             save_model 
     -------------------------------- '''
 
-    def save_model(self, name_model, testing_set):
+    def save_model(self, name_model):
         try:
             torch.save(self.network, name_model)
         except FileNotFoundError:
             os.mkdir(name_model.split("/")[0])
             torch.save(self.network, name_model)
 
-        with open(name_model.split(".pt")[0] + '_testdata.pkl', 'wb') as output:
-            pickle.dump(testing_set, output, pickle.HIGHEST_PROTOCOL)
+        #with open(name_model.split(".pt")[0] + '_testdata.pkl', 'wb') as output:
+        #   pickle.dump(testing_set, output, pickle.HIGHEST_PROTOCOL)
         print("Model is saved!")
 
     ''' ------------------------------ 
@@ -344,7 +392,16 @@ class Model:
         visualization_train(range(0, num_epoch, int(round(num_epoch / 5))), self.losses_train,
                             save_name=name_fig + "_train.png")
 
-        visualization_test(self.losses_test, self.f1_test, save_name=name_fig + "_test")
+        visualization_validation(self.losses_validation, self.f1_validation, save_name=name_fig + "_test")
 
         if self.loss_type[:len("cross_entropy")] == "cross_entropy":
-            self.network.visualize_last_output(next(iter(self.test_loader))[0], name_fig + "outputVis")
+            self.network.visualize_last_output(next(iter(self.validation_loader))[0], name_fig + "outputVis")
+
+    ''' ------------------------- is_overfitting ---------------------------------- 
+    This function detects overfitting from:
+        - the evolution of the loss over time.
+        - the difference in f1 measure on the training and the validation sets        
+    ----------------------------------------------------------------------------- '''
+
+    def is_overfitting(self):
+        return False
