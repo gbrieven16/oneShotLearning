@@ -54,9 +54,10 @@ def rename_file(nameFolder):
     files = [str(os.path.join(dp, f)) for dp, dn, filenames in os.walk(nameFolder) for f in filenames]
 
     for i, file in enumerate(files):
+        print("file is " + file)
         # new_name = "faces94_" + file.split(".")[0] + "_" + file.split(".")[1] + ".jpeg"
         try:
-            new_name = nameFolder + file.split("faces94_")[1]
+            new_name = nameFolder + "faceScrub__" + file.split("faceScrub/")[1]
             os.rename(file, new_name)
         except IndexError:
             print("already")
@@ -66,12 +67,13 @@ def rename_file(nameFolder):
  This function zip the content of a directory, excluding the diretory 
  "profile". 
  root_dir is contains: namePerson/profile/id.jpg and namePerson/frontal/id.jpg
+ !!! The initial zip has to be decompressed !!!
  ------------------------------------------------------------------------------'''
 
 
 def data_to_zip():
     # ---- Get all the relative path from given directory ------
-    root_dir = "datasets/cfp"
+    root_dir = 'data/gbrieven/'
     file_names = []
 
     for dir_, _, files in os.walk(root_dir):
@@ -80,19 +82,21 @@ def data_to_zip():
             rel_file = os.path.join(rel_dir, file_name)
             file_names.append(rel_file)
 
-    zipf = zipfile.ZipFile("datasets/cfp.zip", 'w', zipfile.ZIP_DEFLATED)
+    zipf = zipfile.ZipFile("data/gbrieven/testCropped.zip", 'w', zipfile.ZIP_DEFLATED)
 
     for i, fn in enumerate(file_names):
+        print("fn is " + str(fn))
         if fn == "./.DS_Store" or fn == "__MACOSX/" or fn[-1] == "/":
             continue
 
         if fn.split("/")[1] == "profile":
             continue
-        new_name = "cfp/" + fn.split("/")[0] + "/" + fn.split("/")[2]
-        zipf.write("datasets/cfp/" + fn, new_name)
+        new_name = "facescrub/" + fn.split("/")[0] + "/" + fn.split("/")[2]
+        zipf.write(root_dir + "facescrub/" + fn, new_name)
     zipf.close()
 
 
 if __name__ == "__main__":
-    nameFolder = 'datasets/faces94/'
+    #data_to_zip()
+    nameFolder = 'data/gbrieven/faceScrub/'
     rename_file(nameFolder)

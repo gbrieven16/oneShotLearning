@@ -1,3 +1,6 @@
+import os
+#os.environ['CUDA_VISIBLE_DEVICES'] = "2"
+
 import torch
 from torch import nn
 import torch.nn.functional as f

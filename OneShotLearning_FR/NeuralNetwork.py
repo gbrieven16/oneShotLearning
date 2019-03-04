@@ -1,3 +1,4 @@
+
 import torch
 from torch import nn
 import torch.nn.functional as f
@@ -23,7 +24,7 @@ TYPE_ARCH (related to the embedding Network)
 4: AlexNet architecture 
 """
 
-TYPE_ARCH = "VGG16" #"VGG16" #"1default"  "2def_drop" "3def_bathNorm" "1default" "resnet152"
+TYPE_ARCH = "1default" #"VGG16" #  "2def_drop" "3def_bathNorm" "1default" "resnet152"
 DIM_LAST_LAYER = 4096 if TYPE_ARCH == "4AlexNet" or TYPE_ARCH == "VGG16" else 512
 
 DIST_THRESHOLD = 0.02

@@ -199,7 +199,7 @@ def store_in_csv(data, training, result, train_time):
     with open(CSV_NAME, 'a') as f:
         writer = csv.writer(f, delimiter=";")
         # writer.writerow(titles)
-        writer.writerow(curr_parameters + curr_evaluation + best_f1 + best_epoch + train_time)
+        writer.writerow(curr_parameters + curr_evaluation + [str(best_f1)] + [str(best_epoch)] + [result[2]] + [str(train_time)])
 
 
 '''------------------ visualization_train -------------------------------------------
@@ -224,25 +224,30 @@ def visualization_train(epoch_list, loss_list, save_name=None):
 
 def visualization_validation(loss, f1, save_name=None):
     title_loss = "Comparison of the evolution of the losses"
-    title_f1 = "Comparison of the evolution of the f1-measure"
+    title_f1 = "Comparison of the evolution of the f1-measure on the validation set"
+    title_f1_train_valid = "Comparison of the evolution of the f1-measure for the training and the validation set"
 
-    key1 = list(loss.keys())[0]
-    key2 = list(loss.keys())[1]
+    key0 = list(loss.keys())[0]
+    key1 = list(loss.keys())[1]
+    key2 = list(f1.keys())[2]
 
-    if len(loss[key2]) == 0:
-        line_graph(range(0, len(loss[key1]), 1), loss[key1], "Loss according to the epochs", x_label="Epoch",
+    if len(loss[key1]) == 0:
+        line_graph(range(0, len(loss[key0]), 1), loss[key0], "Loss according to the epochs", x_label="Epoch",
                    y_label="Loss", save_name=save_name + "_loss.png")
-        line_graph(range(0, len(f1[key1]), 1), f1[key1], "f1-measure according to the epochs", x_label="Epoch",
+        line_graph(range(0, len(f1[key0]), 1), f1[key0], "f1-measure according to the epochs", x_label="Epoch",
                    y_label="f1-measure", save_name=save_name + "_f1.png")
     else:
-        dictionary_loss = {key1: loss[key1], key2: loss[key2]}
-        dictionary_f1 = {key1: f1[key1], key2: f1[key2]}
-        epoches = list(range(0, len(loss[key1]), 1))
+        dictionary_loss = {key0: loss[key0], key1: loss[key1]}
+        dictionary_f1_valid = {key0: f1[key0], key1: f1[key1]}
+        dict_f1_valid_train = {key1: f1[key1], key2: f1[key2]}
+        epoches = list(range(0, len(loss[key0]), 1))
 
         multi_line_graph(dictionary_loss, epoches, title_loss, x_label="epoch", y_label="Loss",
                          save_name=save_name + "_loss.png")
-        multi_line_graph(dictionary_f1, epoches, title_f1, x_label="epoch", y_label="f1",
+        multi_line_graph(dictionary_f1_valid, epoches, title_f1, x_label="epoch", y_label="f1",
                          save_name=save_name + "_f1.png")
+        multi_line_graph(dict_f1_valid_train, epoches, title_f1_train_valid, x_label="epoch", y_label="f1",
+                         save_name=save_name + "_f1_train_val.png")
 
 
 if __name__ == '__main__':

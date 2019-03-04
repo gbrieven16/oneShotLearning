@@ -1,7 +1,7 @@
-import time
-import torch.utils.data
-import zipfile
 import os
+import time
+import platform
+import zipfile
 import pickle
 import random
 from string import digits
@@ -17,7 +17,6 @@ import matplotlib.pyplot as plt
 
 import torch
 import torchvision.transforms as transforms
-
 import warnings
 
 warnings.filterwarnings('ignore')
@@ -28,21 +27,16 @@ warnings.filterwarnings('ignore')
 
 
 # if the 2th db not used, replace "yalefaces" by ""
-FOLDER_DB = "data/gbrieven/"
-DB_TO_USE = ["Iranian"] #["AberdeenCrop", "GTdbCrop", "yalefaces", "faces94", "Iranian", "painCrops", "utrecht"]
-MAIN_ZIP = FOLDER_DB + 'cfp.zip'  # cfp.zip "testdb.zip"  CASIA-WebFace.zip'
+FOLDER_DB = "data/gbrieven/" if platform.system() == "Darwin" else "/data/gbrieven/"
+MAIN_ZIP = FOLDER_DB + 'testCropped.zip'  # cfp.zip "testdb.zip"  CASIA-WebFace.zip'
 TEST_ZIP = FOLDER_DB + 'testdb.zip'
 
-
-if MAIN_ZIP.split("/")[-1] != 'gbrieven.zip' and MAIN_ZIP.split("/")[-1] != 'ds0123456.zip':
-    DB_TO_USE = MAIN_ZIP.split("/")[-1].split(".zip")[0]
-
-ZIP_TO_PROCESS = FOLDER_DB + 'cfp.zip'  # aber&GTdb_crop.zip'
+ZIP_TO_PROCESS = FOLDER_DB + 'initTestCropped.zip'  # aber&GTdb_crop.zip'
 NB_DIGIT_IN_ID = 1
 
 SEED = 4  # When data is shuffled
 EXTENSION = ".jpg"
-SEPARATOR = "_"  # !!! Format of the dabase: name[!]_id !!!
+SEPARATOR = "__"  # !!! Format of the dabase: name[!]__id !!! & No separators in name!
 RATION_TRAIN_SET = 0.75
 MAX_NB_ENTRY = 500000
 MIN_NB_IM_PER_PERSON = 2
@@ -51,10 +45,11 @@ MIN_NB_PICT_CLASSIF = 4  # s.t. 25% is used for testing
 NB_TRIPLET_PER_PICT = 1
 
 RATIO_HORIZ_CROP = 0.15
+RESIZE = True
 RESOLUTION = (150, 200)
 CENTER_CROP = (150, 200)
 TRANS = transforms.Compose([transforms.CenterCrop(CENTER_CROP), transforms.ToTensor(),
-                            transforms.Normalize((0.5,), (1.0,))])  # TO REMOVE, just for test
+                            transforms.Normalize((0.5,), (1.0,))])  # mean = 0.5 ; std = 1.0
 
 
 # ================================================================
@@ -76,12 +71,18 @@ class Data:
             name_person = fn.split(SEPARATOR)[0] + fn.split(SEPARATOR)[1]  # = dbNamePersonName
             index = fn.split(SEPARATOR)[2]
 
-            extension = fn.split(".")[1]
+            extension = ".".join(fn.split(".")[1:])
 
         self.name_person = name_person
         self.lateral_face = True if name_person[-1] == "!" else False
         self.index = index
         self.extension = extension
+        """print("fn " + fn)
+        print("db_source is " + self.db_source)
+        print("person is " + self.name_person)
+        print("index " + str(self.index))
+        print("extension " + str(extension))"""
+
 
         # + Potentially add some characteristic related to the picture for the interpretation later, like girl/guy ....)
 
@@ -91,8 +92,9 @@ class Data:
      ---------------------------------------------------------------'''
 
     def convert_image(self):
-        db_source = self.db_path.split("/")[1].split(".zip")[0]
-        new_name = db_source + "_" + self.name_person + "_" + self.index + ".jpeg"
+        db_source = self.db_path.split("/")[-1].split(".zip")[0]
+        # print("IN CONVERT: db_source " + db_source)
+        new_name = self.name_person + SEPARATOR + self.index + ".jpeg"
 
         if self.extension == "jpeg":
             # Rename under the formalism dbSource_personName_index.jpeg
@@ -100,29 +102,41 @@ class Data:
             zipfile.ZipFile(self.db_path, 'r').extract(self.file)
 
         # Ok in the case of .gif at least
-        elif self.extension != ".txt":
+        elif self.extension != ".txt" and self.extension != "png.json":
             zipfile.ZipFile(self.db_path, 'r').extract(self.file)
-            Image.open(self.filename).convert('RGB').save(new_name)
+            path = FOLDER_DB + "image.jpeg"
+            Image.open(self.filename).convert('RGB').save(path)
             self.file.filename = new_name
             os.remove(self.filename)
+            return path, new_name
+
 
     '''---------------- extract_info_from_name --------------------------------
      This function extracts from the name of the file: the name of the person, 
      the index of each picture and the extension of the file 
      --------------------------------------------------------------------------'''
 
+
     def extract_info_from_name(self):
 
         # === CASE 1: Right format is assumed ===
 
-        if 1 < len(self.filename.split(SEPARATOR)) and self.filename.split(SEPARATOR)[1].split(".")[0].isdigit():
+        if 1 < len(self.filename.split("/")) and self.filename.split("/")[1].split(".")[0].isdigit():
             # From the name of the image: namePerson_index.extension
             name_person = self.filename.split(SEPARATOR)[0]
             index = self.filename.split(SEPARATOR)[1].split(".")[0]
-            extension = self.filename.split(".")[1]
+            extension = ".".join(self.filename.split(".")[1:])
             return name_person, index, extension
 
-        # === CASE 2: No separation between the name of the person and the index ===
+        # === CASE 2: facescrub_aligned/namePerson/namePerson_id.extension ===
+        elif self.filename.split("/")[0] == "facescrub_aligned":
+
+            name_person = self.filename.split("/")[1]
+            index = self.filename.split("/")[2].split("_")[-1].split(".")[0]
+            extension = ".".join(self.filename.split(".")[1:])
+            return name_person, index, extension
+
+        # === CASE 3: No separation between the name of the person and the index ===
         number_if_error = 1
 
         # Check if there's no separator _ inside the name (if so delete it) f4001.jpg
@@ -157,8 +171,10 @@ class Data:
         with zipfile.ZipFile(self.db_path, 'r') as archive:
             # Get image resolution
             original_image = Image.open(BytesIO(archive.read(self.filename))).convert("RGB")
+            if not RESIZE:
+                return original_image
             original_res = original_image.size
-            # print("original res is: " + str(original_res))
+            #print("original res is: " + str(original_res))
 
             # ----- If Horizontal Image => Crop -----
             if original_res[1] < original_res[0]:
@@ -173,6 +189,7 @@ class Data:
             # plt.imshow(resized_image)
             # plt.show()
 
+            original_image.close()
             return resized_image
 
 
@@ -268,11 +285,12 @@ class Fileset:
         # CASE 4: Specific DB for training and testing sets
         # -------------------------------------------------------
         else:
-            print("Definition of 2 sets from different databases ...")
+            print("Definition of 1 set related to database: " + str(db_set1))
             for i, data in enumerate(self.data_list):
                 if data.db_source in db_set1:
                     set1.add_data(data)
                 else:
+                    print("Definition of a second set related to database: " + str(data.db_source))
                     set2.add_data(data)
 
         return set1, set2
@@ -298,7 +316,10 @@ class Fileset:
         for i, data in enumerate(self.data_list):
             personNames = data.name_person
             res_image = data.resize_image()
+            transfo = transforms.ToTensor()
+            # print("formatted image before " + str(transfo(res_image)))
             formatted_image = transform(res_image)
+            # print("formatted image after: " + str(formatted_image))
             img = FaceImage(data.filename, formatted_image, db_source=data.db_source)
 
             try:
@@ -325,13 +346,29 @@ class Fileset:
 
     def ds_to_zip(self):
         zipf = zipfile.ZipFile(MAIN_ZIP, 'a', zipfile.ZIP_DEFLATED)
+        curr_pers = ""
+        curr_nb_pict = 0
 
         for i, data in enumerate(self.data_list):
-            # Convert into jpeg and extract the image
-            data.convert_image()
+            if curr_pers == data.name_person:
+                if MAX_NB_IM_PER_PERSON < curr_nb_pict:
+                    continue
+                else:
+                    curr_nb_pict += 1
+            else:
+                curr_pers = data.name_person
+                curr_nb_pict = 1
 
-            zipf.write(data.file.filename, os.path.basename(data.file.filename))
-            os.remove(data.file.filename)
+            # Convert into jpeg and extract the image
+            try:
+                path, new_name = data.convert_image()
+                # zipf.write(data.file.filename)
+                zipf.write(path, new_name)
+                os.remove(path)
+            except TypeError:  # ".png.json" extension
+                pass
+            except OSError:
+                pass # There's a "." in the name of the person ><
 
         zipf.close()
 
@@ -355,6 +392,7 @@ class FaceImage():
             image = Image.open(BytesIO(archive.read(self.path))).convert("RGB")
             plt.imshow(image)
             plt.show()
+            image.close()
 
     def get_feature_repres(self, model):
         if self.feature_repres is not None:
@@ -377,7 +415,9 @@ class Face_DS(torch.utils.data.Dataset):
         self.all_db = fileset.all_db
         self.transform = transforms.ToTensor() if transform is None else transform
 
+        t = time.time()
         faces_dic = fileset.order_per_personName(self.transform)
+        print("Pictures have been processed after " + str(time.time() - t))
 
         # print("after transformation" + str(faces_dic['faces94jdbenm'][0]))
 
@@ -394,12 +434,11 @@ class Face_DS(torch.utils.data.Dataset):
         else:
             self.image_data(faces_dic, device=device)
 
-        self.print_data_report(faces_dic)
+        self.print_data_report(faces_dic=faces_dic)
         if save is not None:
-            db = "_".join(self.all_db)
-            with open(FOLDER_DB + save + db + ".pkl", 'wb') as output:
+            with open(FOLDER_DB + save + ".pkl", 'wb') as output:
                 pickle.dump(self, output, pickle.HIGHEST_PROTOCOL)
-            print("The set has been saved!\n")
+            print("The set has been saved as " + FOLDER_DB + save + ".pkl" + "!\n")
 
     # You must override __getitem__ and __len__
     def __getitem__(self, index, visualization=False):
@@ -427,7 +466,7 @@ class Face_DS(torch.utils.data.Dataset):
         ----------------------------------------------- """
         return len(self.train_data)
 
-    def build_triplet(self, faces_dic, device="cpu"):
+    def build_triplet(self, faces_dic, device):
         """ ---------------------------------------------------
         Define the training set composed of (ref, pos, neg)
         List of 3 lists, each containing tensors
@@ -478,13 +517,12 @@ class Face_DS(torch.utils.data.Dataset):
                     label_neg = all_labels[curr_index_neg]
                     picture_negative = random.choice(faces_dic[label_neg])
 
-                    if nb_same_db < NB_TRIPLET_PER_PICT/2: # Half of the negative must belong to the same db
+                    if nb_same_db < NB_TRIPLET_PER_PICT / 2:  # Half of the negative must belong to the same db
                         nb_same_db += 1
                         try:
                             while 1 < len(self.all_db) and picture_negative.db != picture_ref.db:
                                 labels_indexes_neg.remove(curr_index_neg)
                                 # Pick a random different person
-                                print("labels_indexes_neg is " + str(labels_indexes_neg))
                                 curr_index_neg = random.choice(labels_indexes_neg)
                                 label_neg = all_labels[curr_index_neg]
                                 picture_negative = random.choice(faces_dic[label_neg])
@@ -492,12 +530,17 @@ class Face_DS(torch.utils.data.Dataset):
                             break
 
                     # To keep track of the image itself in order to potentially print it
-                    self.train_not_formatted_data.append([picture_ref, picture_positive, picture_negative])
+                    try:
+                        self.train_not_formatted_data.append([picture_ref, picture_positive, picture_negative])
+                        self.train_data.append([picture_ref.trans_img.to(device), picture_positive.trans_img.to(device),
+                                                picture_negative.trans_img.to(device)])
 
-                    self.train_data.append([picture_ref.trans_img.to(device), picture_positive.trans_img.to(device),
-                                            picture_negative.trans_img.to(device)])
-
-                    self.train_labels.append([0, 1])
+                        self.train_labels.append([0, 1])
+                    except IndexError:  # RuntimeError:
+                        print("ERR: In Build Triplet: Running out of Memory => Automatic Stop")
+                        print("The current ref person is " + str(label))
+                        print("Currently, " + str(len(self.train_data)) + " triplets have been defined")
+                        break
 
                 pos_pict_lists.append(pos_pict_list)
 
@@ -524,7 +567,11 @@ class Face_DS(torch.utils.data.Dataset):
 
     """ ---------------------------------- print_data_report ------------------------------------  """
 
-    def print_data_report(self, faces_dic):
+    def print_data_report(self, faces_dic=None):
+
+        if faces_dic is None:
+            print("\nThe total quantity of triplets used as data is: " + str(2 * len(self.train_labels)))
+            return
 
         # Report about the quantity of data
         pictures_nbs = [len(pictures_list) for person_name, pictures_list in faces_dic.items()]
@@ -551,22 +598,27 @@ class Face_DS(torch.utils.data.Dataset):
 '''---------------- load_sets -------------------------------- 
 This function load the training and the testing sets derived
 from the specified db, if there's any 
+IN: db_list: list of db that were used 
+OUT: list of 3 sets 
 -------------------------------------------------------------- '''
 
 
-def load_sets(db):
-    # Try to Load train and validation sets that were already defined
-    if db is None: db = MAIN_ZIP
-    db_name = db.split("/")[-1].split(".")[0]
+def load_sets(db_name, device, tv, sets_list):
+    result_sets_list = []
+    save_names_list = ["trainset_", "validationset_", "testset_"]
+    for i, set in enumerate(sets_list):
+        try:
+            with open(FOLDER_DB + save_names_list[i] + db_name + ".pkl", "rb") as f:
+                loaded_set = pickle.load(f)
+                loaded_set.print_data_report()
+                result_sets_list.append(loaded_set)
+                print('Set Loading Success!\n')
+        except (ValueError, IOError) as e:  # EOFError  IOError FileNotFoundError
+            print("\nThe set couldn't be loaded...")
+            print("Building Process ...")
+            result_sets_list.append(Face_DS(set, device=device, save=save_names_list[i] + db_name, triplet_version=tv))
 
-    with open(FOLDER_DB + "trainset_" + db_name + ".pkl", "rb") as f:
-        training_set = pickle.load(f)
-    with open(FOLDER_DB + "validationset_" + db_name + ".pkl", "rb") as f:
-        validation_set = pickle.load(f)
-    with open(FOLDER_DB + "testset_" + db_name + ".pkl", "rb") as f:
-        test_set = pickle.load(f)
-
-    return training_set, validation_set, test_set
+    return result_sets_list
 
 
 '''--------------------- include_data_to_zip --------------------------------
@@ -600,17 +652,13 @@ def include_data_to_zip():
  ---------------------------------------------------------------------------------------------'''
 
 
-def from_zip_to_data(with_profile, fname=MAIN_ZIP):
+def from_zip_to_data(with_profile, fname=MAIN_ZIP, dataset=None):
     t = time.time()
-    add_data = True
-    dataset = Fileset()
+    if dataset is None: dataset = Fileset()
     if fname is None:
         fname = MAIN_ZIP
-        add_data = False
 
-    db_name = fname.split("/")[-1].split(".zip")[0]
-
-    print("\nData Loading ...")
+    print("\nData Loading from " + fname + " ...")
     with zipfile.ZipFile(fname, 'r') as archive:
         file_names = archive.namelist()
         file_list = archive.filelist
@@ -645,8 +693,7 @@ def from_zip_to_data(with_profile, fname=MAIN_ZIP):
 
             new_data = Data(file_list[i], fn, fname, False)
 
-            if (with_profile or not new_data.lateral_face) and \
-                    (DB_TO_USE == db_name or new_data.db_source in DB_TO_USE or add_data):
+            if (with_profile or not new_data.lateral_face):
                 dataset.add_data(new_data)
 
             # ------ Limitation of the total number of instances ------
@@ -665,6 +712,4 @@ def from_zip_to_data(with_profile, fname=MAIN_ZIP):
 
 
 if __name__ == "__main__":
-    fileset = from_zip_to_data(False)
-    training_set, _ = fileset.get_sets(False)
-    ts = Face_DS(training_set)  # Triplet Version
+    include_data_to_zip()

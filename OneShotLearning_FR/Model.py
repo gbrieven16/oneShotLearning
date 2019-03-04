@@ -1,5 +1,5 @@
-import torch
 import os
+import torch
 import pickle
 from NeuralNetwork import Tripletnet, ContrastiveLoss, SoftMax_Net, AutoEncoder_Net, TYPE_ARCH, Classif_Net
 from Visualization import visualization_validation, visualization_train
@@ -14,12 +14,39 @@ from torch import optim
 
 MARGIN = 2.0
 MOMENTUM = 0.9
+GAMMA = 0.1 # for the lr_scheduler - default value 0.1
 N_TEST_IMG = 5
 PT_BS = 32  # Batch size for pretraining
 PT_NUM_EPOCHS = 200
+DEVICE_ID = 2
+ROUND_DEC = 5
 
 # Specifies where the torch.tensor is allocated
 DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+print("The code is running on " + DEVICE)
+#DEVICE = torch.cuda.device(DEVICE_ID) if torch.cuda.is_available() else 'cpu
+#os.environ['CUDA_VISIBLE_DEVICES'] = "%d" % deviceid
+print_info_cuda = False
+if DEVICE.type == 'cuda' and print_info_cuda:
+    # ================================================
+    deviceid = 2
+    total, used = os.popen(
+        '"nvidia-smi" --query-gpu=memory.total,memory.used --format=csv,nounits,noheader'
+    ).read().split('\n')[deviceid].split(',')
+    total = int(total)
+    used = int(used)
+
+    print(deviceid, 'Total GPU mem:', total, 'used:', used)
+
+    visible_devices = os.getenv('CUDA_VISIBLE_DEVICES', '').split(',')
+    print("Visible devices: " + str(visible_devices))
+    print_info_cuda = True
+    print("count " + str(torch.cuda.device_count()))
+    print(torch.cuda.get_device_name(0))
+    print('Memory Usage:')
+    print('Allocated:', round(torch.cuda.memory_allocated(0)/1024**3,1), 'GB')
+    print('Cached:   ', round(torch.cuda.memory_cached(0)/1024**3,1), 'GB')
+    #print(torch.cuda.get_device_name(2))
 
 
 # Loss combination not considered here
@@ -43,7 +70,7 @@ class Model:
         self.loss_type = "None"
         self.is_classifier = False
 
-        self.lr = 0.001
+        self.lr = 0.00001
         self.wd = 0.001
         self.optimizer = None
         self.class_weights = [1, 1]
@@ -56,7 +83,7 @@ class Model:
 
         # For Visualization
         self.losses_validation = {"Pretrained Model": [], "Non-pretrained Model": []}
-        self.f1_validation = {"Pretrained Model": [], "Non-pretrained Model": []}
+        self.f1_validation = {"Pretrained Model": [], "Non-pretrained Model": [], "On Training Set": []}
         self.losses_train = []
 
     '''---------------------- set_for_training --------------------------------- '''
@@ -90,8 +117,9 @@ class Model:
             pass  # We keep the default setting
 
         try:
-            self.optimizer = self.get_optimizer(opt_type=train_param["opt_type"])
+            self.scheduler, self.optimizer = self.get_optimizer(train_param["hyper_par"])
         except KeyError:
+            print("ERR: Key error in optimizer setting")
             pass  # We keep the default setting
 
         # ----------------- Class Weighting Use -------------
@@ -112,7 +140,7 @@ class Model:
         try:
             with open("autoencoder.pkl", "rb") as f:
                 self.network.embedding_net = pickle.load(f)
-        except (IOError, FileNotFoundError) as e:
+        except IOError: #FileNotFoundError
             train_data = Face_DS(training_set, device=DEVICE, triplet_version=False)
             train_loader = torch.utils.data.DataLoader(train_data, batch_size=batch_size, shuffle=True)
             train_param = {"loss_type": loss_type, "opt_type": "Adam"}
@@ -132,8 +160,9 @@ class Model:
        compared to the ones of a NN that was pretrained) 
     -------------------------------------------------------------------------------- '''
 
-    def train_nonpretrained(self, num_epochs, optimizer_type):
-        train_param = {"train_loader": self.train_loader, "loss_type": self.loss_type, "opt_type": optimizer_type}
+    def train_nonpretrained(self, num_epochs, hyp_par):
+
+        train_param = {"train_loader": self.train_loader, "loss_type": self.loss_type, "hyper_par": hyp_par}
         model_comp = Model(train_param, validation_loader=self.validation_loader, test_loader=self.test_loader)
 
         for epoch in range(num_epochs):
@@ -192,6 +221,8 @@ class Model:
                            100. * batch_idx * batch_size / len(self.train_loader.dataset),
                     loss.item()))  # len(data[0]) = batch_size
 
+        if self.scheduler is not None: self.scheduler.step()
+
         if not autoencoder and not self.is_classifier: self.update_weights()
         self.losses_train.append(loss_list)
 
@@ -201,14 +232,14 @@ class Model:
           f1-measure: current f1-measure once evaluated on the testing set
      -----------------------------------------------------------------------'''
 
-    def prediction(self, for_weight_update=False, validation=True):
+    def prediction(self, on_train=False, validation=True):
         self.network.eval()
         self.reset_eval()
 
         with torch.no_grad():
             acc_loss = 0
 
-            if for_weight_update:
+            if on_train:
                 data_loader = self.train_loader
             elif validation:
                 data_loader = self.validation_loader
@@ -249,30 +280,35 @@ class Model:
                             acc_neg = torch.sum(torch.argmax(out_neg, dim=1) == tar_neg).cpu()  # = 1
 
                         acc_loss += loss
-                        if not for_weight_update: self.get_evaluation(acc_pos, acc_neg, len(tar_pos), len(tar_neg))
+                        if not on_train: self.get_evaluation(acc_pos, acc_neg, len(tar_pos), len(tar_neg))
 
                 except RuntimeError:  # The batch is "not complete"
                     break
 
         # ----------- Evaluation on the validation set (over epochs) ---------------
-        if not for_weight_update and validation:
+        if not on_train and validation:
             eval_measure = self.print_eval_model(acc_loss)
-            self.losses_validation["Pretrained Model"].append(round(float(acc_loss), 2))
+            self.losses_validation["Pretrained Model"].append(round(float(acc_loss), ROUND_DEC))
             self.f1_validation["Pretrained Model"].append(eval_measure)
-            return round(float(acc_loss), 2), eval_measure
+            return round(float(acc_loss), ROUND_DEC), eval_measure
 
         # ----------- Evaluation on the test set ---------------
-        elif not for_weight_update:
-            self.print_eval_model(acc_loss, loader="Test")
+        elif not on_train:
+            return self.print_eval_model(acc_loss, loader="Test")
+
+        # ----------- Evaluation on the train set ---------------
+        else:
+            f1_neg_avg = self.eval_dic["f1_neg"] / len(self.train_loader)
+            f1_pos_avg = self.eval_dic["f1_pos"] / len(self.train_loader)
+            self.f1_validation["On Training Set"].append((f1_neg_avg+f1_pos_avg)/2)
+            return f1_pos_avg, f1_neg_avg
 
     '''---------------------------- update_weights ------------------------------
      This function updates the class weights considering the current f1 measures
      ---------------------------------------------------------------------------'''
 
     def update_weights(self):
-        self.prediction(for_weight_update=True)  # To get f1_measures
-        f1_neg_avg = self.eval_dic["f1_neg"] / len(self.train_loader)
-        f1_pos_avg = self.eval_dic["f1_pos"] / len(self.train_loader)
+        f1_pos_avg, f1_neg_avg = self.prediction(on_train=True)  # To get f1_measures
         print("f1 score of train: " + str(f1_pos_avg) + " and " + str(f1_neg_avg))
 
         if self.weighted_classes:
@@ -306,21 +342,45 @@ class Model:
             return acc
         else:
             print("Recall Pos is: " + str(100. * self.eval_dic["recall_pos"] / nb_eval) +
-                  "   Recall Neg is: " + str(round(100. * self.eval_dic["recall_neg"] / nb_eval, 2)))
+                  "   Recall Neg is: " + str(round(100. * self.eval_dic["recall_neg"] / nb_eval, ROUND_DEC)))
             print("f1 Pos is: " + str(100. * self.eval_dic["f1_pos"] / nb_eval) +
-                  "          f1 Neg is: " + str(round(100. * self.eval_dic["f1_neg"] / nb_eval, 2)))
+                  "          f1 Neg is: " + str(round(100. * self.eval_dic["f1_neg"] / nb_eval, ROUND_DEC)))
             print(" ------------------------------------------------------------------\n ")
-            return round(100. * 0.5 * (self.eval_dic["f1_neg"] + self.eval_dic["f1_pos"]) / nb_eval, 2)
+            return round(100. * 0.5 * (self.eval_dic["f1_neg"] + self.eval_dic["f1_pos"]) / nb_eval, ROUND_DEC)
 
     '''------------------------- get_optimizer -------------------------------- '''
 
-    def get_optimizer(self, opt_type="Adam"):
-        if opt_type == "Adam":
-            return optim.Adam(self.network.parameters(), lr=self.lr, weight_decay=self.wd)
-        elif opt_type == "SGD":
-            return optim.SGD(self.network.parameters(), lr=self.lr, momentum=MOMENTUM)
-        elif opt_type == "Adagrad":
-            return optim.Adagrad(self.network.parameters(), lr=self.lr, weight_decay=self.wd)
+    def get_optimizer(self, hyper_par):
+
+        # ----------------------------------
+        #       Optimizer Setting
+        # ----------------------------------
+
+        optimizer = None
+        if hyper_par["opt_type"] == "Adam":
+            optimizer = optim.Adam(self.network.parameters(), lr=self.lr, weight_decay=self.wd)
+        elif hyper_par["opt_type"] == "SGD":
+            optimizer = optim.SGD(self.network.parameters(), lr=self.lr, momentum=MOMENTUM)
+        elif hyper_par["opt_type"] == "Adagrad":
+            optimizer = optim.Adagrad(self.network.parameters(), lr=self.lr, weight_decay=self.wd)
+
+        # ----------------------------------
+        #  Learning Rate Scheduler Setting
+        # ----------------------------------
+
+        if hyper_par["lr_scheduler"] is None:
+            return None, optimizer
+        else:
+            if hyper_par["lr_scheduler"] == "ExponentialLR":
+                print("optim: " + str(optim.lr_scheduler.ExponentialLR(optimizer, GAMMA, last_epoch=hyper_par["num_epoch"])))
+                return optim.lr_scheduler.ExponentialLR(optimizer, GAMMA, last_epoch=hyper_par["num_epoch"]), optimizer
+            elif hyper_par["lr_scheduler"] == "StepLR":
+                step_size = hyper_par["num_epoch"] / 5
+                scheduler = optim.lr_scheduler.StepLR(optimizer, step_size, gamma=GAMMA) #, last_epoch=hyper_par["num_epoch"])
+                return scheduler, optimizer
+            else:
+                print("WARN: No mapping with learning rate scheduler")
+                return None, optimizer
 
     '''------------------------- get_evaluation -------------------------------- 
        This function computes different metrics to evaluate the
@@ -373,7 +433,7 @@ class Model:
     def save_model(self, name_model):
         try:
             torch.save(self.network, name_model)
-        except FileNotFoundError:
+        except IOError: #FileNotFoundError
             os.mkdir(name_model.split("/")[0])
             torch.save(self.network, name_model)
 
@@ -385,14 +445,15 @@ class Model:
             visualization 
     -------------------------------- '''
 
-    def visualization(self, num_epoch, used_db, batch_size, opt_type):
+    def visualization(self, num_epoch, db, batch_size, opt_type):
 
-        name_fig = "graphs/ds" + used_db + "_" + str(num_epoch) + "_" + str(batch_size) \
+        name_fig = "graphs/ds" + db + "_" + str(num_epoch) + "_" + str(batch_size) \
                    + "_" + self.loss_type + "_arch" + TYPE_ARCH + "_opti" + opt_type
+
         visualization_train(range(0, num_epoch, int(round(num_epoch / 5))), self.losses_train,
                             save_name=name_fig + "_train.png")
 
-        visualization_validation(self.losses_validation, self.f1_validation, save_name=name_fig + "_test")
+        visualization_validation(self.losses_validation, self.f1_validation, save_name=name_fig + "_valid")
 
         if self.loss_type[:len("cross_entropy")] == "cross_entropy":
             self.network.visualize_last_output(next(iter(self.validation_loader))[0], name_fig + "outputVis")
