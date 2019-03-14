@@ -11,14 +11,15 @@ from PIL import Image
 from io import BytesIO
 
 import matplotlib
+import matplotlib.pyplot as plt
 
 matplotlib.use('Agg')
-import matplotlib.pyplot as plt
 
 import torch
 import torchvision.transforms as transforms
-import warnings
+from torch import nn
 
+import warnings
 warnings.filterwarnings('ignore')
 
 #########################################
@@ -28,7 +29,7 @@ warnings.filterwarnings('ignore')
 
 # if the 2th db not used, replace "yalefaces" by ""
 FOLDER_DB = "data/gbrieven/" if platform.system() == "Darwin" else "/data/gbrieven/"
-MAIN_ZIP = FOLDER_DB + 'testCropped.zip'  # cfp.zip "testdb.zip"  CASIA-WebFace.zip'
+MAIN_ZIP = FOLDER_DB + 'cfpSmall.zip'  # cfp.zip "testdb.zip"  CASIA-WebFace.zip'
 TEST_ZIP = FOLDER_DB + 'testdb.zip'
 
 ZIP_TO_PROCESS = FOLDER_DB + 'initTestCropped.zip'  # aber&GTdb_crop.zip'
@@ -47,10 +48,9 @@ NB_TRIPLET_PER_PICT = 1
 RATIO_HORIZ_CROP = 0.15
 RESIZE = True
 RESOLUTION = (150, 200)
-CENTER_CROP = (150, 200)
-TRANS = transforms.Compose([transforms.CenterCrop(CENTER_CROP), transforms.ToTensor(),
-                            transforms.Normalize((0.5,), (1.0,))])  # mean = 0.5 ; std = 1.0
-
+CENTER_CROP = (150, 200)  # transforms.CenterCrop(CENTER_CROP),
+TRANS = transforms.Compose([transforms.ToTensor(), transforms.Normalize((0.5, 0.5, 0.5), (1.0, 1.0, 1.0))])
+DIST_METRIC = "Cosine_Sym"
 
 # ================================================================
 #                    CLASS: Data
@@ -83,7 +83,6 @@ class Data:
         print("index " + str(self.index))
         print("extension " + str(extension))"""
 
-
         # + Potentially add some characteristic related to the picture for the interpretation later, like girl/guy ....)
 
     '''---------------- convert_image --------------------------------
@@ -103,19 +102,18 @@ class Data:
 
         # Ok in the case of .gif at least
         elif self.extension != ".txt" and self.extension != "png.json":
-            zipfile.ZipFile(self.db_path, 'r').extract(self.file)
-            path = FOLDER_DB + "image.jpeg"
-            Image.open(self.filename).convert('RGB').save(path)
-            self.file.filename = new_name
-            os.remove(self.filename)
-            return path, new_name
 
+            with zipfile.ZipFile(self.db_path, 'r') as archive:
+                path = FOLDER_DB + "image.jpeg"
+                Image.open(BytesIO(archive.read(self.filename))).convert('RGB').save(path)
+                self.file.filename = new_name
+
+            return path, new_name
 
     '''---------------- extract_info_from_name --------------------------------
      This function extracts from the name of the file: the name of the person, 
      the index of each picture and the extension of the file 
      --------------------------------------------------------------------------'''
-
 
     def extract_info_from_name(self):
 
@@ -174,7 +172,7 @@ class Data:
             if not RESIZE:
                 return original_image
             original_res = original_image.size
-            #print("original res is: " + str(original_res))
+            # print("original res is: " + str(original_res))
 
             # ----- If Horizontal Image => Crop -----
             if original_res[1] < original_res[0]:
@@ -316,11 +314,12 @@ class Fileset:
         for i, data in enumerate(self.data_list):
             personNames = data.name_person
             res_image = data.resize_image()
-            transfo = transforms.ToTensor()
-            # print("formatted image before " + str(transfo(res_image)))
+            # transfo = transforms.Compose([transforms.ToTensor()])  # transforms.CenterCrop(CENTER_CROP),
+            # print("formatted image without standardization " + str(transfo(res_image)))
             formatted_image = transform(res_image)
             # print("formatted image after: " + str(formatted_image))
-            img = FaceImage(data.filename, formatted_image, db_source=data.db_source)
+
+            img = FaceImage(data.filename, formatted_image, db_path=data.db_path, pers=data.name_person, i=data.index)
 
             try:
                 if len(faces_dic[personNames]) < max_nb_pict:
@@ -368,7 +367,7 @@ class Fileset:
             except TypeError:  # ".png.json" extension
                 pass
             except OSError:
-                pass # There's a "." in the name of the person ><
+                pass  # There's a "." in the name of the person ><
 
         zipf.close()
 
@@ -377,19 +376,25 @@ class Fileset:
 #                    CLASS: FaceImage
 # ================================================================
 class FaceImage():
-    def __init__(self, path, trans_image, db_source=None):
-        self.path = path
-        self.db = db_source
+    def __init__(self, file_path, trans_image, db_path=None, pers=None, i=None):
+        self.file_path = file_path      # Complete path of the image
+        self.db_path = db_path   # Complete path of the db (zip file)
         self.trans_img = trans_image
+        self.dist = {} # key1 person, val1: dic2 ; key2: index, val2: val2
         self.feature_repres = None
+        self.person = pers
+        self.index = i
 
     def isIqual(self, other_image):
-        return other_image.path == self.path
+        #return other_image.path == self.file_path
+        return other_image.file_path == self.file_path
 
     def display_im(self, to_print="A face is displayed"):
         print(to_print)
-        with zipfile.ZipFile(self.path, 'r') as archive:
-            image = Image.open(BytesIO(archive.read(self.path))).convert("RGB")
+        print("path is " + str(self.db_path))
+        with zipfile.ZipFile(self.db_path, 'r') as archive:
+            image = Image.open(BytesIO(archive.read(self.file_path))).convert("RGB")
+
             plt.imshow(image)
             plt.show()
             image.close()
@@ -401,6 +406,29 @@ class FaceImage():
             data = torch.unsqueeze(self.trans_img, 0)
             self.feature_repres = model.embedding_net(data)
             return self.feature_repres
+
+    def get_dist(self, person, index, picture, siamese_model):
+        try:
+            return self.dist[person][index]
+        except KeyError:
+            feature_repr2 = picture.get_feature_repres(siamese_model)
+            if DIST_METRIC == "Manhattan":
+                difference_sum = torch.sum(torch.abs(feature_repr2 - self.feature_repres))
+                dist = difference_sum / len(self.feature_repres[0])
+
+            elif DIST_METRIC == "MeanSquare":
+                difference_sum = torch.sum((self.feature_repres - feature_repr2) ** 2)
+                dist = difference_sum / len(self.feature_repres[0])
+
+            elif DIST_METRIC == "Cosine_Sym":
+                cos = nn.CosineSimilarity(dim=1, eps=1e-6)
+                dist = cos(self.feature_repres, feature_repr2)
+            else:
+                print("ERR: Invalid Distance Metric")
+                raise IOError
+
+            picture.dist[self.person][self.index] = dist
+            return dist
 
 
 # ================================================================
@@ -603,12 +631,13 @@ OUT: list of 3 sets
 -------------------------------------------------------------- '''
 
 
-def load_sets(db_name, device, tv, sets_list):
+def load_sets(db_name, device, tv, sets_list, triplet=True):
+    type_ds = "triplet_" if triplet else "class_"
     result_sets_list = []
     save_names_list = ["trainset_", "validationset_", "testset_"]
     for i, set in enumerate(sets_list):
         try:
-            with open(FOLDER_DB + save_names_list[i] + db_name + ".pkl", "rb") as f:
+            with open(FOLDER_DB + save_names_list[i] + type_ds + db_name + ".pkl", "rb") as f:
                 loaded_set = pickle.load(f)
                 loaded_set.print_data_report()
                 result_sets_list.append(loaded_set)

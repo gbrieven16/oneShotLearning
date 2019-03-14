@@ -1,4 +1,5 @@
 import matplotlib
+import platform
 
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
@@ -76,7 +77,7 @@ def multi_line_graph(dictionary, x_elements, title, x_label="x", y_label="Score"
         except FileNotFoundError:
             os.mkdir(save_name.split("/")[0])
             plt.savefig(save_name)
-    print("Graph saved as " + save_name)
+        print("Graph saved as " + save_name)
     plt.close()
 
 

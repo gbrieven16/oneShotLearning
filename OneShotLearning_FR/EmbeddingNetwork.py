@@ -1,9 +1,8 @@
-import os
-#os.environ['CUDA_VISIBLE_DEVICES'] = "2"
-
+import math
 import torch
 from torch import nn
 import torch.nn.functional as f
+
 
 # ================================================================
 #                   GLOBAL VARIABLES
@@ -27,6 +26,9 @@ LAYERS_RES = {"resnet18": [2, 2, 2, 2], "resnet34": [3, 4, 6, 3], "resnet50": [3
 
 # Specifies where the torch.tensor is allocated
 DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+WITH_GNAP = False
+W = 7
 
 
 # ================================================================
@@ -85,6 +87,7 @@ class BasicNet(nn.Module):
 class AlexNet(nn.Module):
     def __init__(self, dim_last_layer):
         super(AlexNet, self).__init__()
+        if GNAP: print("The GNAP module is used\n")
 
         self.features = nn.Sequential(
             nn.Conv2d(3, 64, kernel_size=11, stride=4),
@@ -101,6 +104,8 @@ class AlexNet(nn.Module):
             nn.ReLU(inplace=True),
             nn.MaxPool2d(kernel_size=5, stride=2),
         )
+
+        self.gnap = GNAP()
         self.linearization = nn.Sequential(
             nn.Dropout(),
             nn.Linear(22 * 32 * 32, dim_last_layer),
@@ -114,6 +119,7 @@ class AlexNet(nn.Module):
 
     def forward(self, data):
         x = self.features(data.to(DEVICE))
+        x = self.gnap(x)
         x = x.view(x.size(0), 22 * 32 * 32)  # 720896 / 32 = 22528.0
         return self.linearization(x)
 
@@ -127,9 +133,12 @@ class VGG16(nn.Module):
     def __init__(self, dim_last_layer, init_weights=True):  # num_class potentially to modify
 
         super(VGG16, self).__init__()
+        if GNAP: print("The GNAP module is used\n")
+
         cfg = [64, 64, 'M', 128, 128, 'M', 256, 256, 256, 'M', 512, 512, 512, 'M', 512, 512, 512, 'M']
 
         self.features = make_layers(cfg, batch_norm=WITH_NORM_BATCH)
+        self.gnap = GNAP()
         self.avgpool = nn.AdaptiveAvgPool2d((7, 7))
         self.linearization = nn.Sequential(
             nn.Linear(512 * 7 * 7, dim_last_layer),
@@ -145,6 +154,7 @@ class VGG16(nn.Module):
 
     def forward(self, data):
         x = self.features(data.to(DEVICE))
+        x = self.gnap(x)
         x = self.avgpool(x)
         x = x.view(x.size(0), -1)
         x = self.linearization(x)
@@ -224,8 +234,11 @@ class BasicBlock(nn.Module):
 
         out += identity
         out = self.relu(out)
-
         return out
+
+# ================================================================
+#                    CLASS: ResNet
+# ================================================================
 
 
 class Bottleneck(nn.Module):
@@ -269,6 +282,7 @@ class Bottleneck(nn.Module):
 class ResNet(nn.Module):
     def __init__(self, dim_last_layer, zero_init_residual=False, resnet="resnet152"):
         super(ResNet, self).__init__()
+        if GNAP: print("The GNAP module is used\n")
 
         if resnet == "resnet18" or resnet == "resnet34":
             block = BasicBlock
@@ -286,6 +300,8 @@ class ResNet(nn.Module):
         self.layer2 = self._make_layer(block, 128, layers[1], stride=2)
         self.layer3 = self._make_layer(block, 256, layers[2], stride=2)
         self.layer4 = self._make_layer(block, 512, layers[3], stride=2)
+        self.gnap = GNAP(in_dim=512 * block.expansion)
+
         self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
         self.fc = nn.Linear(512 * block.expansion, dim_last_layer)
 
@@ -330,8 +346,69 @@ class ResNet(nn.Module):
         x = self.layer3(x)
         x = self.layer4(x)
 
+        x = self.gnap(x)
         x = self.avgpool(x)
         x = x.view(x.size(0), -1)
         x = self.fc(x)
 
         return x
+
+
+# ================================================================
+#                    CLASS:  GNAP block
+#               (Global Norm-Aware Pooling)
+# ================================================================
+
+class GNAP(nn.Module):
+    def __init__(self, in_dim=256):
+        super(GNAP, self).__init__()
+
+        # ----------- Batch Normalization -----------------
+        self.batchNorm = nn.BatchNorm2d(in_dim)
+        self.H = 2048
+        self.W = W
+        self.C = 5
+
+        # ----------- Global Average Pooling -----------------
+        self.globAvgPool = nn.AdaptiveAvgPool2d(self.W)
+
+    '''-------------------- normAwareReweighting ------------------------ 
+       This function acts a a norm-aware reweighting layer
+       ASSUMPTION: input of dimensions C x W x H 
+       ----------------------------------------------------------------'''
+    def normAwareReweighting(self, x):
+        batch_size = x.size()[0]
+        fij = []
+
+        # ------ STEP 1: L2 Norm of the local feature -------
+        for b in range(batch_size):
+            fij.append([])
+            for h in range(self.H):
+                for w in range(self.W):
+                    fij[b].append(0)
+                    for channel in range(self.C):
+                        fij[b][-1] += x[b][h][w][channel]**2
+                    fij[b][-1] = math.sqrt(fij[b][-1])
+
+            # ------ STEP 2: Mean of local features' L2 norms -------
+            f_mean = sum(fij[b])/(self.H*self.W)
+
+            # ------ STEP 3: Norm-aware Reweighting -------
+            i = 0
+            for h in range(self.H):
+                for w in range(self.W):
+                    for channel in range(self.C):
+                        x[b][h][w][channel] = (f_mean/fij[b][i]) * x[b][h][w][channel]
+                    i += 1
+        return x
+
+    def forward(self, init_feature_repres):
+        if not WITH_GNAP:
+            return init_feature_repres
+        else:
+            x = self.batchNorm(init_feature_repres)
+            x = self.normAwareReweighting(x)
+            x = self.globAvgPool(x)
+            return self.batchNorm(x)
+
+

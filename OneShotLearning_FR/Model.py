@@ -23,7 +23,7 @@ ROUND_DEC = 5
 
 # Specifies where the torch.tensor is allocated
 DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-print("The code is running on " + DEVICE)
+print("\nThe code is running on " + str(DEVICE) + "...")
 #DEVICE = torch.cuda.device(DEVICE_ID) if torch.cuda.is_available() else 'cpu
 #os.environ['CUDA_VISIBLE_DEVICES'] = "%d" % deviceid
 print_info_cuda = False
@@ -68,7 +68,7 @@ class Model:
         # Default Initialization
         self.network = network
         self.loss_type = "None"
-        self.is_classifier = False
+        self.nb_classes = nb_classes if 2 < nb_classes else None # If None, Then no classification approach
 
         self.lr = 0.00001
         self.wd = 0.001
@@ -97,12 +97,11 @@ class Model:
             self.network = ContrastiveLoss()
         elif train_param["loss_type"] is None:
             self.network = AutoEncoder_Net(embedding_net)
-        elif train_param["loss_type"][:len("cross_entropy")] == "cross_entropy":
-            self.network = SoftMax_Net() if len(train_param["loss_type"]) == len("cross_entropy") else SoftMax_Net(
-                with_center_loss=True)
+        elif train_param["loss_type"] == "cross_entropy":
+            self.network = SoftMax_Net()
         elif train_param["loss_type"] == "ce_classif":
             self.network = Classif_Net(nb_classes=nb_classes)
-            self.is_classifier=True
+            
         else:
             print("ERR: Mismatch with loss type")
             raise Exception
@@ -223,7 +222,7 @@ class Model:
 
         if self.scheduler is not None: self.scheduler.step()
 
-        if not autoencoder and not self.is_classifier: self.update_weights()
+        if not autoencoder and self.nb_classes is None: self.update_weights()
         self.losses_train.append(loss_list)
 
     '''---------------------------- prediction --------------------------------
@@ -252,8 +251,8 @@ class Model:
                     target = target.type(torch.LongTensor).to(DEVICE)
 
                     # ----------- Case 1: Classification ----------------
-                    if self.is_classifier:
-                        output = self.network(data)
+                    if self.nb_classes is not None:
+                        output = self.network(data, target)
                         target = target.type(torch.LongTensor).to(DEVICE)
 
                         if torch.cuda.is_available():
@@ -280,7 +279,7 @@ class Model:
                             acc_neg = torch.sum(torch.argmax(out_neg, dim=1) == tar_neg).cpu()  # = 1
 
                         acc_loss += loss
-                        if not on_train: self.get_evaluation(acc_pos, acc_neg, len(tar_pos), len(tar_neg))
+                        self.get_evaluation(acc_pos, acc_neg, len(tar_pos), len(tar_neg))
 
                 except RuntimeError:  # The batch is "not complete"
                     break
@@ -333,12 +332,12 @@ class Model:
         nb_eval = len(self.validation_loader)
         loss_eval = loss_eval / nb_eval  # avg of the loss
 
-        print(" \n---------------------------" + loader + "--------------------------------- ")
+        print(" \n----------------------- " + loader + " --------------------------------- ")
         print('Test accuracy: {}/{} ({:.3f}%)\tLoss: {:.6f}'.format(self.eval_dic["nb_correct"],
                                                                     self.eval_dic["nb_labels"], acc, loss_eval))
-        if self.is_classifier:
-            print("Baseline: " + str(1 / self.eval_dic["nb_labels"]))
-            print(" ------------------------------------------------------------------\n ")
+        if self.nb_classes is not None:
+            print("Baseline (i.e accuracy in random case): " + str(100 * (float(1) / self.nb_classes)))
+            print("------------------------------------------------------------------\n ")
             return acc
         else:
             print("Recall Pos is: " + str(100. * self.eval_dic["recall_pos"] / nb_eval) +
@@ -372,8 +371,8 @@ class Model:
             return None, optimizer
         else:
             if hyper_par["lr_scheduler"] == "ExponentialLR":
-                print("optim: " + str(optim.lr_scheduler.ExponentialLR(optimizer, GAMMA, last_epoch=hyper_par["num_epoch"])))
-                return optim.lr_scheduler.ExponentialLR(optimizer, GAMMA, last_epoch=hyper_par["num_epoch"]), optimizer
+                print("optim: " + str(optim.lr_scheduler.ExponentialLR(optimizer, GAMMA)))
+                return optim.lr_scheduler.ExponentialLR(optimizer, GAMMA), optimizer
             elif hyper_par["lr_scheduler"] == "StepLR":
                 step_size = hyper_par["num_epoch"] / 5
                 scheduler = optim.lr_scheduler.StepLR(optimizer, step_size, gamma=GAMMA) #, last_epoch=hyper_par["num_epoch"])

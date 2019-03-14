@@ -50,30 +50,31 @@ def extract_files(nameFolder):
 '''--------------------- data_to_zip ------------------------------------------ '''
 
 
-def rename_file(nameFolder):
+def rename_file(nameFolder, zip_name=None):
     files = [str(os.path.join(dp, f)) for dp, dn, filenames in os.walk(nameFolder) for f in filenames]
 
     for i, file in enumerate(files):
         print("file is " + file)
         # new_name = "faces94_" + file.split(".")[0] + "_" + file.split(".")[1] + ".jpeg"
         try:
-            new_name = nameFolder + "faceScrub__" + file.split("faceScrub/")[1]
+            new_name = file.replace("_", "__")
             os.rename(file, new_name)
         except IndexError:
             print("already")
+    if zip_name is not None:
+        shutil.make_archive(zip_name, 'zip', nameFolder)
 
 
 '''--------------------- data_to_zip ------------------------------------------
- This function zip the content of a directory, excluding the diretory 
+ This function zip the content of a directory, excluding the directory 
  "profile". 
  root_dir is contains: namePerson/profile/id.jpg and namePerson/frontal/id.jpg
  !!! The initial zip has to be decompressed !!!
  ------------------------------------------------------------------------------'''
 
 
-def data_to_zip():
+def data_to_zip(root_dir):
     # ---- Get all the relative path from given directory ------
-    root_dir = 'data/gbrieven/'
     file_names = []
 
     for dir_, _, files in os.walk(root_dir):
@@ -82,7 +83,7 @@ def data_to_zip():
             rel_file = os.path.join(rel_dir, file_name)
             file_names.append(rel_file)
 
-    zipf = zipfile.ZipFile("data/gbrieven/testCropped.zip", 'w', zipfile.ZIP_DEFLATED)
+    zipf = zipfile.ZipFile("data/gbrieven/gbrieven.zip", 'w', zipfile.ZIP_DEFLATED)
 
     for i, fn in enumerate(file_names):
         print("fn is " + str(fn))
@@ -91,12 +92,17 @@ def data_to_zip():
 
         if fn.split("/")[1] == "profile":
             continue
-        new_name = "facescrub/" + fn.split("/")[0] + "/" + fn.split("/")[2]
-        zipf.write(root_dir + "facescrub/" + fn, new_name)
+        #new_name = "facescrub/" + fn.split("/")[0] + "/" + fn.split("/")[2]
+        #zipf.write(root_dir + "facescrub/" + fn, new_name)
+        zipf.write(fn)
+
     zipf.close()
+
 
 
 if __name__ == "__main__":
     #data_to_zip()
-    nameFolder = 'data/gbrieven/faceScrub/'
-    rename_file(nameFolder)
+    nameFolder = 'data/gbrieven/gbrieven/'
+    rename_file(nameFolder, zip_name="gbrieven")
+
+

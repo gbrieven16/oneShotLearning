@@ -1,9 +1,9 @@
-
 import torch
 from torch import nn
 import torch.nn.functional as f
 import numpy as np
 import matplotlib
+import platform
 
 from Dataprocessing import CENTER_CROP
 from EmbeddingNetwork import AlexNet, BasicNet, VGG16, ResNet
@@ -24,7 +24,7 @@ TYPE_ARCH (related to the embedding Network)
 4: AlexNet architecture 
 """
 
-TYPE_ARCH = "1default" #"VGG16" #  "2def_drop" "3def_bathNorm" "1default" "resnet152"
+TYPE_ARCH = "resnet152"  #"1default" "VGG16" #  "2def_drop" "3def_bathNorm"
 DIM_LAST_LAYER = 4096 if TYPE_ARCH == "4AlexNet" or TYPE_ARCH == "VGG16" else 512
 
 DIST_THRESHOLD = 0.02
@@ -292,7 +292,7 @@ class CenterLoss(nn.Module):
 # ================================================================
 
 class Classif_Net(nn.Module):
-    def __init__(self, nb_classes=10):
+    def __init__(self, nb_classes=10, with_center_loss=True):
         super(Classif_Net, self).__init__()
 
         if TYPE_ARCH == "1default":
@@ -309,9 +309,15 @@ class Classif_Net(nn.Module):
 
         self.final_layer = nn.Linear(DIM_LAST_LAYER, nb_classes).to(DEVICE)
         self.loss_cur = 0
+        self.center_loss = CenterLoss(DIM_LAST_LAYER, nb_classes) if with_center_loss else None
 
-    def forward(self, data):
-        return self.final_layer(self.embedding_net(data))
+    def forward(self, data, label):
+        embedded_data = self.embedding_net(data)
+        # ---------- Center Loss Consideration ----------------
+        if self.center_loss is not None:
+            self.loss_cur = self.center_loss(embedded_data, label)
+
+        return self.final_layer(embedded_data)
 
     def predict(self, data):
         feature_repr = self.embedding_net(data)
@@ -325,8 +331,8 @@ class Classif_Net(nn.Module):
             return torch.squeeze(torch.argmax(last_values, dim=1)).cuda().item()
 
     def get_loss(self, data, target, class_weights, train=True):
-        outputs = self.forward(data)
-        loss = f.cross_entropy(outputs, target)
+        outputs = self.forward(data, target)
+        loss = f.cross_entropy(outputs, target) + self.loss_cur
         return loss
 
 
@@ -351,8 +357,8 @@ class SoftMax_Net(nn.Module):
             raise Exception
 
         self.final_layer = nn.Linear(DIM_LAST_LAYER, nb_classes).to(DEVICE)
-        self.loss_cur = 0
 
+        self.loss_cur = 0
         self.center_loss = CenterLoss(DIM_LAST_LAYER, nb_classes) if with_center_loss else None
 
     def forward(self, data):

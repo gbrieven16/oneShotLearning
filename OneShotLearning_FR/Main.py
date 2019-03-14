@@ -1,5 +1,3 @@
-import os
-
 import torch
 import time
 import pickle
@@ -19,13 +17,13 @@ NUM_EPOCH = 8
 BATCH_SIZE = 32
 
 LEARNING_RATE = 0.001
-WITH_LR_SCHEDULER = "StepLR" # ExponentialLR
+WITH_LR_SCHEDULER = "ExponentialLR"  #"StepLR"
 WEIGHT_DECAY = 0.001  # To control regularization
 OPTIMIZER = "Adam"  # Adagrad "SGD"
 
 WEIGHTED_CLASS = False
 WITH_EPOCH_OPT = False
-LOSS = "cross_entropy"  # "ce_classif" #"triplet_loss" "cross_entropy_with_cl" "constrastive_loss"
+LOSS = "cross_entropy"  # "ce_classif" #"triplet_loss"  "constrastive_loss"
 
 SAVE_MODEL = True
 MODE = "learn"  # "classifier training"
@@ -81,8 +79,8 @@ def main(loss_type=LOSS, batch_size=BATCH_SIZE, lr=LEARNING_RATE, db_train=None,
         # ------------------- Data Loading -----------------
         training_set, validation_set = fileset.get_sets(DIFF_FACES, db_set1=db_train)
 
-        tv = (loss_type != "ce_classif")
-        sets_list = load_sets(db_name, DEVICE, tv, [training_set, validation_set, test_set])
+        tv = (loss_type != "ce_classif") # Triplet Version
+        sets_list = load_sets(db_name, DEVICE, tv, [training_set, validation_set, test_set], triplet=tv)
 
         train_loader = torch.utils.data.DataLoader(sets_list[0], batch_size=batch_size, shuffle=True)
         validation_loader = torch.utils.data.DataLoader(sets_list[1], batch_size=batch_size, shuffle=False)
@@ -105,7 +103,7 @@ def main(loss_type=LOSS, batch_size=BATCH_SIZE, lr=LEARNING_RATE, db_train=None,
         # ------- Model Training ---------
         if PRETRAINING != "autoencoder_only":
             for epoch in range(NUM_EPOCH):
-                print("\n---------- Training with " + TYPE_ARCH + " ----------")
+                print("\n------- Training with " + TYPE_ARCH + " architecture ----------")
                 model_learn.train(epoch, with_epoch_opt=WITH_EPOCH_OPT)
                 model_learn.prediction()
 
@@ -187,8 +185,8 @@ def main(loss_type=LOSS, batch_size=BATCH_SIZE, lr=LEARNING_RATE, db_train=None,
 
 
 def load_model(model_name):
-    pickle.load = partial(pickle.load, encoding="latin1")
-    pickle.Unpickler = partial(pickle.Unpickler, encoding="latin1")
+    pickle.load = partial(pickle.load)
+    pickle.Unpickler = partial(pickle.Unpickler)
     return torch.load(model_name, map_location=lambda storage, loc: storage, pickle_module=pickle)  # network
 
 
@@ -223,7 +221,7 @@ if __name__ == '__main__':
     # -----------------------------------------------------------------------
     if test == 3 or test is None:
         SAVE_MODEL = True
-        db_name_train = ["faceScrub", "lfw", "cfp", "gbrieven", "testdb"] #"testCropped", "cfpSmall",
+        db_name_train = ["cfpSmall"] #"faceScrub", "lfw", "cfp", "gbrieven", "testdb"] #"testCropped"
         for i, curr_db in enumerate(db_name_train):
             main(fname=[FOLDER_DB + curr_db + ".zip"])
 
