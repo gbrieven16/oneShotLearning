@@ -82,9 +82,9 @@ def main(loss_type=LOSS, batch_size=BATCH_SIZE, lr=LEARNING_RATE, db_train=None,
         tv = (loss_type != "ce_classif") # Triplet Version
         sets_list = load_sets(db_name, DEVICE, tv, [training_set, validation_set, test_set], triplet=tv)
 
-        train_loader = torch.utils.data.DataLoader(sets_list[0], batch_size=batch_size, shuffle=True)
-        validation_loader = torch.utils.data.DataLoader(sets_list[1], batch_size=batch_size, shuffle=False)
-        test_loader = torch.utils.data.DataLoader(sets_list[2], batch_size=batch_size, shuffle=False)
+        train_loader = torch.utils.data.DataLoader(sets_list[0], batch_size=batch_size, shuffle=True, pin_memory=True)
+        validation_loader = torch.utils.data.DataLoader(sets_list[1], batch_size=batch_size, shuffle=False, pin_memory=True)
+        test_loader = torch.utils.data.DataLoader(sets_list[2], batch_size=batch_size, shuffle=False, pin_memory=True)
 
         # ------------------- Model Definition -----------------
 
@@ -143,7 +143,7 @@ def main(loss_type=LOSS, batch_size=BATCH_SIZE, lr=LEARNING_RATE, db_train=None,
         dataset = Face_DS(fileset, to_print=True, device=DEVICE)
 
         # batch_size = Nb of pairs you want to test
-        prediction_loader = torch.utils.data.DataLoader(dataset, batch_size=1, shuffle=True)
+        prediction_loader = torch.utils.data.DataLoader(dataset, batch_size=1, shuffle=True, pin_memory=True)
         model = torch.load(name_model)
 
         # ------------ Data: list containing the tensor representations of the 2 images ---
@@ -172,7 +172,7 @@ def main(loss_type=LOSS, batch_size=BATCH_SIZE, lr=LEARNING_RATE, db_train=None,
         # -----------------------------------------------------------------
         eval_network = load_model("models/siameseFace_ds0123456_diff_100_32_constrastive_loss.pt")
         eval_test = Face_DS(fileset, to_print=False, device=DEVICE)
-        pred_loader = torch.utils.data.DataLoader(eval_test, batch_size=BATCH_SIZE, shuffle=True)
+        pred_loader = torch.utils.data.DataLoader(eval_test, batch_size=BATCH_SIZE, shuffle=True, pin_memory=True)
 
         eval_model = Model(test_loader=pred_loader, network=eval_network)
         print("Model Testing ...")
@@ -203,7 +203,7 @@ if __name__ == '__main__':
         for i, filename in enumerate(["testdb.zip", "lfw.zip", "cfp.zip", "ds0123456.zip"]):
             fileset = from_zip_to_data(WITH_PROFILE, fname=FOLDER_DB + filename)
             testset = Face_DS(fileset, to_print=False, device=DEVICE)
-            predic_loader = torch.utils.data.DataLoader(testset, batch_size=BATCH_SIZE, shuffle=True)
+            predic_loader = torch.utils.data.DataLoader(testset, batch_size=BATCH_SIZE, shuffle=True, pin_memory=True)
 
             model = Model(test_loader=predic_loader, network=network)
             print("Model Testing on " + filename + " ...")

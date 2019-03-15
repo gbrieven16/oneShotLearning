@@ -310,6 +310,7 @@ class Classif_Net(nn.Module):
         self.final_layer = nn.Linear(DIM_LAST_LAYER, nb_classes).to(DEVICE)
         self.loss_cur = 0
         self.center_loss = CenterLoss(DIM_LAST_LAYER, nb_classes) if with_center_loss else None
+        self.to(DEVICE)
 
     def forward(self, data, label):
         embedded_data = self.embedding_net(data)
@@ -356,10 +357,11 @@ class SoftMax_Net(nn.Module):
             print("ERR: No matching with the given architecture...")
             raise Exception
 
-        self.final_layer = nn.Linear(DIM_LAST_LAYER, nb_classes).to(DEVICE)
+        self.final_layer = nn.Linear(DIM_LAST_LAYER, nb_classes) #.to(DEVICE)
 
         self.loss_cur = 0
         self.center_loss = CenterLoss(DIM_LAST_LAYER, nb_classes) if with_center_loss else None
+        self.to(DEVICE)
 
     def forward(self, data):
         # Computation of the difference of the 2 feature representations

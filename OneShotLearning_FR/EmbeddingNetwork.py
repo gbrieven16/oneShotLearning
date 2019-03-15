@@ -87,7 +87,7 @@ class BasicNet(nn.Module):
 class AlexNet(nn.Module):
     def __init__(self, dim_last_layer):
         super(AlexNet, self).__init__()
-        if GNAP: print("The GNAP module is used\n")
+        if WITH_GNAP: print("The GNAP module is used\n")
 
         self.features = nn.Sequential(
             nn.Conv2d(3, 64, kernel_size=11, stride=4),
@@ -133,7 +133,7 @@ class VGG16(nn.Module):
     def __init__(self, dim_last_layer, init_weights=True):  # num_class potentially to modify
 
         super(VGG16, self).__init__()
-        if GNAP: print("The GNAP module is used\n")
+        if WITH_GNAP: print("The GNAP module is used\n")
 
         cfg = [64, 64, 'M', 128, 128, 'M', 256, 256, 256, 'M', 512, 512, 512, 'M', 512, 512, 512, 'M']
 
@@ -282,7 +282,7 @@ class Bottleneck(nn.Module):
 class ResNet(nn.Module):
     def __init__(self, dim_last_layer, zero_init_residual=False, resnet="resnet152"):
         super(ResNet, self).__init__()
-        if GNAP: print("The GNAP module is used\n")
+        if WITH_GNAP: print("The GNAP module is used\n")
 
         if resnet == "resnet18" or resnet == "resnet34":
             block = BasicBlock

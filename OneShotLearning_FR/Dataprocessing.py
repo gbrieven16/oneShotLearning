@@ -11,9 +11,10 @@ from PIL import Image
 from io import BytesIO
 
 import matplotlib
-import matplotlib.pyplot as plt
 
 matplotlib.use('Agg')
+import matplotlib.pyplot as plt
+
 
 import torch
 import torchvision.transforms as transforms
@@ -28,7 +29,7 @@ warnings.filterwarnings('ignore')
 
 
 # if the 2th db not used, replace "yalefaces" by ""
-FOLDER_DB = "data/gbrieven/" if platform.system() == "Darwin" else "/data/gbrieven/"
+FOLDER_DB = "data/gbrieven/" # if platform.system() == "Darwin" else "/data/gbrieven/"
 MAIN_ZIP = FOLDER_DB + 'cfpSmall.zip'  # cfp.zip "testdb.zip"  CASIA-WebFace.zip'
 TEST_ZIP = FOLDER_DB + 'testdb.zip'
 
@@ -43,7 +44,7 @@ MAX_NB_ENTRY = 500000
 MIN_NB_IM_PER_PERSON = 2
 MAX_NB_IM_PER_PERSON = 20
 MIN_NB_PICT_CLASSIF = 4  # s.t. 25% is used for testing
-NB_TRIPLET_PER_PICT = 1
+NB_TRIPLET_PER_PICT = 3
 
 RATIO_HORIZ_CROP = 0.15
 RESIZE = True
@@ -465,8 +466,11 @@ class Face_DS(torch.utils.data.Dataset):
         self.print_data_report(faces_dic=faces_dic)
         if save is not None:
             with open(FOLDER_DB + save + ".pkl", 'wb') as output:
-                pickle.dump(self, output, pickle.HIGHEST_PROTOCOL)
-            print("The set has been saved as " + FOLDER_DB + save + ".pkl" + "!\n")
+                try:
+                    pickle.dump(self, output) #, protocol=2) #pickle.HIGHEST_PROTOCOL
+                    print("The set has been saved as " + FOLDER_DB + save + ".pkl" + "!\n")
+                except MemoryError:
+                    print("The dataset couldn't be saved")
 
     # You must override __getitem__ and __len__
     def __getitem__(self, index, visualization=False):
@@ -509,13 +513,14 @@ class Face_DS(torch.utils.data.Dataset):
 
         # ================= Consider each person =================
         for label, pictures_list in faces_dic.items():
+            #all_labels.remove(label)
             labels_indexes_neg = [x for x in range(0, nb_labels) if x != all_labels.index(label)]
-            pos_pict_lists = []
+            pos_pict_lists = [] #pictures_list
 
             # ================= Consider each picture of the person =================
             for i, picture_ref in enumerate(pictures_list):
                 pos_pict_list = []
-                pic_ind_pos = list(range(len(pictures_list)))
+                pic_ind_pos = [j for j in range(len(pictures_list)) if j != i]
                 nb_same_db = 0
 
                 # ================= Consider several times the ref picture =================
@@ -525,8 +530,7 @@ class Face_DS(torch.utils.data.Dataset):
                     try:
                         curr_index_pos = random.choice(pic_ind_pos)
 
-                        while (picture_ref.isIqual(pictures_list[curr_index_pos]) or
-                                   (curr_index_pos < i and i in pos_pict_lists[curr_index_pos])):
+                        while curr_index_pos < i and i in pos_pict_lists[curr_index_pos]:
                             pic_ind_pos.remove(curr_index_pos)
                             curr_index_pos = random.choice(pic_ind_pos)
 
@@ -534,7 +538,6 @@ class Face_DS(torch.utils.data.Dataset):
                         # !! Means that the current label has no remaining other picture
                         # (empty sequence of available index)
                         break
-
                     picture_positive = pictures_list[curr_index_pos]
                     pic_ind_pos.remove(curr_index_pos)
                     pos_pict_list.append(curr_index_pos)  # Remember the pairs that are defined to avoid redundancy
@@ -548,7 +551,7 @@ class Face_DS(torch.utils.data.Dataset):
                     if nb_same_db < NB_TRIPLET_PER_PICT / 2:  # Half of the negative must belong to the same db
                         nb_same_db += 1
                         try:
-                            while 1 < len(self.all_db) and picture_negative.db != picture_ref.db:
+                            while 1 < len(self.all_db) and picture_negative.db_path != picture_ref.db_path:
                                 labels_indexes_neg.remove(curr_index_neg)
                                 # Pick a random different person
                                 curr_index_neg = random.choice(labels_indexes_neg)
@@ -560,11 +563,11 @@ class Face_DS(torch.utils.data.Dataset):
                     # To keep track of the image itself in order to potentially print it
                     try:
                         self.train_not_formatted_data.append([picture_ref, picture_positive, picture_negative])
-                        self.train_data.append([picture_ref.trans_img.to(device), picture_positive.trans_img.to(device),
-                                                picture_negative.trans_img.to(device)])
+                        self.train_data.append([picture_ref.trans_img, picture_positive.trans_img,
+                                                picture_negative.trans_img])
 
                         self.train_labels.append([0, 1])
-                    except IndexError:  # RuntimeError:
+                    except RuntimeError:  # RuntimeError:
                         print("ERR: In Build Triplet: Running out of Memory => Automatic Stop")
                         print("The current ref person is " + str(label))
                         print("Currently, " + str(len(self.train_data)) + " triplets have been defined")
@@ -572,6 +575,7 @@ class Face_DS(torch.utils.data.Dataset):
 
                 pos_pict_lists.append(pos_pict_list)
 
+        print("pos_pict_lists: " + str(pos_pict_lists))
         # self.train_data = torch.stack(self.train_data)
         self.train_labels = torch.tensor(self.train_labels).to(device)
 
@@ -741,4 +745,8 @@ def from_zip_to_data(with_profile, fname=MAIN_ZIP, dataset=None):
 
 
 if __name__ == "__main__":
-    include_data_to_zip()
+    a = [1, 2, 3, 4]
+    for i, x in enumerate(a):
+        print(str(x) + " and " + str(a))
+        a.remove(x)
+    #include_data_to_zip()

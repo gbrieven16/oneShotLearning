@@ -43,7 +43,9 @@ class Probe:
             self.dist_avg_pers[person] = sum(self.dist_pers[person]) / nb_pictures
 
     def median_dist(self, person, nb_pictures):
-        pass
+        if 1 < nb_pictures:
+            self.dist_avg_pers[person] = np.median(self.dist_pers[person])
+            print("median: " + str(self.dist_avg_pers[person]))
 
     def predict_from_dist(self, res_acc_dist):
         pred_pers_dist = sorted(self.dist_avg_pers.items(), key=lambda x: x[1])[0][0]
@@ -183,7 +185,8 @@ class FaceRecognition:
                         probe.vote_pers[person] = 1 if person not in probe.vote_pers else probe.vote_pers[person] + 1
 
                 # --- Distance reasoning for prediction ----
-                probe.avg_dist(person, len(pictures))
+                #probe.avg_dist(person, len(pictures))
+                probe.median_dist(person, len(pictures))
 
             # Predicted Person with class prediction reasoning
             probe.pred_from_vote(DETAILED_PRINT, res_vote)

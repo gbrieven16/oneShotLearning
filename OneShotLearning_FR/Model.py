@@ -23,6 +23,9 @@ ROUND_DEC = 5
 
 # Specifies where the torch.tensor is allocated
 DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+# ".cuda(non_blocking=True)
+
 print("\nThe code is running on " + str(DEVICE) + "...")
 #DEVICE = torch.cuda.device(DEVICE_ID) if torch.cuda.is_available() else 'cpu
 #os.environ['CUDA_VISIBLE_DEVICES'] = "%d" % deviceid
