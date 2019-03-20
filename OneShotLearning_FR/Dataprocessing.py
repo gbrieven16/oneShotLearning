@@ -29,7 +29,7 @@ warnings.filterwarnings('ignore')
 
 
 # if the 2th db not used, replace "yalefaces" by ""
-FOLDER_DB = "data/gbrieven/" # if platform.system() == "Darwin" else "/data/gbrieven/"
+FOLDER_DB = "data/gbrieven/" if platform.system() == "Darwin" else "/data/gbrieven/"
 MAIN_ZIP = FOLDER_DB + 'cfpSmall.zip'  # cfp.zip "testdb.zip"  CASIA-WebFace.zip'
 TEST_ZIP = FOLDER_DB + 'testdb.zip'
 
@@ -44,7 +44,7 @@ MAX_NB_ENTRY = 500000
 MIN_NB_IM_PER_PERSON = 2
 MAX_NB_IM_PER_PERSON = 20
 MIN_NB_PICT_CLASSIF = 4  # s.t. 25% is used for testing
-NB_TRIPLET_PER_PICT = 3
+NB_TRIPLET_PER_PICT = 2
 
 RATIO_HORIZ_CROP = 0.15
 RESIZE = True
@@ -215,12 +215,13 @@ class Fileset:
      This function defines 2 sets (basically a training and a validation one) 
      from data_list by splitting it
      IN: diff_faces: True if no one has to be present in both training and testing sets
+         db_set1: list of the db providing the content of set1 (and the rest if for set2) 
      OUT: a training and a testing sets that are Fileset objects 
 
      REM: no instantiation of the db_source variable ... 
      --------------------------------------------------------------------------------'''
 
-    def get_sets(self, diff_faces, db_set1=None, classification=False):
+    def get_sets(self, diff_faces, db_set1=None, classification=False, nb_classes=None):
 
         set1 = Fileset()
         set2 = Fileset()
@@ -233,21 +234,30 @@ class Fileset:
             nb_pict_train = int(round(RATION_TRAIN_SET * MIN_NB_PICT_CLASSIF))
             curr_person = "none"  # !! Relies on the fact that pictures are ordered
             curr_pictures = []
+            nb_people = 0
             for i, data in enumerate(self.data_list):
                 if curr_person == data.name_person:
                     curr_pictures.append(data)
                 else:
-                    # -------- Add to the training and testing sets the data related to the current person -------
+                    # --- Increment and check the total number of different people that is considered ---
+                    nb_people += 1
+                    if nb_classes < nb_people:
+                        break
+                    # -------- Add to the training and valid. sets the data related to the current person -------
                     if MIN_NB_PICT_CLASSIF <= len(curr_pictures):
                         j = 0
+                        # Take nb_pict_train from the list of the current pictures to put in the training set
                         while j < nb_pict_train:
                             set1.add_data(curr_pictures.pop())
                             j += 1
+                        # Empty the rest of the list of the current pictures in the validation set
                         for i, picture in enumerate(curr_pictures):
                             set2.add_data(picture)
                     # ------- Reset Setting ------------
                     curr_person = data.name_person
                     curr_pictures = [data]
+
+            print("The total number of people considered in the classification is: " + str(nb_people))
 
         # -------------------------------------------------------
         # CASE 2: same people in the training and the testing set
@@ -438,37 +448,52 @@ class FaceImage():
 
 
 class Face_DS(torch.utils.data.Dataset):
-    def __init__(self, fileset, transform=TRANS, to_print=False, device="cpu", triplet_version=True, save=None):
+    def __init__(self, fileset=None, face_set=None, transform=TRANS, to_print=False, device="cpu",
+                 triplet_version=True, save=None):
 
         self.to_print = to_print
-        self.all_db = fileset.all_db
         self.transform = transforms.ToTensor() if transform is None else transform
+        self.train_data = []
+        self.train_labels = []
+        self.nb_classes = 0
+
+        # -------------------------------------------------------------------------------
+        # CASE 1: Build a non-triplet version dataset from a triplet version dataset
+        # -------------------------------------------------------------------------------
+
+        if face_set is not None:
+            for i, data in enumerate(face_set.train_data):
+                self.train_data.append(data[0])
+                self.train_labels.append(i)
+            self.train_labels = torch.tensor(self.train_labels)
+            return
+
+        self.all_db = fileset.all_db
 
         t = time.time()
         faces_dic = fileset.order_per_personName(self.transform)
         print("Pictures have been processed after " + str(time.time() - t))
 
-        # print("after transformation" + str(faces_dic['faces94jdbenm'][0]))
-
-        self.train_data = []
-        self.train_labels = []
-        self.nb_classes = 0
-
-        # ------ Build triplet supporting the dataset (ensures balanced classes) --------
+        # ------------------------------------------------------------------------
+        # CASE 2: Build triplet supporting the dataset (ensures balanced classes)
+        # ------------------------------------------------------------------------
         if triplet_version:
             self.train_not_formatted_data = []
             self.build_triplet(faces_dic, device=device)
 
-        # -------- Build training set composed of faces --------
+        # ------------------------------------------------
+        # CASE 3: Build training set composed of faces
+        # ------------------------------------------------
         else:
+            print("Correct single image detection")
             self.image_data(faces_dic, device=device)
 
-        self.print_data_report(faces_dic=faces_dic)
+        self.print_data_report(faces_dic=faces_dic, triplet=triplet_version)
         if save is not None:
-            with open(FOLDER_DB + save + ".pkl", 'wb') as output:
+            with open(save, 'wb') as output:
                 try:
-                    pickle.dump(self, output) #, protocol=2) #pickle.HIGHEST_PROTOCOL
-                    print("The set has been saved as " + FOLDER_DB + save + ".pkl" + "!\n")
+                    torch.save(self, output) #, protocol=2) #pickle.HIGHEST_PROTOCOL
+                    print("The set has been saved as " + save + "!\n")
                 except MemoryError:
                     print("The dataset couldn't be saved")
 
@@ -577,10 +602,10 @@ class Face_DS(torch.utils.data.Dataset):
 
         print("pos_pict_lists: " + str(pos_pict_lists))
         # self.train_data = torch.stack(self.train_data)
-        self.train_labels = torch.tensor(self.train_labels).to(device)
+        self.train_labels = torch.tensor(self.train_labels) #.to(device)
 
     """ --------------------- image_data ------------------------------------
-      This function set data by filling it with the pictures contained in 
+      This function sets data by filling it with the pictures contained in 
       face_dic (that are the elements in the values)
       --------------------------------------------------------------------- """
 
@@ -591,18 +616,29 @@ class Face_DS(torch.utils.data.Dataset):
         for label, pictures_list in faces_dic.items():
             # ======== Consider each picture of each person ==========
             for i, picture in enumerate(pictures_list):
-                self.train_data.append(picture.trans_img.to(device))
+                self.train_data.append(picture.trans_img)
                 self.train_labels.append(label_nb)
             label_nb += 1
         self.nb_classes = len(faces_dic)
-        self.train_labels = torch.tensor(self.train_labels).to(device)
+        self.train_labels = torch.tensor(self.train_labels) #.to(device)
+
+
+
+    """ --------------------- to_single ------------------------------------
+      This function returns a Face_DS object whose data are build from the 
+      current data (that are triplets). 
+      Basically, it takes each picture_ref and put it in the train_data of
+      the Face_DS object to return. 
+      --------------------------------------------------------------------- """
+    def to_single(self, face_set):
+        return Face_DS(face_set=face_set)
 
     """ ---------------------------------- print_data_report ------------------------------------  """
 
-    def print_data_report(self, faces_dic=None):
+    def print_data_report(self, faces_dic=None, triplet=True):
 
         if faces_dic is None:
-            print("\nThe total quantity of triplets used as data is: " + str(2 * len(self.train_labels)))
+            print("\nThe total quantity of data is: " + str(2 * len(self.train_labels)))
             return
 
         # Report about the quantity of data
@@ -615,7 +651,8 @@ class Face_DS(torch.utils.data.Dataset):
             raise ValueError
 
         print("\n ---------------- Report about the quantity of data  -------------------- ")
-        print("The total quantity of triplets used as data is: " + str(2 * len(self.train_labels)))
+        if triplet:
+            print("The total quantity of triplets used as data is: " + str(2 * len(self.train_labels)))
         print("The number of different people in set is: " + str(len(list(faces_dic.keys()))))
         print("The number of pictures per person is between: " + str(min_nb_pictures) + " and " + str(max_nb_pictures))
         print("The average number of pictures per person is: " + str(sum(pictures_nbs) / len(pictures_nbs)))
@@ -635,22 +672,26 @@ OUT: list of 3 sets
 -------------------------------------------------------------- '''
 
 
-def load_sets(db_name, device, tv, sets_list, triplet=True):
-    type_ds = "triplet_" if triplet else "class_"
+def load_sets(db_name, dev, nb_classes, sets_list):
+    type_ds = "triplet_" if nb_classes == 0 else "class" + str(nb_classes) + "_"
     result_sets_list = []
     save_names_list = ["trainset_", "validationset_", "testset_"]
     for i, set in enumerate(sets_list):
+        name_file = FOLDER_DB + save_names_list[i] + type_ds + db_name + ".pkl"
         try:
-            with open(FOLDER_DB + save_names_list[i] + type_ds + db_name + ".pkl", "rb") as f:
-                loaded_set = pickle.load(f)
-                loaded_set.print_data_report()
+            with open(name_file, "rb") as f:
+                loaded_set = torch.load(f)
+                loaded_set.print_data_report(triplet=(nb_classes == 0))
                 result_sets_list.append(loaded_set)
                 print('Set Loading Success!\n')
         except (ValueError, IOError) as e:  # EOFError  IOError FileNotFoundError
-            print("\nThe set couldn't be loaded...")
+            print("\nThe set " + name_file + " couldn't be loaded...")
             print("Building Process ...")
-            result_sets_list.append(Face_DS(set, device=device, save=save_names_list[i] + db_name, triplet_version=tv))
+            result_sets_list.append(Face_DS(fileset=set, device=dev, save=name_file, triplet_version=(nb_classes == 0)))
 
+        # ------- Classification Case: no testset -------
+        if nb_classes != 0 and i == 1:
+            break
     return result_sets_list
 
 

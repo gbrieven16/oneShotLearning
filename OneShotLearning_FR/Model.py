@@ -1,5 +1,6 @@
 import os
 import torch
+# torch.cuda.set_device(2)
 import pickle
 from NeuralNetwork import Tripletnet, ContrastiveLoss, SoftMax_Net, AutoEncoder_Net, TYPE_ARCH, Classif_Net
 from Visualization import visualization_validation, visualization_train
@@ -14,7 +15,7 @@ from torch import optim
 
 MARGIN = 2.0
 MOMENTUM = 0.9
-GAMMA = 0.1 # for the lr_scheduler - default value 0.1
+GAMMA = 0.1  # for the lr_scheduler - default value 0.1
 N_TEST_IMG = 5
 PT_BS = 32  # Batch size for pretraining
 PT_NUM_EPOCHS = 200
@@ -27,8 +28,8 @@ DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 # ".cuda(non_blocking=True)
 
 print("\nThe code is running on " + str(DEVICE) + "...")
-#DEVICE = torch.cuda.device(DEVICE_ID) if torch.cuda.is_available() else 'cpu
-#os.environ['CUDA_VISIBLE_DEVICES'] = "%d" % deviceid
+# DEVICE = torch.cuda.device(DEVICE_ID) if torch.cuda.is_available() else 'cpu
+# os.environ['CUDA_VISIBLE_DEVICES'] = "%d" % deviceid
 print_info_cuda = False
 if DEVICE.type == 'cuda' and print_info_cuda:
     # ================================================
@@ -47,9 +48,9 @@ if DEVICE.type == 'cuda' and print_info_cuda:
     print("count " + str(torch.cuda.device_count()))
     print(torch.cuda.get_device_name(0))
     print('Memory Usage:')
-    print('Allocated:', round(torch.cuda.memory_allocated(0)/1024**3,1), 'GB')
-    print('Cached:   ', round(torch.cuda.memory_cached(0)/1024**3,1), 'GB')
-    #print(torch.cuda.get_device_name(2))
+    print('Allocated:', round(torch.cuda.memory_allocated(0) / 1024 ** 3, 1), 'GB')
+    print('Cached:   ', round(torch.cuda.memory_cached(0) / 1024 ** 3, 1), 'GB')
+    # print(torch.cuda.get_device_name(2))
 
 
 # Loss combination not considered here
@@ -70,17 +71,40 @@ class Model:
 
         # Default Initialization
         self.network = network
-        self.loss_type = "None"
-        self.nb_classes = nb_classes if 2 < nb_classes else None # If None, Then no classification approach
+        self.nb_classes = nb_classes if nb_classes is None or 2 < nb_classes else None  # If None => no classification
 
-        self.lr = 0.00001
-        self.wd = 0.001
-        self.optimizer = None
         self.class_weights = [1, 1]
         self.weighted_classes = True
 
         if train_param is not None:
-            self.set_for_training(train_param, embedding_net, nb_classes)
+            # ----------------- Network Definition -------------
+            if train_param["loss_type"] == "triplet_loss":
+                self.network = Tripletnet()
+            elif train_param["loss_type"] == "constrastive_loss":
+                self.network = ContrastiveLoss()
+            elif train_param["loss_type"] is None:
+                print("Recognition as Autoencoder")
+                self.network = AutoEncoder_Net(embedding_net)
+            elif train_param["loss_type"] == "cross_entropy":
+                self.network = SoftMax_Net()
+            elif train_param["loss_type"] == "ce_classif":
+                self.network = Classif_Net(nb_classes=nb_classes)
+
+            else:
+                print("ERR: Mismatch with loss type")
+                raise Exception
+
+            self.loss_type = train_param["loss_type"]
+            self.scheduler, self.optimizer = self.get_optimizer(train_param["hyper_par"])
+
+            # ----------------- Class Weighting Use -------------
+            try:
+                self.weighted_classes = train_param["weighted_class"]
+            except KeyError:
+                pass  # We keep the default setting
+        else:
+            pass
+            #self.loss_type = "None"
 
         self.eval_dic = {"nb_correct": 0, "nb_labels": 0, "recall_pos": 0, "recall_neg": 0, "f1_pos": 0, "f1_neg": 0}
 
@@ -89,47 +113,6 @@ class Model:
         self.f1_validation = {"Pretrained Model": [], "Non-pretrained Model": [], "On Training Set": []}
         self.losses_train = []
 
-    '''---------------------- set_for_training --------------------------------- '''
-
-    def set_for_training(self, train_param, embedding_net, nb_classes):
-
-        # ----------------- Network Definition -------------
-        if train_param["loss_type"] == "triplet_loss":
-            self.network = Tripletnet()
-        elif train_param["loss_type"] == "constrastive_loss":
-            self.network = ContrastiveLoss()
-        elif train_param["loss_type"] is None:
-            self.network = AutoEncoder_Net(embedding_net)
-        elif train_param["loss_type"] == "cross_entropy":
-            self.network = SoftMax_Net()
-        elif train_param["loss_type"] == "ce_classif":
-            self.network = Classif_Net(nb_classes=nb_classes)
-            
-        else:
-            print("ERR: Mismatch with loss type")
-            raise Exception
-
-        self.loss_type = train_param["loss_type"]
-
-        # ----------------- Optimizer Definition -------------
-        try:
-            self.lr = train_param["hyper_par"]["lr"]
-            self.wd = train_param["hyper_par"]["wd"]
-        except KeyError:
-            pass  # We keep the default setting
-
-        try:
-            self.scheduler, self.optimizer = self.get_optimizer(train_param["hyper_par"])
-        except KeyError:
-            print("ERR: Key error in optimizer setting")
-            pass  # We keep the default setting
-
-        # ----------------- Class Weighting Use -------------
-        try:
-            self.weighted_classes = train_param["weighted_class"]
-        except KeyError:
-            pass  # We keep the default setting
-
     '''------------------------ pretraining ----------------------------------------------
        The function trains an autoencoder based on given training data 
        IN: train_data: Face_DS objet whose training data is a list of 
@@ -137,16 +120,16 @@ class Model:
            autocoder: an autocoder characterized by an encoder and a decoder 
     ------------------------------------------------------------------------------------ '''
 
-    def pretraining(self, training_set, num_epochs=PT_NUM_EPOCHS, batch_size=PT_BS, loss_type=None):
+    def pretraining(self, Face_DS_train, hyper_par, num_epochs=PT_NUM_EPOCHS, batch_size=PT_BS):
 
+        name_trained_net = "encoder.pkl"
         try:
-            with open("autoencoder.pkl", "rb") as f:
+            with open(name_trained_net, "rb") as f:
                 self.network.embedding_net = pickle.load(f)
-        except IOError: #FileNotFoundError
-            train_data = Face_DS(training_set, device=DEVICE, triplet_version=False)
+        except FileNotFoundError:
+            train_data = Face_DS_train.to_single(Face_DS_train) if self.nb_classes is None else Face_DS_train
             train_loader = torch.utils.data.DataLoader(train_data, batch_size=batch_size, shuffle=True)
-            train_param = {"loss_type": loss_type, "opt_type": "Adam"}
-
+            train_param = {"loss_type": None, "hyper_par": hyper_par}
             autoencoder = Model(train_param, embedding_net=self.network.embedding_net, train_loader=train_loader)
 
             print(" ------------ Train as Autoencoder ----------------- ")
@@ -154,7 +137,7 @@ class Model:
                 autoencoder.train(epoch, autoencoder=True)
             autoencoder.network.visualize_dec()
 
-            pickle.dump(self, open("autoencoder.pkl", "wb"), protocol=2)
+            pickle.dump(self.network.embedding_net, open(name_trained_net, "wb")) #, protocol=2)
             print("The set has been saved!\n")
 
     '''------------------ train_nonpretrained -------------------------------------
@@ -165,7 +148,8 @@ class Model:
     def train_nonpretrained(self, num_epochs, hyp_par):
 
         train_param = {"train_loader": self.train_loader, "loss_type": self.loss_type, "hyper_par": hyp_par}
-        model_comp = Model(train_param, validation_loader=self.validation_loader, test_loader=self.test_loader)
+        model_comp = Model(train_param, validation_loader=self.validation_loader, test_loader=self.test_loader,
+                           train_loader=self.train_loader)
 
         for epoch in range(num_epochs):
             print("-------------- Model that was not pretrained ------------------")
@@ -190,17 +174,18 @@ class Model:
         for batch_idx, (data, target) in enumerate(self.train_loader):
             self.optimizer.zero_grad()  # clear gradients for this training step
 
-            for i in range(len(data)):  # List of 3 tensors
-                data[i] = data[i].to(DEVICE)
-
             try:
                 if autoencoder:
                     # ----------- CASE 1: Autoencoder Training -----------
-                    data_copy = data  # torch.unsqueeze(data, 0)
+                    data = data.to(DEVICE)  # torch.unsqueeze(data, 0)
                     encoded, decoded = self.network(data)
-                    loss = nn.MSELoss()(decoded, data_copy)  # mean square error
+                    loss = nn.MSELoss()(decoded, data)  # mean square error
+
                 else:
                     # ----------- CASE 2: Image Differentiation Training -----------
+                    for i in range(len(data)):  # List of 3 tensors
+                        data[i] = data[i].to(DEVICE)
+
                     loss = self.network.get_loss(data, target, self.class_weights)
 
             except IOError:  # The batch is "not complete"
@@ -302,7 +287,7 @@ class Model:
         else:
             f1_neg_avg = self.eval_dic["f1_neg"] / len(self.train_loader)
             f1_pos_avg = self.eval_dic["f1_pos"] / len(self.train_loader)
-            self.f1_validation["On Training Set"].append((f1_neg_avg+f1_pos_avg)/2)
+            self.f1_validation["On Training Set"].append((f1_neg_avg + f1_pos_avg) / 2)
             return f1_pos_avg, f1_neg_avg
 
     '''---------------------------- update_weights ------------------------------
@@ -359,12 +344,14 @@ class Model:
         # ----------------------------------
 
         optimizer = None
+        lr = hyper_par["lr"]
+        wd = hyper_par["wd"]
         if hyper_par["opt_type"] == "Adam":
-            optimizer = optim.Adam(self.network.parameters(), lr=self.lr, weight_decay=self.wd)
+            optimizer = optim.Adam(self.network.parameters(), lr=lr, weight_decay=wd)
         elif hyper_par["opt_type"] == "SGD":
-            optimizer = optim.SGD(self.network.parameters(), lr=self.lr, momentum=MOMENTUM)
+            optimizer = optim.SGD(self.network.parameters(), lr=lr, momentum=MOMENTUM)
         elif hyper_par["opt_type"] == "Adagrad":
-            optimizer = optim.Adagrad(self.network.parameters(), lr=self.lr, weight_decay=self.wd)
+            optimizer = optim.Adagrad(self.network.parameters(), lr=lr, weight_decay=wd)
 
         # ----------------------------------
         #  Learning Rate Scheduler Setting
@@ -374,11 +361,12 @@ class Model:
             return None, optimizer
         else:
             if hyper_par["lr_scheduler"] == "ExponentialLR":
-                print("optim: " + str(optim.lr_scheduler.ExponentialLR(optimizer, GAMMA)))
+                print("\nOptimizer set: " + str(optim.lr_scheduler.ExponentialLR(optimizer, GAMMA)))
                 return optim.lr_scheduler.ExponentialLR(optimizer, GAMMA), optimizer
             elif hyper_par["lr_scheduler"] == "StepLR":
                 step_size = hyper_par["num_epoch"] / 5
-                scheduler = optim.lr_scheduler.StepLR(optimizer, step_size, gamma=GAMMA) #, last_epoch=hyper_par["num_epoch"])
+                scheduler = optim.lr_scheduler.StepLR(optimizer, step_size,
+                                                      gamma=GAMMA)  # , last_epoch=hyper_par["num_epoch"])
                 return scheduler, optimizer
             else:
                 print("WARN: No mapping with learning rate scheduler")
@@ -435,11 +423,11 @@ class Model:
     def save_model(self, name_model):
         try:
             torch.save(self.network, name_model)
-        except IOError: #FileNotFoundError
+        except IOError:  # FileNotFoundError
             os.mkdir(name_model.split("/")[0])
             torch.save(self.network, name_model)
 
-        #with open(name_model.split(".pt")[0] + '_testdata.pkl', 'wb') as output:
+        # with open(name_model.split(".pt")[0] + '_testdata.pkl', 'wb') as output:
         #   pickle.dump(testing_set, output, pickle.HIGHEST_PROTOCOL)
         print("Model is saved!")
 

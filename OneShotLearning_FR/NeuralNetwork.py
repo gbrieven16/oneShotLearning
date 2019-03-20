@@ -24,7 +24,7 @@ TYPE_ARCH (related to the embedding Network)
 4: AlexNet architecture 
 """
 
-TYPE_ARCH = "resnet152"  #"1default" "VGG16" #  "2def_drop" "3def_bathNorm"
+TYPE_ARCH = "1default"# "resnet152"  #"1default" "VGG16" #  "2def_drop" "3def_bathNorm"
 DIM_LAST_LAYER = 4096 if TYPE_ARCH == "4AlexNet" or TYPE_ARCH == "VGG16" else 512
 
 DIST_THRESHOLD = 0.02
@@ -466,6 +466,7 @@ class DecoderNet(nn.Module):
 
         x = self.conv3(x)
         x = self.sig(x)
+        x = x.view(x.size(0), x.size(1), x.size(3), x.size(2))
 
         return x
 

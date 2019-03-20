@@ -40,7 +40,7 @@ def line_graph(x, y, title, x_label="x", y_label="y", save_name=None):
         except FileNotFoundError:
             os.mkdir(save_name.split("/")[0])
             plt.savefig(save_name)
-    print("Graph saved as " + save_name)
+        print("Graph saved as " + save_name)
     plt.close()
 
 
@@ -180,10 +180,9 @@ IN: List of information to record about:
 
 
 def store_in_csv(data, training, result, train_time):
-
     if training[-2] == "triplet_loss":
         training[-2] = training[-2] + "_" + str(training[-1])
-    training.pop() # Remove margin information from the list
+    training.pop()  # Remove margin information from the list
     curr_parameters = [("ds_" + data[0])] + data[1:] + training
 
     curr_evaluation = [float(result[0][0]), float(result[0][int(round(len(result[0])) / 2)]), float(result[0][-1]),
@@ -200,7 +199,10 @@ def store_in_csv(data, training, result, train_time):
     with open(CSV_NAME, 'a') as f:
         writer = csv.writer(f, delimiter=";")
         # writer.writerow(titles)
-        writer.writerow(curr_parameters + curr_evaluation + [str(best_f1)] + [str(best_epoch)] + [result[2]] + [str(train_time)])
+        writer.writerow(
+            curr_parameters + curr_evaluation + [str(best_f1)] + [str(best_epoch)] + [result[2]] + [str(train_time)])
+
+    return best_f1
 
 
 '''------------------ visualization_train -------------------------------------------
@@ -210,7 +212,6 @@ IN: epoch_list: list of specific epochs
 
 
 def visualization_train(epoch_list, loss_list, save_name=None):
-
     title = "Evolution of the loss for different epoches"
     perc_train = [float(x) / len(loss_list[0]) for x in range(0, len(loss_list[0]))]
     dictionary = {}

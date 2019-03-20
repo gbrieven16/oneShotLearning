@@ -1,4 +1,9 @@
+import sys
+import platform
+# import GPUtil
 import torch
+
+if platform.system() != "Darwin": torch.cuda.set_device(3)
 import time
 import pickle
 from functools import partial
@@ -6,28 +11,28 @@ from NeuralNetwork import TYPE_ARCH
 from Model import Model, MARGIN, DEVICE
 
 from Dataprocessing import Face_DS, from_zip_to_data, MAIN_ZIP, CENTER_CROP, load_sets, FOLDER_DB, TEST_ZIP
-from Visualization import store_in_csv
+from Visualization import store_in_csv, line_graph
 
 #########################################
 #       GLOBAL VARIABLES                #
 #########################################
 
 
-NUM_EPOCH = 8
+NUM_EPOCH = 8 if platform.system() == "Darwin" else 100
 BATCH_SIZE = 32
 
 LEARNING_RATE = 0.001
-WITH_LR_SCHEDULER = "ExponentialLR"  #"StepLR"
+WITH_LR_SCHEDULER = "ExponentialLR"  # "StepLR"
 WEIGHT_DECAY = 0.001  # To control regularization
 OPTIMIZER = "Adam"  # Adagrad "SGD"
 
 WEIGHTED_CLASS = False
 WITH_EPOCH_OPT = False
-LOSS = "cross_entropy"  # "ce_classif" #"triplet_loss"  "constrastive_loss"
+LOSS = "triplet_loss"  # "cross_entropy"  # "ce_classif"   "constrastive_loss"
 
 SAVE_MODEL = True
 MODE = "learn"  # "classifier training"
-PRETRAINING = "none"  # "autoencoder"  # "autoencoder_only"
+PRETRAINING = "none" #""autoencoder"  # "autoencoder_only" "none"
 
 DIFF_FACES = True  # If true, we have different faces in the training and the testing set
 WITH_PROFILE = False  # True if both frontally and in profile people
@@ -36,24 +41,17 @@ WITH_PROFILE = False  # True if both frontally and in profile people
 ##################################################################################################
 #                                   FUNCTION main
 # fname: list of the zip files to use to support the training and the validation sets (VS)
-# db_train: list of the db to use for training (and then the other(s) are used to support the VS
+# db_train: list of the db to use for training (and then the other(s) are used to support the VS)
 ##################################################################################################
 
-def main(loss_type=LOSS, batch_size=BATCH_SIZE, lr=LEARNING_RATE, db_train=None, wd=WEIGHT_DECAY, fname=None):
+def main(loss_type=LOSS, batch_size=BATCH_SIZE, lr=LEARNING_RATE, db_train=None, wd=WEIGHT_DECAY,
+         fname=None, nb_classes=0):
 
     hyp_par = {"opt_type": OPTIMIZER, "lr": lr, "wd": wd, "lr_scheduler": WITH_LR_SCHEDULER, "num_epoch": NUM_EPOCH}
     train_param = {"loss_type": loss_type, "hyper_par": hyp_par, "weighted_class": WEIGHTED_CLASS}
 
     # Define db_name as part of the file name
-    if fname is None:
-        db_name = MAIN_ZIP.split("/")[-1].split(".")[0]
-    else:
-        db_name = ""
-        for i, db in enumerate(fname):
-            if i != 0: db_name.join("_")
-            db_name += (db.split("/")[-1].split(".")[0])
-
-    db_title = "_".join(db_train) if db_train is not None else db_name
+    db_name, db_title = get_db_name(fname, db_train)
     name_model = "models/" + "ds" + db_title + ("_diff_" if DIFF_FACES else "_same_") \
                  + str(NUM_EPOCH) + "_" + str(BATCH_SIZE) + "_" + LOSS + "_pretrain" + PRETRAINING + ".pt"
 
@@ -61,15 +59,18 @@ def main(loss_type=LOSS, batch_size=BATCH_SIZE, lr=LEARNING_RATE, db_train=None,
 
     # -------- Train and Validation Sets Definition --------
     if fname is not None:
-        fileset=None
+        fileset = None
         for i, db in enumerate(fname):
             fileset = from_zip_to_data(WITH_PROFILE, fname=db, dataset=fileset)
     else:
         fileset = from_zip_to_data(WITH_PROFILE)
 
     # -------- Test Set Definition --------
-    fileset_test = from_zip_to_data(WITH_PROFILE, fname=TEST_ZIP)
-    test_set, _ = fileset_test.get_sets(DIFF_FACES, db_set1=TEST_ZIP.split("/")[-1].split(".zip")[0])
+    if loss_type != "ce_classif":
+        fileset_test = from_zip_to_data(WITH_PROFILE, fname=TEST_ZIP)
+        test_set, _ = fileset_test.get_sets(DIFF_FACES, db_set1=TEST_ZIP.split("/")[-1].split(".zip")[0])
+    else:
+        test_set = None
 
     if MODE == "learn":
         # -----------------------
@@ -77,17 +78,20 @@ def main(loss_type=LOSS, batch_size=BATCH_SIZE, lr=LEARNING_RATE, db_train=None,
         # -----------------------
 
         # ------------------- Data Loading -----------------
-        training_set, validation_set = fileset.get_sets(DIFF_FACES, db_set1=db_train)
+        training_set, validation_set = fileset.get_sets(DIFF_FACES, db_set1=db_train, nb_classes=nb_classes)
 
-        tv = (loss_type != "ce_classif") # Triplet Version
-        sets_list = load_sets(db_name, DEVICE, tv, [training_set, validation_set, test_set], triplet=tv)
+        sets_list = load_sets(db_name, DEVICE, nb_classes, [training_set, validation_set, test_set])
 
-        train_loader = torch.utils.data.DataLoader(sets_list[0], batch_size=batch_size, shuffle=True, pin_memory=True)
-        validation_loader = torch.utils.data.DataLoader(sets_list[1], batch_size=batch_size, shuffle=False, pin_memory=True)
-        test_loader = torch.utils.data.DataLoader(sets_list[2], batch_size=batch_size, shuffle=False, pin_memory=True)
+        train_loader = torch.utils.data.DataLoader(sets_list[0], batch_size=batch_size, shuffle=True)
+        validation_loader = torch.utils.data.DataLoader(sets_list[1], batch_size=batch_size, shuffle=False)
+
+        if loss_type != "ce_classif":
+            test_loader = torch.utils.data.DataLoader(sets_list[2], batch_size=batch_size, shuffle=False)
+        else:
+            test_loader = None
+        # GPUtil.showUtilization()
 
         # ------------------- Model Definition -----------------
-
         model_learn = Model(train_param, train_loader=train_loader, validation_loader=validation_loader,
                             test_loader=test_loader, nb_classes=sets_list[0].nb_classes)
 
@@ -97,8 +101,8 @@ def main(loss_type=LOSS, batch_size=BATCH_SIZE, lr=LEARNING_RATE, db_train=None,
 
         if PRETRAINING == "autoencoder" or PRETRAINING == "autoencoder_only":
             # ---------- Pretraining using an autoencoder or classical model --------------
-            model_learn.pretraining(training_set, num_epochs=NUM_EPOCH, batch_size=batch_size)
-            model_learn.train_nonpretrained(NUM_EPOCH, hyper_par=hyp_par)
+            model_learn.pretraining(sets_list[0], hyp_par, num_epochs=NUM_EPOCH, batch_size=batch_size)
+            model_learn.train_nonpretrained(NUM_EPOCH, hyp_par)
 
         # ------- Model Training ---------
         if PRETRAINING != "autoencoder_only":
@@ -116,7 +120,8 @@ def main(loss_type=LOSS, batch_size=BATCH_SIZE, lr=LEARNING_RATE, db_train=None,
                     break
 
         # -------- Model Testing ----------------
-        f1_test = model_learn.prediction(validation=False)
+
+        f1_test = model_learn.prediction(validation=False) if loss_type != "ce_classif" else "classif"
 
         # ------- Model Saving ---------
         if SAVE_MODEL:
@@ -127,23 +132,24 @@ def main(loss_type=LOSS, batch_size=BATCH_SIZE, lr=LEARNING_RATE, db_train=None,
             model_learn.visualization(NUM_EPOCH, db_title, batch_size, OPTIMIZER)
 
             # ------- Record: Evolution of the performance ---------
-            info_data = [db_name if fname is not None else MAIN_ZIP, len(fileset.data_list), len(sets_list[0].train_data),
+            info_data = [db_name if fname is not None else MAIN_ZIP, len(fileset.data_list),
+                         len(sets_list[0].train_data),
                          DIFF_FACES, CENTER_CROP, db_title]
             info_training = [PRETRAINING, NUM_EPOCH, batch_size, wd, lr,
                              TYPE_ARCH, OPTIMIZER, loss_type, WEIGHTED_CLASS, MARGIN]
             info_result = [model_learn.losses_validation["Pretrained Model"],
                            model_learn.f1_validation["Pretrained Model"], str(f1_test)]
-            store_in_csv(info_data, info_training, info_result, time.time() - time_init)
+            return store_in_csv(info_data, info_training, info_result, time.time() - time_init)
 
     elif MODE == "prediction":
         # --------------------------------------------
         #  prediction mode: 1 prediction
         # --------------------------------------------
 
-        dataset = Face_DS(fileset, to_print=True, device=DEVICE)
+        dataset = Face_DS(fileset=fileset, to_print=True, device=DEVICE)
 
         # batch_size = Nb of pairs you want to test
-        prediction_loader = torch.utils.data.DataLoader(dataset, batch_size=1, shuffle=True, pin_memory=True)
+        prediction_loader = torch.utils.data.DataLoader(dataset, batch_size=1, shuffle=True)
         model = torch.load(name_model)
 
         # ------------ Data: list containing the tensor representations of the 2 images ---
@@ -171,8 +177,8 @@ def main(loss_type=LOSS, batch_size=BATCH_SIZE, lr=LEARNING_RATE, db_train=None,
         #  Evaluation Mode (where MAIN_ZIP content is used for testing)
         # -----------------------------------------------------------------
         eval_network = load_model("models/siameseFace_ds0123456_diff_100_32_constrastive_loss.pt")
-        eval_test = Face_DS(fileset, to_print=False, device=DEVICE)
-        pred_loader = torch.utils.data.DataLoader(eval_test, batch_size=BATCH_SIZE, shuffle=True, pin_memory=True)
+        eval_test = Face_DS(fileset=fileset, to_print=False, device=DEVICE)
+        pred_loader = torch.utils.data.DataLoader(eval_test, batch_size=BATCH_SIZE, shuffle=True)
 
         eval_model = Model(test_loader=pred_loader, network=eval_network)
         print("Model Testing ...")
@@ -190,9 +196,27 @@ def load_model(model_name):
     return torch.load(model_name, map_location=lambda storage, loc: storage, pickle_module=pickle)  # network
 
 
+'''----------------------- get_db_name --------------------------------------
+ This function returns a string merging the name of the different bd used 
+ for training 
+ ---------------------------------------------------------------------------'''
+
+
+def get_db_name(fname, db_train):
+    if fname is None:
+        db_name = MAIN_ZIP.split("/")[-1].split(".")[0]
+    else:
+        db_name = ""
+        for i, db in enumerate(fname):
+            if i != 0: db_name.join("_")
+            db_name += (db.split("/")[-1].split(".")[0])
+
+    return db_name, "_".join(db_train) if db_train is not None else db_name
+
+
 if __name__ == '__main__':
     # main()
-    test = 3
+    test = 2 if platform.system() == "Darwin" else 4
 
     # -----------------------------------------------------------------------
     # Test 1: Confusion Matrix with different db for training and testing
@@ -202,26 +226,31 @@ if __name__ == '__main__':
 
         for i, filename in enumerate(["testdb.zip", "lfw.zip", "cfp.zip", "ds0123456.zip"]):
             fileset = from_zip_to_data(WITH_PROFILE, fname=FOLDER_DB + filename)
-            testset = Face_DS(fileset, to_print=False, device=DEVICE)
-            predic_loader = torch.utils.data.DataLoader(testset, batch_size=BATCH_SIZE, shuffle=True, pin_memory=True)
+            testset = Face_DS(fileset=fileset, to_print=False, device=DEVICE)
+            predic_loader = torch.utils.data.DataLoader(testset, batch_size=BATCH_SIZE, shuffle=True)
 
             model = Model(test_loader=predic_loader, network=network)
             print("Model Testing on " + filename + " ...")
             model.prediction()
 
-    # -----------------------------------------------------------------------
-    # Test 2: Classification setting
-    # -----------------------------------------------------------------------
+    # -------------------------------------------------------------------------
+    # Test 2: Classification setting with evolving number of different classes
+    # -------------------------------------------------------------------------
     if test == 2 or test is None:
         MODE = "learn"
-        main(loss_type="ce_classif")
+        nb_classes_list = [5, 10, 50, 100, 200, 500, 1000, 5000, 10000]
+        f1 = []
+        for i, nb_classes in enumerate(nb_classes_list):
+            f1.append(main(loss_type="ce_classif", nb_classes=nb_classes))
+
+        line_graph(nb_classes_list, f1, "f1 measure according to the number of classes")
 
     # -----------------------------------------------------------------------
     # "Test 3": Train Model from different db
     # -----------------------------------------------------------------------
     if test == 3 or test is None:
         SAVE_MODEL = True
-        db_name_train = ["cfpSmall"] #"faceScrub", "lfw", "cfp", "gbrieven", "testdb"] #"testCropped"
+        db_name_train = ["cfpSmall"]  # "faceScrub", "lfw", "cfp", "gbrieven", "testdb"] #"testCropped"
         for i, curr_db in enumerate(db_name_train):
             main(fname=[FOLDER_DB + curr_db + ".zip"])
 
@@ -230,7 +259,8 @@ if __name__ == '__main__':
     # -----------------------------------------------------------------------
     if test == 4 or test is None:
         SAVE_MODEL = True
-        db_name_train = [FOLDER_DB + "gbrieven.zip", FOLDER_DB + "cfp.zip", FOLDER_DB + "lfw.zip", FOLDER_DB + "faceScrub.zip"]
+        db_name_train = [FOLDER_DB + "gbrieven.zip", FOLDER_DB + "cfp.zip", FOLDER_DB + "lfw.zip",
+                         FOLDER_DB + "faceScrub.zip"]
         main(fname=db_name_train)
 
     # -----------------------------------------------------------------------
@@ -242,6 +272,6 @@ if __name__ == '__main__':
         main()
         # => Go in FaceRecognition to test
 
-    # -----------------------------------------------------------------------
-    # Test 6: Test New Architecture: VGG16
-    # -----------------------------------------------------------------------
+        # -----------------------------------------------------------------------
+        # Test 6: Test New Architecture: VGG16
+        # -----------------------------------------------------------------------
