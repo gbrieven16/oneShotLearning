@@ -2,8 +2,7 @@ import sys
 import platform
 # import GPUtil
 import torch
-
-if platform.system() != "Darwin": torch.cuda.set_device(3)
+#if platform.system() != "Darwin": torch.cuda.set_device(1)
 import time
 import pickle
 from functools import partial
@@ -272,6 +271,6 @@ if __name__ == '__main__':
         main()
         # => Go in FaceRecognition to test
 
-        # -----------------------------------------------------------------------
-        # Test 6: Test New Architecture: VGG16
-        # -----------------------------------------------------------------------
+    # -----------------------------------------------------------------------
+    # Test 6: Test New Architecture: VGG16
+    # -----------------------------------------------------------------------
