@@ -249,7 +249,7 @@ if __name__ == '__main__':
     # "Test 3": Train Model from different db
     # -----------------------------------------------------------------------
     if test == 3 or test is None:
-        db_name_train = ["cfpSmall"]  # "faceScrub", "lfw", "cfp", "gbrieven", "testdb"] #"testCropped"
+        db_name_train = ["cfp"]  # "faceScrub", "lfw", "cfp", "gbrieven", "testdb"] #"testCropped"
         for i, curr_db in enumerate(db_name_train):
             main(fname=[FOLDER_DB + curr_db + ".zip"])
 

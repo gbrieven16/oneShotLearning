@@ -1,6 +1,5 @@
 import os
 import torch
-# torch.cuda.set_device(2)
 import pickle
 from NeuralNetwork import Tripletnet, ContrastiveLoss, SoftMax_Net, AutoEncoder_Net, TYPE_ARCH, Classif_Net
 from Visualization import visualization_validation, visualization_train

@@ -110,10 +110,10 @@ class AlexNet(nn.Module):
         self.gnap = GNAP()
         self.linearization = nn.Sequential(
             nn.Dropout(),
-            nn.Linear(LAST_DIM, dim_last_layer),
+            nn.Linear(dim_last_layer, dim_last_layer),
             nn.ReLU(inplace=True),
             nn.Dropout(),
-            nn.Linear(dim_last_layer, LAST_DIM), # Free first dim
+            nn.Linear(dim_last_layer, dim_last_layer), # Free first dim
             nn.ReLU(inplace=True)
         )
         self.to(DEVICE)
@@ -122,7 +122,7 @@ class AlexNet(nn.Module):
     def forward(self, data):
         x = self.features(data.to(DEVICE))
         if WITH_GNAP: x = self.gnap(x)
-        x = x.view(x.size(0), LAST_DIM)
+        x = x.view(x.size(0), x.size(1))
         return self.linearization(x)
 
 
@@ -143,20 +143,20 @@ class VGG16(nn.Module):
         self.gnap = GNAP()
         self.avgpool = nn.AdaptiveAvgPool2d((7, 7))
         self.linearization = nn.Sequential(
-            nn.Linear(512 * 7 * 7, dim_last_layer),
+            nn.Linear(512 * 7 * 7, 512),
             nn.ReLU(True),
             nn.Dropout(),
-            nn.Linear(dim_last_layer, dim_last_layer),
+            nn.Linear(512, 1024),
             nn.ReLU(True),
             nn.Dropout(),
-            nn.Linear(dim_last_layer, dim_last_layer),
+            nn.Linear(1024, dim_last_layer),
         )
         if init_weights:
             self._initialize_weights()
 
     def forward(self, data):
         x = self.features(data.to(DEVICE))
-        x = self.gnap(x)
+        if WITH_GNAP: x = self.gnap(x)
         x = self.avgpool(x)
         x = x.view(x.size(0), -1)
         x = self.linearization(x)

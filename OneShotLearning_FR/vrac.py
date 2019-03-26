@@ -3,7 +3,6 @@ import os
 from  PIL import Image
 import sys
 import shutil
-from pathlib import Path
 
 
 def processImage(infile):

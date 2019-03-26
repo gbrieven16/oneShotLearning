@@ -2,13 +2,11 @@ import torch
 from torch import nn
 import torch.nn.functional as f
 import numpy as np
-import matplotlib
-import platform
 
 from Dataprocessing import CENTER_CROP
-from EmbeddingNetwork import AlexNet, BasicNet, VGG16, ResNet, LAST_DIM
-
-#matplotlib.use('Agg')
+from EmbeddingNetwork import AlexNet, BasicNet, VGG16, ResNet
+import matplotlib
+matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
 # ================================================================
@@ -24,8 +22,8 @@ TYPE_ARCH (related to the embedding Network)
 4: AlexNet architecture 
 """
 
-TYPE_ARCH = "1default"  # "resnet152"  #"1default" "VGG16" #  "2def_drop" "3def_bathNorm"
-DIM_LAST_LAYER = 4096 if TYPE_ARCH == "4AlexNet" or TYPE_ARCH == "VGG16" else 512
+TYPE_ARCH = "VGG16"  # "resnet152"  #"1default" "VGG16" #  "2def_drop" "3def_bathNorm"
+DIM_LAST_LAYER = 1024 if TYPE_ARCH == "4AlexNet" or TYPE_ARCH == "VGG16" else 512
 
 DIST_THRESHOLD = 0.02
 MARGIN = 10
@@ -482,9 +480,9 @@ class DecoderNet(nn.Module):
         self.nb_channels = 4
         self.out_nb_channels = 3
         self.dim1 = 140
-        self.dim2 = self.dim1 + (CENTER_CROP[1] - CENTER_CROP[0])
+        self.dim2 = self.dim1 + (CENTER_CROP[1] - CENTER_CROP[0]) # = 190
 
-        self.linear1 = nn.Linear(LAST_DIM, self.nb_channels * self.dim1 * self.dim2)
+        self.linear1 = nn.Linear(DIM_LAST_LAYER, self.nb_channels * self.dim1 * self.dim2)
         self.conv3 = nn.ConvTranspose2d(self.nb_channels, self.out_nb_channels, CENTER_CROP[0] - (self.dim1 - 1))
 
         self.sig = nn.Sigmoid()  # compress to a range (0, 1)

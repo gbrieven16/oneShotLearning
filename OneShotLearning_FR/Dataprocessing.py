@@ -5,18 +5,20 @@ import zipfile
 import random
 from string import digits
 import torch.utils.data
+from keras.utils import get_file
+
 
 from PIL import Image
 from io import BytesIO
 
-import matplotlib as mpl
-mpl.use('TkAgg')
+import matplotlib
+matplotlib.use('Agg')
 import matplotlib.pyplot as plt
-
 
 import torch
 import torchvision.transforms as transforms
 from torch import nn
+from Face_alignment import align_faces, LandmarksDetector, LANDMARKS_MODEL_URL, unpack_bz2
 
 import warnings
 warnings.filterwarnings('ignore')
@@ -45,7 +47,7 @@ MIN_NB_PICT_CLASSIF = 4  # s.t. 25% is used for testing
 NB_TRIPLET_PER_PICT = 2
 
 RATIO_HORIZ_CROP = 0.15
-RESIZE = True
+RESIZE = False
 RESOLUTION = (150, 200)
 CENTER_CROP = (150, 200)
 TRANS = transforms.Compose([transforms.CenterCrop(CENTER_CROP), transforms.ToTensor(),
@@ -202,6 +204,10 @@ class Fileset:
     def __init__(self):
         self.data_list = []
         self.all_db = []
+        landmarks_model_path = unpack_bz2(get_file('shape_predictor_68_face_landmarks.dat.bz2',
+                                                   LANDMARKS_MODEL_URL, cache_subdir='temp'))
+
+        self.landmarks_detector = LandmarksDetector(landmarks_model_path)
 
     '''---------------- add_data -----------------------------------
      This function add data to the data_list 
@@ -326,7 +332,7 @@ class Fileset:
         for i, data in enumerate(self.data_list):
             personNames = data.name_person
             res_image = data.resize_image()
-            #res_image = align_image(res_image)
+            res_image = align_faces(res_image, self.landmarks_detector, save_name=data.filename)
             # transfo = transforms.Compose([transforms.ToTensor()])  # transforms.CenterCrop(CENTER_CROP),
             # print("formatted image without standardization " + str(transfo(res_image)))
             formatted_image = transform(res_image)
@@ -676,7 +682,7 @@ OUT: list of 3 sets
 def load_sets(db_name, dev, nb_classes, sets_list):
     type_ds = "triplet_" if nb_classes == 0 else "class" + str(nb_classes) + "_"
     result_sets_list = []
-    save_names_list = ["trainset_", "validationset_", "testset_"]
+    save_names_list = ["trainset_ali_", "validationset_ali_", "testset_ali_"]
     for i, set in enumerate(sets_list):
         name_file = FOLDER_DB + save_names_list[i] + type_ds + db_name + ".pkl"
         try:
