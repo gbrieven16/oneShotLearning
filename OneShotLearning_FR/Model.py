@@ -4,7 +4,6 @@ import torch
 import pickle
 from NeuralNetwork import Tripletnet, ContrastiveLoss, SoftMax_Net, AutoEncoder_Net, TYPE_ARCH, Classif_Net
 from Visualization import visualization_validation, visualization_train
-from Dataprocessing import Face_DS
 from torch import nn
 from torch import optim
 
@@ -74,7 +73,7 @@ class Model:
         self.nb_classes = nb_classes if nb_classes is None or 2 < nb_classes else None  # If None => no classification
 
         self.class_weights = [1, 1]
-        self.weighted_classes = True
+        self.weighted_classes = False
 
         if train_param is not None:
             # ----------------- Network Definition -------------
@@ -83,7 +82,6 @@ class Model:
             elif train_param["loss_type"] == "constrastive_loss":
                 self.network = ContrastiveLoss()
             elif train_param["loss_type"] is None:
-                print("Recognition as Autoencoder")
                 self.network = AutoEncoder_Net(embedding_net)
             elif train_param["loss_type"] == "cross_entropy":
                 self.network = SoftMax_Net()
@@ -122,7 +120,7 @@ class Model:
 
     def pretraining(self, Face_DS_train, hyper_par, num_epochs=PT_NUM_EPOCHS, batch_size=PT_BS):
 
-        name_trained_net = "encoder.pkl"
+        name_trained_net = "encoder_" + TYPE_ARCH + ".pkl"
         try:
             with open(name_trained_net, "rb") as f:
                 self.network.embedding_net = pickle.load(f)
@@ -130,7 +128,7 @@ class Model:
             train_data = Face_DS_train.to_single(Face_DS_train) if self.nb_classes is None else Face_DS_train
             train_loader = torch.utils.data.DataLoader(train_data, batch_size=batch_size, shuffle=True)
             train_param = {"loss_type": None, "hyper_par": hyper_par}
-            autoencoder = Model(train_param, embedding_net=self.network.embedding_net, train_loader=train_loader)
+            autoencoder = Model(train_param=train_param, embedding_net=self.network.embedding_net, train_loader=train_loader)
 
             print(" ------------ Train as Autoencoder ----------------- ")
             for epoch in range(num_epochs):
@@ -153,10 +151,19 @@ class Model:
 
         for epoch in range(num_epochs):
             print("-------------- Model that was not pretrained ------------------")
+
             model_comp.train(epoch)
             loss_notPret, f1_notPret = model_comp.prediction()
+
             self.losses_validation["Non-pretrained Model"].append(loss_notPret)
             self.f1_validation["Non-pretrained Model"].append(f1_notPret)
+
+            curr_avg_f1 = sum(self.f1_validation["Non-pretrained Model"]) / len(
+                self.f1_validation["Non-pretrained Model"])
+
+            if num_epochs/2 < epoch and curr_avg_f1 < 55:
+                print("The f1 measure of the non-pretrained model is bad => Stop Training")
+                break
 
     '''---------------------------- train --------------------------------
      This function trains the network attached to the model  
@@ -210,7 +217,7 @@ class Model:
 
         if self.scheduler is not None: self.scheduler.step()
 
-        if not autoencoder and self.nb_classes is None: self.update_weights()
+        if not autoencoder and self.nb_classes is None and self.weighted_classes: self.update_weights()
         self.losses_train.append(loss_list)
 
     '''---------------------------- prediction --------------------------------
@@ -298,15 +305,15 @@ class Model:
         f1_pos_avg, f1_neg_avg = self.prediction(on_train=True)  # To get f1_measures
         print("f1 score of train: " + str(f1_pos_avg) + " and " + str(f1_neg_avg))
 
-        if self.weighted_classes:
-            diff = abs(f1_neg_avg - f1_pos_avg)
-            # If diff = 0, then weight = 1 (no change)
-            if f1_pos_avg < f1_neg_avg:
-                # weight_neg -= diff
-                self.class_weights[0] += diff
-            else:
-                # weight_pos -= diff
-                self.class_weights[1] += diff
+        diff = abs(f1_neg_avg - f1_pos_avg)
+        # If diff = 0, then weight = 1 (no change)
+        if f1_pos_avg < f1_neg_avg:
+            # weight_neg -= diff
+            self.class_weights[0] += diff
+        else:
+            # weight_pos -= diff
+            self.class_weights[1] += diff
+
         print("Weights are " + str(self.class_weights[0]) + " and " + str(self.class_weights[1]))
 
     '''---------------------- print_eval_model ----------------------------------

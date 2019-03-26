@@ -2,7 +2,6 @@ import os
 import time
 import platform
 import zipfile
-import pickle
 import random
 from string import digits
 import torch.utils.data
@@ -10,9 +9,8 @@ import torch.utils.data
 from PIL import Image
 from io import BytesIO
 
-import matplotlib
-
-matplotlib.use('Agg')
+import matplotlib as mpl
+mpl.use('TkAgg')
 import matplotlib.pyplot as plt
 
 
@@ -36,7 +34,7 @@ TEST_ZIP = FOLDER_DB + 'testdb.zip'
 ZIP_TO_PROCESS = FOLDER_DB + 'initTestCropped.zip'  # aber&GTdb_crop.zip'
 NB_DIGIT_IN_ID = 1
 
-SEED = 4  # When data is shuffled
+SEED = 9  # When data is shuffled
 EXTENSION = ".jpg"
 SEPARATOR = "__"  # !!! Format of the dabase: name[!]__id !!! & No separators in name!
 RATION_TRAIN_SET = 0.75
@@ -49,8 +47,9 @@ NB_TRIPLET_PER_PICT = 2
 RATIO_HORIZ_CROP = 0.15
 RESIZE = True
 RESOLUTION = (150, 200)
-CENTER_CROP = (150, 200)  # transforms.CenterCrop(CENTER_CROP),
-TRANS = transforms.Compose([transforms.ToTensor(), transforms.Normalize((0.5, 0.5, 0.5), (1.0, 1.0, 1.0))])
+CENTER_CROP = (150, 200)
+TRANS = transforms.Compose([transforms.CenterCrop(CENTER_CROP), transforms.ToTensor(),
+                            transforms.Normalize((0.5, 0.5, 0.5), (1.0, 1.0, 1.0))])
 DIST_METRIC = "Cosine_Sym"
 
 # ================================================================
@@ -162,7 +161,7 @@ class Data:
      the image if the width is larger that heights by deleting 
      RATIO_HORIZ_CROP of the horizontal part on the left and on the 
      right. 
-     OUT: the image data which has been processed 
+     OUT: the image data which has been processed (Image type) 
      ---------------------------------------------------------------'''
 
     def resize_image(self):
@@ -170,7 +169,7 @@ class Data:
         with zipfile.ZipFile(self.db_path, 'r') as archive:
             # Get image resolution
             original_image = Image.open(BytesIO(archive.read(self.filename))).convert("RGB")
-            if not RESIZE:
+            if not RESIZE or self.db_source in ["faceScrub", "painCrops", "GTdbCrop", "cfp"]:
                 return original_image
             original_res = original_image.size
             # print("original res is: " + str(original_res))
@@ -185,10 +184,12 @@ class Data:
 
             # ----- Set the resolution -----
             resized_image = original_image.resize(RESOLUTION)
-            # plt.imshow(resized_image)
-            # plt.show()
 
-            original_image.close()
+            if platform.system() == "Darwin":
+                plt.imshow(resized_image)
+                name = self.filename.replace("/", SEPARATOR)
+                #plt.savefig(name)
+
             return resized_image
 
 
@@ -325,10 +326,10 @@ class Fileset:
         for i, data in enumerate(self.data_list):
             personNames = data.name_person
             res_image = data.resize_image()
+            #res_image = align_image(res_image)
             # transfo = transforms.Compose([transforms.ToTensor()])  # transforms.CenterCrop(CENTER_CROP),
             # print("formatted image without standardization " + str(transfo(res_image)))
             formatted_image = transform(res_image)
-            # print("formatted image after: " + str(formatted_image))
 
             img = FaceImage(data.filename, formatted_image, db_path=data.db_path, pers=data.name_person, i=data.index)
 
@@ -620,7 +621,7 @@ class Face_DS(torch.utils.data.Dataset):
                 self.train_labels.append(label_nb)
             label_nb += 1
         self.nb_classes = len(faces_dic)
-        self.train_labels = torch.tensor(self.train_labels) #.to(device)
+        self.train_labels = torch.tensor(self.train_labels).to(device)
 
 
 
@@ -687,7 +688,7 @@ def load_sets(db_name, dev, nb_classes, sets_list):
         except (ValueError, IOError) as e:  # EOFError  IOError FileNotFoundError
             print("\nThe set " + name_file + " couldn't be loaded...")
             print("Building Process ...")
-            result_sets_list.append(Face_DS(fileset=set, device=dev, save=name_file, triplet_version=(nb_classes == 0)))
+            result_sets_list.append(Face_DS(fileset=set, device=dev, triplet_version=(nb_classes == 0), save=name_file))
 
         # ------- Classification Case: no testset -------
         if nb_classes != 0 and i == 1:

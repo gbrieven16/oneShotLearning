@@ -19,6 +19,8 @@ TYPE_ARCH (related to the embedding Network)
 
 P_DROPOUT = 0.2  # Probability of each element to be dropped
 WITH_NORM_BATCH = False
+BATCH_SIZE = 32
+LAST_DIM = 512
 
 # For ResNet:
 LAYERS_RES = {"resnet18": [2, 2, 2, 2], "resnet34": [3, 4, 6, 3], "resnet50": [3, 4, 6, 3],
@@ -92,7 +94,7 @@ class AlexNet(nn.Module):
         self.features = nn.Sequential(
             nn.Conv2d(3, 64, kernel_size=11, stride=4),
             nn.ReLU(inplace=True),
-            nn.MaxPool2d(kernel_size=11, stride=2),
+            nn.MaxPool2d(kernel_size=3, stride=2),
             nn.Conv2d(64, 192, kernel_size=5, padding=2),
             nn.ReLU(inplace=True),
             nn.Conv2d(192, 384, kernel_size=7, padding=1),
@@ -102,25 +104,25 @@ class AlexNet(nn.Module):
             nn.ReLU(inplace=True),
             nn.Conv2d(256, 256, kernel_size=3, padding=1),
             nn.ReLU(inplace=True),
-            nn.MaxPool2d(kernel_size=5, stride=2),
+            nn.MaxPool2d(kernel_size=3, stride=2)
         )
 
         self.gnap = GNAP()
         self.linearization = nn.Sequential(
             nn.Dropout(),
-            nn.Linear(22 * 32 * 32, dim_last_layer),
+            nn.Linear(LAST_DIM, dim_last_layer),
             nn.ReLU(inplace=True),
             nn.Dropout(),
-            nn.Linear(dim_last_layer, dim_last_layer),
-            nn.ReLU(inplace=True),
+            nn.Linear(dim_last_layer, LAST_DIM), # Free first dim
+            nn.ReLU(inplace=True)
         )
         self.to(DEVICE)
         # self.final_layer = nn.Linear(dim_last_layer, num_classes)
 
     def forward(self, data):
         x = self.features(data.to(DEVICE))
-        x = self.gnap(x)
-        x = x.view(x.size(0), 22 * 32 * 32)  # 720896 / 32 = 22528.0
+        if WITH_GNAP: x = self.gnap(x)
+        x = x.view(x.size(0), LAST_DIM)
         return self.linearization(x)
 
 

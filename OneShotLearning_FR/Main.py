@@ -1,8 +1,7 @@
-import sys
+
 import platform
-# import GPUtil
 import torch
-#if platform.system() != "Darwin": torch.cuda.set_device(1)
+if platform.system() != "Darwin": torch.cuda.set_device(1)
 import time
 import pickle
 from functools import partial
@@ -25,13 +24,13 @@ WITH_LR_SCHEDULER = "ExponentialLR"  # "StepLR"
 WEIGHT_DECAY = 0.001  # To control regularization
 OPTIMIZER = "Adam"  # Adagrad "SGD"
 
+STOP_TOLERANCE_EPOCH = 35
 WEIGHTED_CLASS = False
 WITH_EPOCH_OPT = False
-LOSS = "triplet_loss"  # "cross_entropy"  # "ce_classif"   "constrastive_loss"
+LOSS = "cross_entropy" #"triplet_loss"  # "cross_entropy"  # "ce_classif"   "constrastive_loss"
 
-SAVE_MODEL = True
 MODE = "learn"  # "classifier training"
-PRETRAINING = "none" #""autoencoder"  # "autoencoder_only" "none"
+PRETRAINING = "autoencoder" #""autoencoder"  # "autoencoder_only" "none"
 
 DIFF_FACES = True  # If true, we have different faces in the training and the testing set
 WITH_PROFILE = False  # True if both frontally and in profile people
@@ -55,6 +54,7 @@ def main(loss_type=LOSS, batch_size=BATCH_SIZE, lr=LEARNING_RATE, db_train=None,
                  + str(NUM_EPOCH) + "_" + str(BATCH_SIZE) + "_" + LOSS + "_pretrain" + PRETRAINING + ".pt"
 
     visualization = True
+    save_model = True
 
     # -------- Train and Validation Sets Definition --------
     if fname is not None:
@@ -91,7 +91,7 @@ def main(loss_type=LOSS, batch_size=BATCH_SIZE, lr=LEARNING_RATE, db_train=None,
         # GPUtil.showUtilization()
 
         # ------------------- Model Definition -----------------
-        model_learn = Model(train_param, train_loader=train_loader, validation_loader=validation_loader,
+        model_learn = Model(train_param=train_param, train_loader=train_loader, validation_loader=validation_loader,
                             test_loader=test_loader, nb_classes=sets_list[0].nb_classes)
 
         time_init = time.time()
@@ -101,7 +101,7 @@ def main(loss_type=LOSS, batch_size=BATCH_SIZE, lr=LEARNING_RATE, db_train=None,
         if PRETRAINING == "autoencoder" or PRETRAINING == "autoencoder_only":
             # ---------- Pretraining using an autoencoder or classical model --------------
             model_learn.pretraining(sets_list[0], hyp_par, num_epochs=NUM_EPOCH, batch_size=batch_size)
-            model_learn.train_nonpretrained(NUM_EPOCH, hyp_par)
+            #model_learn.train_nonpretrained(NUM_EPOCH, hyp_par)
 
         # ------- Model Training ---------
         if PRETRAINING != "autoencoder_only":
@@ -113,9 +113,10 @@ def main(loss_type=LOSS, batch_size=BATCH_SIZE, lr=LEARNING_RATE, db_train=None,
                 # --------- STOP if no relevant learning after some epoch ----------
                 curr_avg_f1 = sum(model_learn.f1_validation["Pretrained Model"]) / len(
                     model_learn.f1_validation["Pretrained Model"])
-                if False and 14 < epoch and curr_avg_f1 < 55:
+                if STOP_TOLERANCE_EPOCH < epoch and curr_avg_f1 < 55:
                     print("The f1 measure is bad => Stop Training")
                     visualization = False
+                    save_model = False
                     break
 
         # -------- Model Testing ----------------
@@ -123,7 +124,7 @@ def main(loss_type=LOSS, batch_size=BATCH_SIZE, lr=LEARNING_RATE, db_train=None,
         f1_test = model_learn.prediction(validation=False) if loss_type != "ce_classif" else "classif"
 
         # ------- Model Saving ---------
-        if SAVE_MODEL:
+        if save_model:
             model_learn.save_model(name_model)
 
         # ------- Visualization: Evolution of the performance ---------
@@ -215,7 +216,7 @@ def get_db_name(fname, db_train):
 
 if __name__ == '__main__':
     # main()
-    test = 2 if platform.system() == "Darwin" else 4
+    test = 3 if platform.system() == "Darwin" else 4
 
     # -----------------------------------------------------------------------
     # Test 1: Confusion Matrix with different db for training and testing
@@ -248,7 +249,6 @@ if __name__ == '__main__':
     # "Test 3": Train Model from different db
     # -----------------------------------------------------------------------
     if test == 3 or test is None:
-        SAVE_MODEL = True
         db_name_train = ["cfpSmall"]  # "faceScrub", "lfw", "cfp", "gbrieven", "testdb"] #"testCropped"
         for i, curr_db in enumerate(db_name_train):
             main(fname=[FOLDER_DB + curr_db + ".zip"])
@@ -257,7 +257,6 @@ if __name__ == '__main__':
     # "Test 4": Train Model from all db
     # -----------------------------------------------------------------------
     if test == 4 or test is None:
-        SAVE_MODEL = True
         db_name_train = [FOLDER_DB + "gbrieven.zip", FOLDER_DB + "cfp.zip", FOLDER_DB + "lfw.zip",
                          FOLDER_DB + "faceScrub.zip"]
         main(fname=db_name_train)

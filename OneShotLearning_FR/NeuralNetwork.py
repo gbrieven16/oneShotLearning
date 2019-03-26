@@ -6,9 +6,9 @@ import matplotlib
 import platform
 
 from Dataprocessing import CENTER_CROP
-from EmbeddingNetwork import AlexNet, BasicNet, VGG16, ResNet
+from EmbeddingNetwork import AlexNet, BasicNet, VGG16, ResNet, LAST_DIM
 
-matplotlib.use('Agg')
+#matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
 # ================================================================
@@ -24,14 +24,28 @@ TYPE_ARCH (related to the embedding Network)
 4: AlexNet architecture 
 """
 
-TYPE_ARCH = "1default"# "resnet152"  #"1default" "VGG16" #  "2def_drop" "3def_bathNorm"
+TYPE_ARCH = "1default"  # "resnet152"  #"1default" "VGG16" #  "2def_drop" "3def_bathNorm"
 DIM_LAST_LAYER = 4096 if TYPE_ARCH == "4AlexNet" or TYPE_ARCH == "VGG16" else 512
 
 DIST_THRESHOLD = 0.02
-MARGIN = 2
+MARGIN = 10
 
 # Specifies where the torch.tensor is allocated
 DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+# ================================================================
+#                   Functions
+# ================================================================
+
+"""
+IN: tensor: a 1D-tensor 
+OUT: the median computed from the elements of this tensor 
+"""
+
+
+def get_median(tensor):
+    sorted_elements, _ = torch.sort(tensor)
+    return sorted_elements[round(tensor.size()[0] / 2)].item()
 
 
 # ================================================================
@@ -133,9 +147,15 @@ class DistanceBased_Net(nn.Module):
     -----------------------------------------------------------------'''
 
     def update_dist_threshold(self, dista, distb):
-        avg_dista = float(sum(dista)) / dista.size()[0]
-        avg_distb = float(sum(distb)) / dista.size()[0]
-        self.dist_threshold = (self.dist_threshold + avg_dista + avg_distb) / 3
+        # avg_dista = float(sum(dista)) / dista.size()[0]
+        # avg_distb = float(sum(distb)) / dista.size()[0]
+
+        med_dista = get_median(dista)
+        med_distb = get_median(distb)
+
+        self.dist_threshold = (self.dist_threshold + med_dista + med_distb) / 3
+        print("New Updated Threshold: " + str(self.dist_threshold))
+        return med_dista, med_distb
 
 
 # ================================================================
@@ -146,17 +166,24 @@ class DistanceBased_Net(nn.Module):
 class Tripletnet(DistanceBased_Net):
     def __init__(self):
         super(Tripletnet, self).__init__()
+        self.margin = MARGIN
 
     '''------------------ get_loss ------------------------ '''
 
     def get_loss(self, data, target, class_weights, train=True):
-        criterion = torch.nn.MarginRankingLoss(margin=MARGIN)
+        criterion = torch.nn.MarginRankingLoss(margin=self.margin)
         distance, disturb = self.get_distance(data[0], data[2], data[1])
-        if train: self.update_dist_threshold(distance, disturb)
+        if train:
+            med_distance, med_disturb = self.update_dist_threshold(distance, disturb)
+            self.update_margin(med_distance, med_disturb)
 
         # 1 means, dista should be greater than distb
         target = torch.FloatTensor(distance.size()).fill_(1).to(DEVICE)
         return criterion(distance, disturb, target)
+
+    def update_margin(self, med_distance, med_disturb):
+        self.margin = (MARGIN + (med_distance - med_disturb) /2) / 3
+        print("New margin: " + str(self.margin))
 
 
 # ================================================================
@@ -234,7 +261,8 @@ class CenterLoss(nn.Module):
             classes = classes.cuda()
 
         labels = labels.unsqueeze(1).expand(batch_size, self.num_classes)
-        mask = labels.eq(classes.expand(batch_size, self.num_classes))
+        arg = classes.expand(batch_size, self.num_classes)
+        mask = labels.eq(arg)
 
         dist = []
         for i in range(batch_size):
@@ -357,7 +385,7 @@ class SoftMax_Net(nn.Module):
             print("ERR: No matching with the given architecture...")
             raise Exception
 
-        self.final_layer = nn.Linear(DIM_LAST_LAYER, nb_classes) #.to(DEVICE)
+        self.final_layer = nn.Linear(DIM_LAST_LAYER, nb_classes)  # .to(DEVICE)
 
         self.loss_cur = 0
         self.center_loss = CenterLoss(DIM_LAST_LAYER, nb_classes) if with_center_loss else None
@@ -416,8 +444,8 @@ class SoftMax_Net(nn.Module):
         target_negative = torch.squeeze(target[:, 1])  # = Only 1 here
 
         output_positive, output_negative = self.forward(data)
-        #print("output_pos is " + str(output_positive))
-        #print("target_pos is " + str(target_positive))
+        # print("output_pos is " + str(output_positive))
+        # print("target_pos is " + str(target_positive))
         loss_positive = f.cross_entropy(output_positive, target_positive)
         loss_negative = f.cross_entropy(output_negative, target_negative)
         # print("Losses are: " + str(str(float(self.loss_cur))) + " and " + str(float(class_weights[0] * loss_positive + class_weights[1] * loss_negative)))
@@ -452,27 +480,32 @@ class DecoderNet(nn.Module):
     def __init__(self):
         super(DecoderNet, self).__init__()
         self.nb_channels = 4
-        self.dim1 = 11
-        self.dim2 = 11 + (CENTER_CROP[1] - CENTER_CROP[0])
+        self.out_nb_channels = 3
+        self.dim1 = 140
+        self.dim2 = self.dim1 + (CENTER_CROP[1] - CENTER_CROP[0])
 
-        self.linear1 = nn.Linear(DIM_LAST_LAYER, self.nb_channels * self.dim1 * self.dim2)
-        self.conv3 = nn.ConvTranspose2d(self.nb_channels, 3, CENTER_CROP[0] - (self.dim1 - 1))
+        self.linear1 = nn.Linear(LAST_DIM, self.nb_channels * self.dim1 * self.dim2)
+        self.conv3 = nn.ConvTranspose2d(self.nb_channels, self.out_nb_channels, CENTER_CROP[0] - (self.dim1 - 1))
+
         self.sig = nn.Sigmoid()  # compress to a range (0, 1)
         self.to(DEVICE)
 
     def forward(self, data):
         x = self.linear1(data)
         x = x.view(x.size(0), self.nb_channels, self.dim1, self.dim2)
-
         x = self.conv3(x)
         x = self.sig(x)
-        x = x.view(x.size(0), x.size(1), x.size(3), x.size(2))
+
+        x = x.view(x.size(0), self.out_nb_channels, CENTER_CROP[0], CENTER_CROP[1])
 
         return x
 
 
 # ================================================================
 #                    CLASS: AutoEncoder_Net
+# before reshape: x3*(x4 + 3)*(x4+1) = 90 000 (x4 + 3)*(x4+1) = 60
+# x2 + 4x - 89 996/x3 = 0 => 16 + 360 000/x3 => (-4 + 16) / 2 = 6
+# x3 = 1500
 # ================================================================
 class AutoEncoder_Net(nn.Module):
     def __init__(self, embeddingNet):
@@ -487,6 +520,7 @@ class AutoEncoder_Net(nn.Module):
         encoded = self.encoder(x)
         decoded = self.decoder(encoded)
         self.last_decoded = decoded
+
         return encoded, decoded
 
     def visualize_dec(self):
@@ -496,4 +530,3 @@ class AutoEncoder_Net(nn.Module):
             print("The picture representing the result from the decoder is saved")
             plt.savefig("Result_autoencoder_" + str(i))
             plt.show()
-
