@@ -3,6 +3,7 @@ import time
 import platform
 import zipfile
 import random
+import dlib
 from string import digits
 import torch.utils.data
 from keras.utils import get_file
@@ -18,7 +19,7 @@ import matplotlib.pyplot as plt
 import torch
 import torchvision.transforms as transforms
 from torch import nn
-from Face_alignment import align_faces, LandmarksDetector, LANDMARKS_MODEL_URL, unpack_bz2
+from Face_alignment import align_faces, ALIGNED_IMAGES_DIR
 
 import warnings
 warnings.filterwarnings('ignore')
@@ -36,7 +37,7 @@ TEST_ZIP = FOLDER_DB + 'testdb.zip'
 ZIP_TO_PROCESS = FOLDER_DB + 'initTestCropped.zip'  # aber&GTdb_crop.zip'
 NB_DIGIT_IN_ID = 1
 
-SEED = 9  # When data is shuffled
+SEED = 4  # When data is shuffled
 EXTENSION = ".jpg"
 SEPARATOR = "__"  # !!! Format of the dabase: name[!]__id !!! & No separators in name!
 RATION_TRAIN_SET = 0.75
@@ -49,7 +50,7 @@ NB_TRIPLET_PER_PICT = 2
 RATIO_HORIZ_CROP = 0.15
 RESIZE = False
 RESOLUTION = (150, 200)
-CENTER_CROP = (150, 200)
+CENTER_CROP = (200, 150)
 TRANS = transforms.Compose([transforms.CenterCrop(CENTER_CROP), transforms.ToTensor(),
                             transforms.Normalize((0.5, 0.5, 0.5), (1.0, 1.0, 1.0))])
 DIST_METRIC = "Cosine_Sym"
@@ -194,6 +195,15 @@ class Data:
 
             return resized_image
 
+    def get_loaded(self):
+        if platform.system() != "Darwin":
+            zip_obj = zipfile.ZipFile(self.db_path, 'r')
+            zip_obj.extract(self.file)
+            zip_obj.close()
+            loaded_img = dlib.load_rgb_image(self.filename)
+            os.remove(self.filename)
+            return loaded_img
+
 
 # ================================================================
 #                    CLASS: Fileset
@@ -204,10 +214,6 @@ class Fileset:
     def __init__(self):
         self.data_list = []
         self.all_db = []
-        landmarks_model_path = unpack_bz2(get_file('shape_predictor_68_face_landmarks.dat.bz2',
-                                                   LANDMARKS_MODEL_URL, cache_subdir='temp'))
-
-        self.landmarks_detector = LandmarksDetector(landmarks_model_path)
 
     '''---------------- add_data -----------------------------------
      This function add data to the data_list 
@@ -332,10 +338,28 @@ class Fileset:
         for i, data in enumerate(self.data_list):
             personNames = data.name_person
             res_image = data.resize_image()
-            res_image = align_faces(res_image, self.landmarks_detector, save_name=data.filename)
+            output_size = (256, 256)
+            transform_size = (512, 512)
+            size_str = str(output_size[0]) + "_" + str(output_size[1]) + "_" + str(transform_size[0]) + "_" + str(transform_size[1])
+            res_image.save(ALIGNED_IMAGES_DIR + size_str + data.filename.replace("/", SEPARATOR).split(".")[0] + "aUn.jpeg")
+            if i < 1000: # and data.db_source == "faceScrub":
+
+                name = size_str + data.filename.replace("/", SEPARATOR).split(".")[0] + "bAl.jpeg"
+                res_image = align_faces(res_image, save_name=name, loaded=data.get_loaded(), output_size=output_size,
+                                        transform_size=transform_size)
+            else:
+                res_image = align_faces(res_image, loaded=data.get_loaded(), output_size=output_size,
+                                        transform_size=transform_size)
+
             # transfo = transforms.Compose([transforms.ToTensor()])  # transforms.CenterCrop(CENTER_CROP),
             # print("formatted image without standardization " + str(transfo(res_image)))
-            formatted_image = transform(res_image)
+            try:
+                formatted_image = transform(res_image)
+                name = ALIGNED_IMAGES_DIR + size_str + data.filename.replace("/", SEPARATOR).split(".")[0] + "cropped.jpeg"
+                transforms.CenterCrop(CENTER_CROP)(res_image).save(name)
+            except AttributeError:
+                print("No face was detected on: " + data.filename + " with index " + str(i))
+                continue
 
             img = FaceImage(data.filename, formatted_image, db_path=data.db_path, pers=data.name_person, i=data.index)
 
@@ -682,7 +706,7 @@ OUT: list of 3 sets
 def load_sets(db_name, dev, nb_classes, sets_list):
     type_ds = "triplet_" if nb_classes == 0 else "class" + str(nb_classes) + "_"
     result_sets_list = []
-    save_names_list = ["trainset_ali_", "validationset_ali_", "testset_ali_"]
+    save_names_list = ["trainset_ali_", "validationset_ali", "testset_ali"]
     for i, set in enumerate(sets_list):
         name_file = FOLDER_DB + save_names_list[i] + type_ds + db_name + ".pkl"
         try:

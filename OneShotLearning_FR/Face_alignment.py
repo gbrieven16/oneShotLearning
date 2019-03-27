@@ -38,18 +38,37 @@ class LandmarksDetector:
         self.detector = dlib.get_frontal_face_detector()  # cnn_face_detection_model_v1 also can be used
         self.shape_predictor = dlib.shape_predictor(predictor_model_path)
 
-    def get_landmarks(self, image_path=None, image_obj=None):
+    def get_landmarks(self, image_path=None, image_obj=None, loaded=None):
 
-        if image_path is not None:
+        if loaded is not None:
+            img = loaded
+        elif image_path is not None:
             img = dlib.load_rgb_image(image_path)
         else:
             img = np.array(image_obj)
+
         dets = self.detector(img, 1)
 
         for detection in dets:
             face_landmarks = [(item.x, item.y) for item in self.shape_predictor(img, detection).parts()]
             yield face_landmarks
 
+
+def unpack_bz2(src_path):
+    data = bz2.BZ2File(src_path).read()
+    dst_path = src_path[:-4]
+    with open(dst_path, 'wb') as fp:
+        fp.write(data)
+    return dst_path
+
+
+#########################################
+#       "GLOBAL OBJECT"                 #
+#########################################
+print("LandmarksDetector Definition ... \n")
+landmarks_model_path = unpack_bz2(get_file('shape_predictor_68_face_landmarks.dat.bz2',
+                                           LANDMARKS_MODEL_URL, cache_subdir='temp'))
+landmarks_detector = LandmarksDetector(landmarks_model_path)
 
 #########################################
 #       FUNCTIONS                       #
@@ -60,9 +79,9 @@ IN: img: PIL.Image.Image object
 """
 
 
-def align_faces(img, landmarks_detector, save_name=None, output_size=1024, transform_size=4096, enable_padding=True):
-    for i, face_landmarks in enumerate(landmarks_detector.get_landmarks(image_obj=img), start=1):
-
+def align_faces(img, save_name=None, loaded=None, output_size=(256, 256), transform_size=(1024, 1024),
+                enable_padding=True):
+    for i, face_landmarks in enumerate(landmarks_detector.get_landmarks(image_obj=img, loaded=loaded), start=1):
         lm = np.array(face_landmarks)
         lm_chin = lm[0: 17]  # left-right
         lm_eyebrow_left = lm[17: 22]  # left-right
@@ -94,7 +113,7 @@ def align_faces(img, landmarks_detector, save_name=None, output_size=1024, trans
         qsize = np.hypot(*x) * 2
 
         # Shrink.
-        shrink = int(np.floor(qsize / output_size * 0.5))
+        shrink = int(np.floor(qsize / output_size[1] * 0.5))
         if shrink > 1:
             rsize = (int(np.rint(float(img.size[0]) / shrink)), int(np.rint(float(img.size[1]) / shrink)))
             img = img.resize(rsize, PIL.Image.ANTIALIAS)
@@ -130,10 +149,10 @@ def align_faces(img, landmarks_detector, save_name=None, output_size=1024, trans
             quad += pad[:2]
 
         # Transform.
-        img = img.transform((transform_size, transform_size), PIL.Image.QUAD, (quad + 0.5).flatten(),
+        img = img.transform(transform_size, PIL.Image.QUAD, (quad + 0.5).flatten(),
                             PIL.Image.BILINEAR)
-        if output_size < transform_size:
-            img = img.resize((output_size, output_size), PIL.Image.ANTIALIAS)
+        if max(output_size) < max(transform_size):
+            img = img.resize(output_size, PIL.Image.ANTIALIAS)
 
         # Save aligned image.
         if save_name is not None:
@@ -141,7 +160,7 @@ def align_faces(img, landmarks_detector, save_name=None, output_size=1024, trans
         return img
 
 
-def image_align(src_file, dst_file, face_landmarks, output_size=1024, transform_size=4096, enable_padding=True):
+def image_align(src_file, dst_file, face_landmarks, output_size=1024, transform_size=4096, enable_padding=False):
     # Align function from FFHQ dataset pre-processing step
     # https://github.com/NVlabs/ffhq-dataset/blob/master/download_ffhq.py
 
@@ -230,14 +249,6 @@ def image_align(src_file, dst_file, face_landmarks, output_size=1024, transform_
 
     # Save aligned image.
     img.save(dst_file, 'PNG')
-
-
-def unpack_bz2(src_path):
-    data = bz2.BZ2File(src_path).read()
-    dst_path = src_path[:-4]
-    with open(dst_path, 'wb') as fp:
-        fp.write(data)
-    return dst_path
 
 
 # ================================================================

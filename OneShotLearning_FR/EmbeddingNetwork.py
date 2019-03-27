@@ -90,6 +90,7 @@ class AlexNet(nn.Module):
     def __init__(self, dim_last_layer):
         super(AlexNet, self).__init__()
         if WITH_GNAP: print("The GNAP module is used\n")
+        self.dim_last_layer = dim_last_layer
 
         self.features = nn.Sequential(
             nn.Conv2d(3, 64, kernel_size=11, stride=4),
@@ -110,7 +111,7 @@ class AlexNet(nn.Module):
         self.gnap = GNAP()
         self.linearization = nn.Sequential(
             nn.Dropout(),
-            nn.Linear(dim_last_layer, dim_last_layer),
+            nn.Linear(512, dim_last_layer),
             nn.ReLU(inplace=True),
             nn.Dropout(),
             nn.Linear(dim_last_layer, dim_last_layer), # Free first dim
@@ -122,7 +123,8 @@ class AlexNet(nn.Module):
     def forward(self, data):
         x = self.features(data.to(DEVICE))
         if WITH_GNAP: x = self.gnap(x)
-        x = x.view(x.size(0), x.size(1))
+        x = x.view(x.size(0), 512) #16384 /32 = 512.0
+
         return self.linearization(x)
 
 
