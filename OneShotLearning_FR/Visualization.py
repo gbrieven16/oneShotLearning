@@ -246,8 +246,12 @@ def visualization_validation(loss, f1, save_name=None):
                          save_name=save_name + "_loss.png")
         multi_line_graph(dictionary_f1_valid, epoches, title_f1, x_label="epoch", y_label="f1",
                          save_name=save_name + "_f1.png")
-        multi_line_graph(dict_f1_valid_train, epoches, title_f1_train_valid, x_label="epoch", y_label="f1",
+
+        try:
+            multi_line_graph(dict_f1_valid_train, epoches, title_f1_train_valid, x_label="epoch", y_label="f1",
                          save_name=save_name + "_f1_train_val.png")
+        except ValueError:
+            pass # Case where there was no evaluation on the training set while training
 
 
 if __name__ == '__main__':

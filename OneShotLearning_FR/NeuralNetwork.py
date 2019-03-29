@@ -26,7 +26,7 @@ TYPE_ARCH = "4AlexNet"  # "resnet152"  #"1default" "VGG16" #  "2def_drop" "3def_
 DIM_LAST_LAYER = 1024 if TYPE_ARCH in ["VGG16", "4AlexNet"] else 512
 
 DIST_THRESHOLD = 0.02
-MARGIN = 10
+MARGIN = 0.2
 
 # Specifies where the torch.tensor is allocated
 DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -152,7 +152,7 @@ class DistanceBased_Net(nn.Module):
         med_distb = get_median(distb)
 
         self.dist_threshold = (self.dist_threshold + med_dista + med_distb) / 3
-        print("New Updated Threshold: " + str(self.dist_threshold))
+        #print("New Updated Threshold: " + str(self.dist_threshold))
         return med_dista, med_distb
 
 
@@ -173,15 +173,10 @@ class Tripletnet(DistanceBased_Net):
         distance, disturb = self.get_distance(data[0], data[2], data[1])
         if train:
             med_distance, med_disturb = self.update_dist_threshold(distance, disturb)
-            self.update_margin(med_distance, med_disturb)
 
         # 1 means, dista should be greater than distb
         target = torch.FloatTensor(distance.size()).fill_(1).to(DEVICE)
         return criterion(distance, disturb, target)
-
-    def update_margin(self, med_distance, med_disturb):
-        self.margin = (MARGIN + (med_distance - med_disturb) /2) / 3
-        print("New margin: " + str(self.margin))
 
 
 # ================================================================

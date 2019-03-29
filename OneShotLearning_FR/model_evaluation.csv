@@ -34,11 +34,6 @@ ds_0123456;;8788;True;100;No Specification;;100;32;1;1;4AlexNet;Adam;triplet_los
 ds_0123456;;8788;True;100;No Specification;autoencoder;100;32;1;1;4AlexNet;Adam;triplet_loss;True;17.21;7.73;7.83;82.05;88.43;87.33;;;;
 ds_0123456;;8788;True;(150, 200);No Specification;;100;32;1;1;1default;Adam;triplet_loss;True;4.68;3.43;3.38;90.99;92.37;91.35;;;;
 ds_0123456;;8788;True;(150, 200);No Specification;autoencoder;100;32;1;1;1default;Adam;cross_entropy_with_cl;True;26129.8;67.31;105.49;85.73;77.61;77.84;;;;
-ds_0123456 - ds_CASIA-WebFace1.zip;;;True;(150, 200);No Specification;autoencoder;100;32;1;1;1default;Adam;triplet_loss;True;/;/;4.28;/;/;50, 23;;;;ds_faceScrub;5545;4146;True;(150, 200);faceScrub;none;8;32;0.001;0.001;1default;Adam;cross_entropy;False;60.15515;61.48942;61.48956;36.25253;35.00127;35.00127;36.25253;0;18.10754;32693.180989027023
-ds_data/gbrieven/cfpSmall.zip;300;220;True;(150, 200);cfpSmall;none;8;32;0.001;0.001;1default;Adam;ce_classif;False;9.25602;9.70724;9.70741;2.0;2.0;2.0;3.0;2;tensor(4);431.572208881
-ds_data/gbrieven/cfpSmall.zip;300;220;True;(150, 200);cfpSmall;none;8;32;0.001;0.001;1default;Adam;ce_classif;False;1489.81006;1471.72705;1471.72339;0.0;0.0;0.0;0.0;0;tensor(6);375.823960066
-ds_data/gbrieven/cfpSmall.zip;300;220;True;(150, 200);cfpSmall;none;8;32;0.001;0.001;1default;Adam;ce_classif;False;1482.63196;1470.18481;1470.18481;10.0;7.0;7.0;10.0;0;tensor(5);371.573651791
-ds_data/gbrieven/cfpSmall.zip;300;220;True;(150, 200);cfpSmall;none;8;32;0.001;0.001;1default;Adam;ce_classif;False;1535.59839;1518.8252;1518.82251;12.0;1.0;1.0;12.0;0;tensor(3);395.420567989
-ds_data/gbrieven/cfpSmall.zip;300;220;True;(150, 200);cfpSmall;none;8;32;0.001;0.001;1default;Adam;ce_classif;False;1473.72046;1456.26904;1456.26746;0.0;12.0;12.0;12.0;1;classif;335.95398926734924
-ds_data/gbrieven/cfpSmall.zip;300;220;True;(150, 200);cfpSmall;none;8;32;0.001;0.001;1default;Adam;ce_classif;False;1463.52197;1448.50269;1448.50159;0.0;0.0;0.0;0.0;0;classif;290.6330146789551
-ds_data/gbrieven/cfpSmall.zip;300;220;True;(150, 200);cfpSmall;none;8;32;0.001;0.001;1default;Adam;ce_classif;False;1508.02588;1488.86719;1488.86523;0.0;0.0;0.0;0.0;0;classif;279.45206594467163
+ds_0123456 - ds_CASIA-WebFace1.zip;;;True;(150, 200);No Specification;autoencoder;100;32;1;1;1default;Adam;triplet_loss;True;/;/;4.28;/;/;50, 23;;;;
+"gbrieven; lfw;faceScrub;cfp";61 100;30273;True;(150, 200);all C1;autoencoder (100);100;32;1;ExpLR_0.001;4AlexNet;Adam;cross_entropy;False;;;;53;59;59;59;5;55;
+;;;;;;;;;;;;;;;;;;;;;;;;

@@ -1,12 +1,12 @@
 
 import platform
 import torch
-if platform.system() != "Darwin": torch.cuda.set_device(1)
+if platform.system() != "Darwin": torch.cuda.set_device(0)
 import time
 import pickle
 from functools import partial
 from NeuralNetwork import TYPE_ARCH
-from Model import Model, MARGIN, DEVICE
+from Model import Model, DEVICE, should_break
 
 from Dataprocessing import Face_DS, from_zip_to_data, MAIN_ZIP, CENTER_CROP, load_sets, FOLDER_DB, TEST_ZIP
 from Visualization import store_in_csv, line_graph
@@ -20,14 +20,13 @@ NUM_EPOCH = 8 if platform.system() == "Darwin" else 100
 BATCH_SIZE = 32
 
 LEARNING_RATE = 0.001
-WITH_LR_SCHEDULER = "ExponentialLR"  # "StepLR"
+WITH_LR_SCHEDULER = "StepLR"  #"StepLR"  #"ExponentialLR"  # "StepLR"
 WEIGHT_DECAY = 0.001  # To control regularization
 OPTIMIZER = "Adam"  # Adagrad "SGD"
 
-STOP_TOLERANCE_EPOCH = 35
 WEIGHTED_CLASS = False
 WITH_EPOCH_OPT = False
-LOSS = "cross_entropy" #"triplet_loss"  # "cross_entropy"  # "ce_classif"   "constrastive_loss"
+LOSS = "ce_classif" #"triplet_loss"  # "cross_entropy"  # "ce_classif"   "constrastive_loss"
 
 MODE = "learn"  # "classifier training"
 PRETRAINING = "autoencoder" #""autoencoder"  # "autoencoder_only" "none"
@@ -101,7 +100,7 @@ def main(loss_type=LOSS, batch_size=BATCH_SIZE, lr=LEARNING_RATE, db_train=None,
         if PRETRAINING == "autoencoder" or PRETRAINING == "autoencoder_only":
             # ---------- Pretraining using an autoencoder or classical model --------------
             model_learn.pretraining(sets_list[0], hyp_par, num_epochs=NUM_EPOCH, batch_size=batch_size)
-            #model_learn.train_nonpretrained(NUM_EPOCH, hyp_par)
+            model_learn.train_nonpretrained(NUM_EPOCH, hyp_par)
 
         # ------- Model Training ---------
         if PRETRAINING != "autoencoder_only":
@@ -111,10 +110,7 @@ def main(loss_type=LOSS, batch_size=BATCH_SIZE, lr=LEARNING_RATE, db_train=None,
                 model_learn.prediction()
 
                 # --------- STOP if no relevant learning after some epoch ----------
-                curr_avg_f1 = sum(model_learn.f1_validation["Pretrained Model"]) / len(
-                    model_learn.f1_validation["Pretrained Model"])
-                if STOP_TOLERANCE_EPOCH < epoch and curr_avg_f1 < 55:
-                    print("The f1 measure is bad => Stop Training")
+                if should_break(model_learn.f1_validation["Pretrained Model"], epoch):
                     visualization = False
                     save_model = False
                     break
@@ -135,8 +131,8 @@ def main(loss_type=LOSS, batch_size=BATCH_SIZE, lr=LEARNING_RATE, db_train=None,
             info_data = [db_name if fname is not None else MAIN_ZIP, len(fileset.data_list),
                          len(sets_list[0].train_data),
                          DIFF_FACES, CENTER_CROP, db_title]
-            info_training = [PRETRAINING, NUM_EPOCH, batch_size, wd, lr,
-                             TYPE_ARCH, OPTIMIZER, loss_type, WEIGHTED_CLASS, MARGIN]
+            info_training = [PRETRAINING, NUM_EPOCH, batch_size, wd, str((lr, WITH_LR_SCHEDULER)),
+                             TYPE_ARCH, OPTIMIZER, loss_type, WEIGHTED_CLASS]
             info_result = [model_learn.losses_validation["Pretrained Model"],
                            model_learn.f1_validation["Pretrained Model"], str(f1_test)]
             return store_in_csv(info_data, info_training, info_result, time.time() - time_init)
@@ -195,7 +191,6 @@ def load_model(model_name):
     pickle.Unpickler = partial(pickle.Unpickler)
     return torch.load(model_name, map_location=lambda storage, loc: storage, pickle_module=pickle)  # network
 
-
 '''----------------------- get_db_name --------------------------------------
  This function returns a string merging the name of the different bd used 
  for training 
@@ -216,7 +211,7 @@ def get_db_name(fname, db_train):
 
 if __name__ == '__main__':
     # main()
-    test = 3 if platform.system() == "Darwin" else 4
+    test = 3 if platform.system() == "Darwin" else 2
 
     # -----------------------------------------------------------------------
     # Test 1: Confusion Matrix with different db for training and testing
@@ -240,8 +235,10 @@ if __name__ == '__main__':
         MODE = "learn"
         nb_classes_list = [5, 10, 50, 100, 200, 500, 1000, 5000, 10000]
         f1 = []
+        db_name_train = [FOLDER_DB + "gbrieven.zip", FOLDER_DB + "cfp.zip", FOLDER_DB + "lfw.zip",
+                         FOLDER_DB + "faceScrub.zip"]
         for i, nb_classes in enumerate(nb_classes_list):
-            f1.append(main(loss_type="ce_classif", nb_classes=nb_classes))
+            f1.append(main(loss_type="ce_classif", nb_classes=nb_classes, fname=db_name_train))
 
         line_graph(nb_classes_list, f1, "f1 measure according to the number of classes")
 

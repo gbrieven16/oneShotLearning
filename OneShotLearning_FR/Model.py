@@ -11,45 +11,19 @@ from torch import optim
 #########################################
 
 
-MARGIN = 2.0
 MOMENTUM = 0.9
 GAMMA = 0.1  # for the lr_scheduler - default value 0.1
 N_TEST_IMG = 5
 PT_BS = 32  # Batch size for pretraining
 PT_NUM_EPOCHS = 200
-DEVICE_ID = 2
 ROUND_DEC = 5
+
+STOP_TOLERANCE_EPOCH = 35
+MIN_AVG_F1 = 60
+TOLERANCE_MAX_SAME_F1 = 8
 
 # Specifies where the torch.tensor is allocated
 DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-
-# ".cuda(non_blocking=True)
-
-print("\nThe code is running on " + str(DEVICE) + "...")
-# DEVICE = torch.cuda.device(DEVICE_ID) if torch.cuda.is_available() else 'cpu
-# os.environ['CUDA_VISIBLE_DEVICES'] = "%d" % deviceid
-print_info_cuda = False
-if DEVICE.type == 'cuda' and print_info_cuda:
-    # ================================================
-    deviceid = 2
-    total, used = os.popen(
-        '"nvidia-smi" --query-gpu=memory.total,memory.used --format=csv,nounits,noheader'
-    ).read().split('\n')[deviceid].split(',')
-    total = int(total)
-    used = int(used)
-
-    print(deviceid, 'Total GPU mem:', total, 'used:', used)
-
-    visible_devices = os.getenv('CUDA_VISIBLE_DEVICES', '').split(',')
-    print("Visible devices: " + str(visible_devices))
-    print_info_cuda = True
-    print("count " + str(torch.cuda.device_count()))
-    print(torch.cuda.get_device_name(0))
-    print('Memory Usage:')
-    print('Allocated:', round(torch.cuda.memory_allocated(0) / 1024 ** 3, 1), 'GB')
-    print('Cached:   ', round(torch.cuda.memory_cached(0) / 1024 ** 3, 1), 'GB')
-    # print(torch.cuda.get_device_name(2))
-
 
 # Loss combination not considered here
 
@@ -123,6 +97,7 @@ class Model:
         try:
             with open(name_trained_net, "rb") as f:
                 self.network.embedding_net = pickle.load(f)
+            print("The autoencoder has been loaded!\n")
         except FileNotFoundError:
             train_data = Face_DS_train.to_single(Face_DS_train) if self.nb_classes is None else Face_DS_train
             train_loader = torch.utils.data.DataLoader(train_data, batch_size=batch_size, shuffle=True)
@@ -135,7 +110,7 @@ class Model:
             autoencoder.network.visualize_dec()
 
             pickle.dump(self.network.embedding_net, open(name_trained_net, "wb")) #, protocol=2)
-            print("The set has been saved!\n")
+            print("The autoencoder has been saved as " + name_trained_net + "!\n")
 
     '''------------------ train_nonpretrained -------------------------------------
        The function trains a neural network (so that it's performance can be 
@@ -157,11 +132,7 @@ class Model:
             self.losses_validation["Non-pretrained Model"].append(loss_notPret)
             self.f1_validation["Non-pretrained Model"].append(f1_notPret)
 
-            curr_avg_f1 = sum(self.f1_validation["Non-pretrained Model"]) / len(
-                self.f1_validation["Non-pretrained Model"])
-
-            if num_epochs/2 < epoch and curr_avg_f1 < 55:
-                print("The f1 measure of the non-pretrained model is bad => Stop Training")
+            if should_break(self.f1_validation["Non-pretrained Model"], epoch):
                 break
 
     '''---------------------------- train --------------------------------
@@ -183,18 +154,19 @@ class Model:
             try:
                 if autoencoder:
                     # ----------- CASE 1: Autoencoder Training -----------
-                    data = data.to(DEVICE)  # torch.unsqueeze(data, 0)
+                    #data = data.to(DEVICE)  # torch.unsqueeze(data, 0)
                     encoded, decoded = self.network(data)
                     loss = nn.MSELoss()(decoded, data)  # mean square error
 
                 else:
                     # ----------- CASE 2: Image Differentiation Training -----------
-                    for i in range(len(data)):  # List of 3 tensors
-                        data[i] = data[i].to(DEVICE)
-
+                    #for i in range(len(data)):  # List of 3 tensors
+                        #data[i] = data[i].to(DEVICE)
                     loss = self.network.get_loss(data, target, self.class_weights)
 
             except IOError:  # The batch is "not complete"
+                break
+            except RuntimeError: # The batch is "not complete"
                 break
 
             loss.backward()  # backpropagation, compute gradients
@@ -242,26 +214,26 @@ class Model:
             for batch_idx, (data, target) in enumerate(data_loader):
                 try:
                     loss = self.network.get_loss(data, target, self.class_weights, train=False)
-                    target = target.type(torch.LongTensor).to(DEVICE)
+                    #target = target.type(torch.LongTensor).to(DEVICE)
 
                     # ----------- Case 1: Classification ----------------
                     if self.nb_classes is not None:
                         output = self.network(data, target)
-                        target = target.type(torch.LongTensor).to(DEVICE)
+                        #target = target.type(torch.LongTensor).to(DEVICE)
 
                         if torch.cuda.is_available():
                             acc = torch.sum(torch.argmax(output, dim=1) == target).cuda()  # = 0
                         else:
                             acc = torch.sum(torch.argmax(output, dim=1) == target).cpu()  # = 0
 
-                        acc_loss += loss
+                        acc_loss += loss # Accumulator of losses
                         self.eval_dic["nb_correct"] += acc
                         self.eval_dic["nb_labels"] += len(target)
 
                     # ----------- Case 2: Siamese Network ---------------
                     else:
                         out_pos, out_neg = self.network(data)
-                        target = target.type(torch.LongTensor).to(DEVICE)
+                        target = target.type(torch.LongTensor).to(DEVICE) # !! Important
                         tar_pos = torch.squeeze(target[:, 0])  # = Only 0 here
                         tar_neg = torch.squeeze(target[:, 1])  # = Only 1 here
 
@@ -276,6 +248,7 @@ class Model:
                         self.get_evaluation(acc_pos, acc_neg, len(tar_pos), len(tar_neg))
 
                 except RuntimeError:  # The batch is "not complete"
+                    print("ERR: A runtime error occured in prediction! ")
                     break
 
         # ----------- Evaluation on the validation set (over epochs) ---------------
@@ -396,7 +369,6 @@ class Model:
             self.eval_dic["recall_pos"] += rec_pos
             prec_pos = float(tp) / (float(tp) + (n - float(tn)))
             self.eval_dic["f1_pos"] += (2 * rec_pos * prec_pos) / (prec_pos + rec_pos)
-
         except ZeroDivisionError:  # the tp is 0
             pass
 
@@ -405,7 +377,6 @@ class Model:
             self.eval_dic["recall_neg"] += rec_neg
             prec_neg = float(tn) / (float(tn) + (p - float(tp)))
             self.eval_dic["f1_neg"] += (2 * rec_neg * prec_neg) / (prec_neg + rec_neg)
-
         except ZeroDivisionError:  # the tn is 0
             pass
 
@@ -461,4 +432,32 @@ class Model:
     ----------------------------------------------------------------------------- '''
 
     def is_overfitting(self):
+        return False
+
+
+#########################################
+#       GLOBAL VARIABLES                #
+#########################################
+
+"""
+IN: f1_validation 
+    epoch
+"""
+
+def should_break(f1_list, epoch):
+
+    curr_avg_f1 = sum(f1_list) / len(f1_list)
+
+    constant = True
+    curr_f1 = f1_list[-1]
+
+    for i in range(TOLERANCE_MAX_SAME_F1):
+        if epoch < TOLERANCE_MAX_SAME_F1 or curr_f1 != f1_list[len(f1_list)-1-i]:
+            constant = False
+            break
+
+    if (STOP_TOLERANCE_EPOCH < epoch and curr_avg_f1 < MIN_AVG_F1) or constant:
+        print("The f1 measure is bad => Stop Training")
+        return True
+    else:
         return False

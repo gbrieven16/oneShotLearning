@@ -5,6 +5,7 @@ import zipfile
 import random
 import dlib
 from string import digits
+from StyleEncoder import data_augmentation
 import torch.utils.data
 from keras.utils import get_file
 
@@ -48,11 +49,11 @@ MIN_NB_PICT_CLASSIF = 4  # s.t. 25% is used for testing
 NB_TRIPLET_PER_PICT = 2
 
 RATIO_HORIZ_CROP = 0.15
-RESIZE = False
-RESOLUTION = (150, 200)
 CENTER_CROP = (200, 150)
 TRANS = transforms.Compose([transforms.CenterCrop(CENTER_CROP), transforms.ToTensor(),
                             transforms.Normalize((0.5, 0.5, 0.5), (1.0, 1.0, 1.0))])
+
+Q_DATA_AUGM = 0
 DIST_METRIC = "Cosine_Sym"
 
 # ================================================================
@@ -80,11 +81,6 @@ class Data:
         self.lateral_face = True if name_person[-1] == "!" else False
         self.index = index
         self.extension = extension
-        """print("fn " + fn)
-        print("db_source is " + self.db_source)
-        print("person is " + self.name_person)
-        print("index " + str(self.index))
-        print("extension " + str(extension))"""
 
         # + Potentially add some characteristic related to the picture for the interpretation later, like girl/guy ....)
 
@@ -94,8 +90,6 @@ class Data:
      ---------------------------------------------------------------'''
 
     def convert_image(self):
-        db_source = self.db_path.split("/")[-1].split(".zip")[0]
-        # print("IN CONVERT: db_source " + db_source)
         new_name = self.name_person + SEPARATOR + self.index + ".jpeg"
 
         if self.extension == "jpeg":
@@ -158,42 +152,6 @@ class Data:
             number_if_error += 1
 
         return label, id, extension
-
-    '''---------------- resize_image --------------------------------
-     This function resizes the image to RESOLUTION and first crops
-     the image if the width is larger that heights by deleting 
-     RATIO_HORIZ_CROP of the horizontal part on the left and on the 
-     right. 
-     OUT: the image data which has been processed (Image type) 
-     ---------------------------------------------------------------'''
-
-    def resize_image(self):
-
-        with zipfile.ZipFile(self.db_path, 'r') as archive:
-            # Get image resolution
-            original_image = Image.open(BytesIO(archive.read(self.filename))).convert("RGB")
-            if not RESIZE or self.db_source in ["faceScrub", "painCrops", "GTdbCrop", "cfp"]:
-                return original_image
-            original_res = original_image.size
-            # print("original res is: " + str(original_res))
-
-            # ----- If Horizontal Image => Crop -----
-            if original_res[1] < original_res[0]:
-                left = RATIO_HORIZ_CROP * original_res[0]
-                right = (1 - RATIO_HORIZ_CROP) * original_res[0]
-                lower = original_res[1]
-                upper = 0
-                original_image = original_image.crop(box=(left, upper, right, lower))
-
-            # ----- Set the resolution -----
-            resized_image = original_image.resize(RESOLUTION)
-
-            if platform.system() == "Darwin":
-                plt.imshow(resized_image)
-                name = self.filename.replace("/", SEPARATOR)
-                #plt.savefig(name)
-
-            return resized_image
 
     def get_loaded(self):
         if platform.system() != "Darwin":
@@ -331,49 +289,41 @@ class Fileset:
 
         faces_dic = {}
         random.Random(SEED).shuffle(self.data_list)
+        nb_undetected_faces = 0
 
         # --------------------------------
         # Order the picture per label
         # --------------------------------
         for i, data in enumerate(self.data_list):
-            personNames = data.name_person
-            res_image = data.resize_image()
-            output_size = (256, 256)
-            transform_size = (512, 512)
-            size_str = str(output_size[0]) + "_" + str(output_size[1]) + "_" + str(transform_size[0]) + "_" + str(transform_size[1])
-            res_image.save(ALIGNED_IMAGES_DIR + size_str + data.filename.replace("/", SEPARATOR).split(".")[0] + "aUn.jpeg")
-            if i < 1000: # and data.db_source == "faceScrub":
+            personName = data.name_person
 
-                name = size_str + data.filename.replace("/", SEPARATOR).split(".")[0] + "bAl.jpeg"
-                res_image = align_faces(res_image, save_name=name, loaded=data.get_loaded(), output_size=output_size,
-                                        transform_size=transform_size)
-            else:
-                res_image = align_faces(res_image, loaded=data.get_loaded(), output_size=output_size,
-                                        transform_size=transform_size)
+            with zipfile.ZipFile(data.db_path, 'r') as archive:
+                original_image = Image.open(BytesIO(archive.read(data.filename))).convert("RGB")
 
-            # transfo = transforms.Compose([transforms.ToTensor()])  # transforms.CenterCrop(CENTER_CROP),
-            # print("formatted image without standardization " + str(transfo(res_image)))
+            res_image = align_faces(original_image, loaded=data.get_loaded())
+
             try:
                 formatted_image = transform(res_image)
-                name = ALIGNED_IMAGES_DIR + size_str + data.filename.replace("/", SEPARATOR).split(".")[0] + "cropped.jpeg"
-                transforms.CenterCrop(CENTER_CROP)(res_image).save(name)
             except AttributeError:
-                print("No face was detected on: " + data.filename + " with index " + str(i))
+                #print("No face was detected on: " + data.filename + " with index " + str(i))
+                original_image.save("Undetected_" + data.filename.replace("/", SEPARATOR))
+                nb_undetected_faces +=1
                 continue
 
-            img = FaceImage(data.filename, formatted_image, db_path=data.db_path, pers=data.name_person, i=data.index)
+            img = FaceImage(data.filename, formatted_image, db_path=data.db_path, pers=personName, i=data.index)
 
             try:
-                if len(faces_dic[personNames]) < max_nb_pict:
-                    faces_dic[personNames].append(img)
+                if len(faces_dic[personName]) < max_nb_pict:
+                    faces_dic[personName].append(img)
             except KeyError:
                 if nb_people is None or len(faces_dic) < nb_people:
-                    faces_dic[personNames] = [img]
+                    faces_dic[personName] = [img]
 
         if same_nb_pict:
             pictures_nbs = [len(pictures_list) for person_name, pictures_list in faces_dic.items()]
             min_nb_pict = min(pictures_nbs)
 
+        print("The total number of pictures where the face wasn't detected is: " + str(nb_undetected_faces))
         # --- Remove element where value doesn't contain enough pictures -----
         faces_dic = {label: pictures for label, pictures in faces_dic.items() if min_nb_pict <= len(pictures)}
 
@@ -503,7 +453,9 @@ class Face_DS(torch.utils.data.Dataset):
 
         t = time.time()
         faces_dic = fileset.order_per_personName(self.transform)
-        print("Pictures have been processed after " + str(time.time() - t))
+        print("Pictures have been processed and ordered after " + str(time.time() - t))
+
+        data_augmentation(face_dic, Q_DATA_AUGM)
 
         # ------------------------------------------------------------------------
         # CASE 2: Build triplet supporting the dataset (ensures balanced classes)
@@ -631,7 +583,7 @@ class Face_DS(torch.utils.data.Dataset):
 
                 pos_pict_lists.append(pos_pict_list)
 
-        print("pos_pict_lists: " + str(pos_pict_lists))
+        #print("pos_pict_lists: " + str(pos_pict_lists))
         # self.train_data = torch.stack(self.train_data)
         self.train_labels = torch.tensor(self.train_labels) #.to(device)
 
@@ -647,11 +599,11 @@ class Face_DS(torch.utils.data.Dataset):
         for label, pictures_list in faces_dic.items():
             # ======== Consider each picture of each person ==========
             for i, picture in enumerate(pictures_list):
-                self.train_data.append(picture.trans_img)
+                self.train_data.append(picture.trans_img) #.to(device))
                 self.train_labels.append(label_nb)
             label_nb += 1
         self.nb_classes = len(faces_dic)
-        self.train_labels = torch.tensor(self.train_labels).to(device)
+        self.train_labels = torch.tensor(self.train_labels) #.to(device)
 
 
 
