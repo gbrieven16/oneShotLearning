@@ -22,7 +22,7 @@ TYPE_ARCH (related to the embedding Network)
 4: AlexNet architecture 
 """
 
-TYPE_ARCH = "4AlexNet"  # "resnet152"  #"1default" "VGG16" #  "2def_drop" "3def_bathNorm"
+TYPE_ARCH = "1default"  # "resnet152"  #"1default" "VGG16" #  "2def_drop" "3def_bathNorm"
 DIM_LAST_LAYER = 1024 if TYPE_ARCH in ["VGG16", "4AlexNet"] else 512
 
 DIST_THRESHOLD = 0.02

@@ -1,19 +1,18 @@
 import os
 import time
+import pickle
 import platform
 import zipfile
 import random
-import dlib
 from string import digits
 from StyleEncoder import data_augmentation
 import torch.utils.data
-from keras.utils import get_file
-
 
 from PIL import Image
 from io import BytesIO
 
 import matplotlib
+
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
@@ -23,6 +22,7 @@ from torch import nn
 from Face_alignment import align_faces, ALIGNED_IMAGES_DIR
 
 import warnings
+
 warnings.filterwarnings('ignore')
 
 #########################################
@@ -32,7 +32,7 @@ warnings.filterwarnings('ignore')
 
 # if the 2th db not used, replace "yalefaces" by ""
 FOLDER_DB = "data/gbrieven/" if platform.system() == "Darwin" else "/data/gbrieven/"
-MAIN_ZIP = FOLDER_DB + 'cfpSmall.zip'  # cfp.zip "testdb.zip"  CASIA-WebFace.zip'
+MAIN_ZIP = FOLDER_DB + 'cfp.zip'  # cfp.zip "testdb.zip"  CASIA-WebFace.zip'
 TEST_ZIP = FOLDER_DB + 'testdb.zip'
 
 ZIP_TO_PROCESS = FOLDER_DB + 'initTestCropped.zip'  # aber&GTdb_crop.zip'
@@ -47,6 +47,8 @@ MIN_NB_IM_PER_PERSON = 2
 MAX_NB_IM_PER_PERSON = 20
 MIN_NB_PICT_CLASSIF = 4  # s.t. 25% is used for testing
 NB_TRIPLET_PER_PICT = 2
+IND_SYNT = 20  # Start index for the synthetic images
+WITH_AL = False
 
 RATIO_HORIZ_CROP = 0.15
 CENTER_CROP = (200, 150)
@@ -55,6 +57,7 @@ TRANS = transforms.Compose([transforms.CenterCrop(CENTER_CROP), transforms.ToTen
 
 Q_DATA_AUGM = 0
 DIST_METRIC = "Cosine_Sym"
+
 
 # ================================================================
 #                    CLASS: Data
@@ -70,17 +73,27 @@ class Data:
         self.db_source = fn.split(SEPARATOR)[0]
 
         if to_process:
-            name_person, index, extension = self.extract_info_from_name()
+            # name_person, index, extension = self.extract_info_from_name()
+            name_person = fn.split(SEPARATOR)[1]  # = dbNamePersonName
+            index = fn.split(SEPARATOR)[2].split(".")[0]
+
+            extension = ".".join(fn.split(".")[1:])
         else:
             name_person = fn.split(SEPARATOR)[0] + fn.split(SEPARATOR)[1]  # = dbNamePersonName
-            index = fn.split(SEPARATOR)[2]
+            index = fn.split(SEPARATOR)[2].split(".")[0]
 
             extension = ".".join(fn.split(".")[1:])
 
         self.name_person = name_person
         self.lateral_face = True if name_person[-1] == "!" else False
+        self.synthetic = True if name_person[-1] == "?" else False
         self.index = index
         self.extension = extension
+
+        '''print("db_source is " + self.db_source)
+        print("person is " + self.name_person)
+        print("index " + str(self.index))
+        print("extension " + str(extension))'''
 
         # + Potentially add some characteristic related to the picture for the interpretation later, like girl/guy ....)
 
@@ -89,10 +102,15 @@ class Data:
      so that it can be included into the main "zip db"
      ---------------------------------------------------------------'''
 
-    def convert_image(self):
-        new_name = self.name_person + SEPARATOR + self.index + ".jpeg"
+    def convert_image(self, file_is_pil=False):
 
-        if self.extension == "jpeg":
+        new_name = self.db_source + SEPARATOR + self.name_person + SEPARATOR + self.index + ".jpg"
+
+        if file_is_pil:
+            self.file.save(FOLDER_DB + new_name)
+            return FOLDER_DB + new_name, new_name
+
+        elif self.extension == "jpg":
             # Rename under the formalism dbSource_personName_index.jpeg
             self.file.filename = new_name
             zipfile.ZipFile(self.db_path, 'r').extract(self.file)
@@ -101,7 +119,7 @@ class Data:
         elif self.extension != ".txt" and self.extension != "png.json":
 
             with zipfile.ZipFile(self.db_path, 'r') as archive:
-                path = FOLDER_DB + "image.jpeg"
+                path = FOLDER_DB + "image.jpg"
                 Image.open(BytesIO(archive.read(self.filename))).convert('RGB').save(path)
                 self.file.filename = new_name
 
@@ -152,15 +170,6 @@ class Data:
             number_if_error += 1
 
         return label, id, extension
-
-    def get_loaded(self):
-        if platform.system() != "Darwin":
-            zip_obj = zipfile.ZipFile(self.db_path, 'r')
-            zip_obj.extract(self.file)
-            zip_obj.close()
-            loaded_img = dlib.load_rgb_image(self.filename)
-            os.remove(self.filename)
-            return loaded_img
 
 
 # ================================================================
@@ -285,7 +294,7 @@ class Fileset:
      ----------------------------------------------------------------------- '''
 
     def order_per_personName(self, transform, nb_people=None, max_nb_pict=MAX_NB_IM_PER_PERSON,
-                             min_nb_pict=MIN_NB_IM_PER_PERSON, same_nb_pict=False):
+                             min_nb_pict=MIN_NB_IM_PER_PERSON, same_nb_pict=False, save=None):
 
         faces_dic = {}
         random.Random(SEED).shuffle(self.data_list)
@@ -299,15 +308,14 @@ class Fileset:
 
             with zipfile.ZipFile(data.db_path, 'r') as archive:
                 original_image = Image.open(BytesIO(archive.read(data.filename))).convert("RGB")
-
-            res_image = align_faces(original_image, loaded=data.get_loaded())
+            res_image = align_faces(original_image) if WITH_AL else original_image
 
             try:
                 formatted_image = transform(res_image)
             except AttributeError:
-                #print("No face was detected on: " + data.filename + " with index " + str(i))
+                # print("No face was detected on: " + data.filename + " with index " + str(i))
                 original_image.save("Undetected_" + data.filename.replace("/", SEPARATOR))
-                nb_undetected_faces +=1
+                nb_undetected_faces += 1
                 continue
 
             img = FaceImage(data.filename, formatted_image, db_path=data.db_path, pers=personName, i=data.index)
@@ -327,16 +335,31 @@ class Fileset:
         # --- Remove element where value doesn't contain enough pictures -----
         faces_dic = {label: pictures for label, pictures in faces_dic.items() if min_nb_pict <= len(pictures)}
 
+        if save is not None:
+            try:
+                pickle.dump(faces_dic, open(FOLDER_DB + "faceDic_" + save + ".pkl", "wb"))
+            except OSError:
+                mid = int(round(len(faces_dic) / 2))
+                faces_dic1 = {k: v for k, v in faces_dic.items() if k in list(faces_dic)[:mid]}
+                faces_dic2 = {k: v for k, v in faces_dic.items() if k in list(faces_dic)[mid:]}
+
+                pickle.dump(faces_dic1, open(FOLDER_DB + "faceDic1_" + save + ".pkl", "wb"))
+                pickle.dump(faces_dic2, open(FOLDER_DB + "faceDic2_" + save + ".pkl", "wb"))
+
         return faces_dic
 
-    '''---------------------------- ds_to_zip --------------------------------
+    '''---------------------------- ds_to_zip --------------------------------------
      This function adds to zip_filename all the content of data_list, such that
      each image is in the jpeg format and the name of each file has the right
      format (i.e. dbSource_personName_id.jpg) 
-     --------------------------------------------------------------------------'''
+     IN: db_destination: db where to put the images contained in data_list 
+         file_is_pil: True if the file of the data in datalist are of the PIL.image
+     -------------------------------------------------------------------------------'''
 
-    def ds_to_zip(self):
-        zipf = zipfile.ZipFile(MAIN_ZIP, 'a', zipfile.ZIP_DEFLATED)
+    def ds_to_zip(self, db_destination=None, file_is_pil=False):
+        if db_destination is None:
+            db_destination = MAIN_ZIP
+        zipf = zipfile.ZipFile(db_destination, 'a', zipfile.ZIP_DEFLATED)
         curr_pers = ""
         curr_nb_pict = 0
 
@@ -352,7 +375,11 @@ class Fileset:
 
             # Convert into jpeg and extract the image
             try:
-                path, new_name = data.convert_image()
+                if file_is_pil:
+                    path, new_name = data.convert_image(file_is_pil=file_is_pil)
+                else:
+                    path, new_name = data.convert_image()
+
                 # zipf.write(data.file.filename)
                 zipf.write(path, new_name)
                 os.remove(path)
@@ -369,16 +396,16 @@ class Fileset:
 # ================================================================
 class FaceImage():
     def __init__(self, file_path, trans_image, db_path=None, pers=None, i=None):
-        self.file_path = file_path      # Complete path of the image
-        self.db_path = db_path   # Complete path of the db (zip file)
+        self.file_path = file_path  # Complete path of the image
+        self.db_path = db_path  # Complete path of the db (zip file)
         self.trans_img = trans_image
-        self.dist = {} # key1 person, val1: dic2 ; key2: index, val2: val2
+        self.dist = {}  # key1 person, val1: dic2 ; key2: index, val2: val2
         self.feature_repres = None
         self.person = pers
         self.index = i
 
     def isIqual(self, other_image):
-        #return other_image.path == self.file_path
+        # return other_image.path == self.file_path
         return other_image.file_path == self.file_path
 
     def display_im(self, to_print="A face is displayed"):
@@ -406,20 +433,25 @@ class FaceImage():
             feature_repr2 = picture.get_feature_repres(siamese_model)
             if DIST_METRIC == "Manhattan":
                 difference_sum = torch.sum(torch.abs(feature_repr2 - self.feature_repres))
-                dist = difference_sum / len(self.feature_repres[0])
+                dist = float(difference_sum / len(self.feature_repres[0]))
 
             elif DIST_METRIC == "MeanSquare":
                 difference_sum = torch.sum((self.feature_repres - feature_repr2) ** 2)
-                dist = difference_sum / len(self.feature_repres[0])
+                dist = float(difference_sum / len(self.feature_repres[0]))
 
             elif DIST_METRIC == "Cosine_Sym":
                 cos = nn.CosineSimilarity(dim=1, eps=1e-6)
-                dist = cos(self.feature_repres, feature_repr2)
+                dist = float(cos(self.feature_repres, feature_repr2))
             else:
                 print("ERR: Invalid Distance Metric")
                 raise IOError
 
-            picture.dist[self.person][self.index] = dist
+            try:
+                picture.dist[self.person][self.index] = dist
+            except KeyError:
+                picture.dist[self.person] = {}
+                picture.dist[self.person][self.index] = dist
+
             return dist
 
 
@@ -455,7 +487,7 @@ class Face_DS(torch.utils.data.Dataset):
         faces_dic = fileset.order_per_personName(self.transform)
         print("Pictures have been processed and ordered after " + str(time.time() - t))
 
-        data_augmentation(face_dic, Q_DATA_AUGM)
+        # data_augmentation(face_dic, Q_DATA_AUGM)
 
         # ------------------------------------------------------------------------
         # CASE 2: Build triplet supporting the dataset (ensures balanced classes)
@@ -472,10 +504,11 @@ class Face_DS(torch.utils.data.Dataset):
             self.image_data(faces_dic, device=device)
 
         self.print_data_report(faces_dic=faces_dic, triplet=triplet_version)
+
         if save is not None:
             with open(save, 'wb') as output:
                 try:
-                    torch.save(self, output) #, protocol=2) #pickle.HIGHEST_PROTOCOL
+                    torch.save(self, output)  # , protocol=2) #pickle.HIGHEST_PROTOCOL
                     print("The set has been saved as " + save + "!\n")
                 except MemoryError:
                     print("The dataset couldn't be saved")
@@ -521,9 +554,9 @@ class Face_DS(torch.utils.data.Dataset):
 
         # ================= Consider each person =================
         for label, pictures_list in faces_dic.items():
-            #all_labels.remove(label)
+            # all_labels.remove(label)
             labels_indexes_neg = [x for x in range(0, nb_labels) if x != all_labels.index(label)]
-            pos_pict_lists = [] #pictures_list
+            pos_pict_lists = []  # pictures_list
 
             # ================= Consider each picture of the person =================
             for i, picture_ref in enumerate(pictures_list):
@@ -583,9 +616,9 @@ class Face_DS(torch.utils.data.Dataset):
 
                 pos_pict_lists.append(pos_pict_list)
 
-        #print("pos_pict_lists: " + str(pos_pict_lists))
+        # print("pos_pict_lists: " + str(pos_pict_lists))
         # self.train_data = torch.stack(self.train_data)
-        self.train_labels = torch.tensor(self.train_labels) #.to(device)
+        self.train_labels = torch.tensor(self.train_labels)  # .to(device)
 
     """ --------------------- image_data ------------------------------------
       This function sets data by filling it with the pictures contained in 
@@ -599,13 +632,11 @@ class Face_DS(torch.utils.data.Dataset):
         for label, pictures_list in faces_dic.items():
             # ======== Consider each picture of each person ==========
             for i, picture in enumerate(pictures_list):
-                self.train_data.append(picture.trans_img) #.to(device))
+                self.train_data.append(picture.trans_img)  # .to(device))
                 self.train_labels.append(label_nb)
             label_nb += 1
         self.nb_classes = len(faces_dic)
-        self.train_labels = torch.tensor(self.train_labels) #.to(device)
-
-
+        self.train_labels = torch.tensor(self.train_labels)  # .to(device)
 
     """ --------------------- to_single ------------------------------------
       This function returns a Face_DS object whose data are build from the 
@@ -613,6 +644,7 @@ class Face_DS(torch.utils.data.Dataset):
       Basically, it takes each picture_ref and put it in the train_data of
       the Face_DS object to return. 
       --------------------------------------------------------------------- """
+
     def to_single(self, face_set):
         return Face_DS(face_set=face_set)
 
@@ -730,7 +762,7 @@ def from_zip_to_data(with_profile, fname=MAIN_ZIP, dataset=None):
             if fn[-1] == "/":
                 go_to_next_folder = False
                 continue
-            if go_to_next_folder:
+            if go_to_next_folder or fn == ".DS_Store":
                 continue
 
             # --- Just keep a limited among of pictures per person ---
@@ -763,14 +795,127 @@ def from_zip_to_data(with_profile, fname=MAIN_ZIP, dataset=None):
     return dataset
 
 
+"""
+This function generates synthetic images of each person contained in the given database
+and add them in the database under the name "db__personName?_index.jpg"
+IN: zip_db: Zip file containing the pictures the db is made up of  
+"""
+
+
+def generate_synthetic_im(db, nb_additional_images=8):
+    # -------------------------------
+    # 1. Open the DB
+    # -------------------------------
+    with zipfile.ZipFile(db, 'r') as archive:
+        file_names = archive.namelist()
+        try:
+            file_names.remove(".DS_Store")
+        except ValueError:
+            pass
+
+    face_dic = {}
+
+    # ----------------------------------------------------------------------
+    # 2. Go over each file and put 1 file per person as value
+    # in a dictionary where the key is the person's name
+    # ----------------------------------------------------------------------
+    for i, fn in enumerate(file_names):  # fn = name[!]_id.extension
+        if db == FOLDER_DB + "FFHQ.zip":
+            current_person = fn.split(".png")[0]
+        else:
+            current_person = fn.split(SEPARATOR)[1]
+            if current_person in face_dic:
+                continue
+        pict = FaceImage(fn, None, db_path=db)
+        face_dic[current_person] = [pict]
+
+    # ----------------------------------------------------------------------
+    # 3. Generate synthetic images and add them in the dictionary
+    # ----------------------------------------------------------------------
+    print("In data Augmentation...")
+    data_augmentation(face_dic, nb_add_instances=nb_additional_images, save=True)
+
+    # -----------------------------------------------------------------
+    # 4. Register the synthetic images in the db
+    # -----------------------------------------------------------------
+    fset = Fileset()
+
+    for person, pictures_list in face_dic.items():
+        for i, picture in enumerate(pictures_list):
+            # fname = db__person?__index.jpg
+            db_name = db.split("/")[-1].split("zip")[0]
+            print("db name is " + db_name)
+            print("person is " + person)
+            index = 1 + i if db == FOLDER_DB + "FFHQ.zip" else IND_SYNT + i
+            fname = db_name + SEPARATOR + person + "?" + SEPARATOR + str(index) + "jpg"
+            data = Data(picture, fname, db, to_process=True)
+            fset.add_data(data)
+
+    fset.ds_to_zip(db + "_synthIm", file_is_pil=True)
+
+
+"""
+This function crops and aligns the images in db and registers them in 
+"""
+
+
+def register_aligned(db):
+    # -------------------------------
+    # 1. Open the DB
+    # -------------------------------
+    al_fset = Fileset()
+    to_remove = []
+
+    with zipfile.ZipFile(db, 'r') as archive:
+        file_names = archive.namelist()
+        try:
+            file_names.remove(".DS_Store")
+        except ValueError:
+            pass
+
+        # ----------------------------------------------------------------------
+        # 2. Go over each file and put 1 file per person as value
+        # in a dictionary where the key is the person's name
+        # ----------------------------------------------------------------------
+        for i, fn in enumerate(file_names):  # fn = name[!]_id.extension
+            original_image = Image.open(BytesIO(archive.read(fn))).convert("RGB")
+            res_image = align_faces(original_image)
+            if res_image is None:
+                print("The file " + fn + " resulted in nontype transformation")
+                to_remove.append(fn)
+                continue
+            data = Data(res_image, fn, db, to_process=True)
+            al_fset.add_data(data)
+
+        # -----------------------------------------------------------------
+        # 3. Register the aligned images in the db
+        # -----------------------------------------------------------------
+        al_fset.ds_to_zip(db_destination=db, file_is_pil=True)
+
+        return to_remove
+
+
 # ================================================================
 #                    MAIN
 # ================================================================
 
 
 if __name__ == "__main__":
-    a = [1, 2, 3, 4]
-    for i, x in enumerate(a):
-        print(str(x) + " and " + str(a))
-        a.remove(x)
-    #include_data_to_zip()
+
+    test_id = 1
+
+    if test_id == 1:
+        db_list = ["cfp", "lfw", "faceScrub"]
+
+        for i, db in enumerate(db_list):
+            fileset = from_zip_to_data(False, fname=FOLDER_DB + db + ".zip")
+            fileset.order_per_personName(TRANS, same_nb_pict=True, save=db)
+
+
+    # TOTEST
+    if test_id == 2:
+        db_list = ["cfp70.zip"] #, "FFHQ.zip"] #, "lfw.zip", "gbrieven.zip", "faceScrub.zip", "testdb.zip"]
+
+        for i, db in enumerate(db_list):
+            print("Current db is " + str(FOLDER_DB + db) + "...\n")
+            generate_synthetic_im(FOLDER_DB + db)

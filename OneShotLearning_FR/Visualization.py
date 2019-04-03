@@ -2,6 +2,7 @@ import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
+import random
 import os
 import csv
 import numpy as np
@@ -42,7 +43,7 @@ def line_graph(x, y, title, x_label="x", y_label="y", save_name=None):
     plt.close()
 
 
-def multi_line_graph(dictionary, x_elements, title, x_label="x", y_label="Score", save_name=None):
+def multi_line_graph(dictionary, x_elements, title, x_label="x", y_label="Score", save_name=None, loc='lower right'):
     plt.figure()
     plt.grid(True)
     plt.title(title)
@@ -56,7 +57,7 @@ def multi_line_graph(dictionary, x_elements, title, x_label="x", y_label="Score"
 
     # --------- Legend -----------------------------
 
-    legend = plt.legend(loc='lower right', shadow=True)
+    legend = plt.legend(loc=loc, shadow=True)
     frame = legend.get_frame()
     frame.set_facecolor('0.90')
 
@@ -216,7 +217,8 @@ def visualization_train(epoch_list, loss_list, save_name=None):
     for i, epoch in enumerate(epoch_list):
         dictionary["epoch " + str(epoch)] = loss_list[epoch]
 
-    multi_line_graph(dictionary, perc_train, title, x_label="percentage of data", y_label="Loss", save_name=save_name)
+    multi_line_graph(dictionary, perc_train, title, x_label="percentage of data", y_label="Loss", save_name=save_name,
+                     loc='upper right')
 
 
 '''------------------ visualization_validation ----------------------------- '''
@@ -243,7 +245,7 @@ def visualization_validation(loss, f1, save_name=None):
         epoches = list(range(0, len(loss[key0]), 1))
 
         multi_line_graph(dictionary_loss, epoches, title_loss, x_label="epoch", y_label="Loss",
-                         save_name=save_name + "_loss.png")
+                         save_name=save_name + "_loss.png", loc='upper right')
         multi_line_graph(dictionary_f1_valid, epoches, title_f1, x_label="epoch", y_label="f1",
                          save_name=save_name + "_f1.png")
 
@@ -255,4 +257,6 @@ def visualization_validation(loss, f1, save_name=None):
 
 
 if __name__ == '__main__':
-    pass
+    dic = {'a': 193, 'b': 48, 'c': 933, 'd': 9888}
+    random.shuffle()
+

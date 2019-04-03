@@ -46,22 +46,35 @@ def extract_files(nameFolder):
                 print("Already here: " + files.split(nameFolder)[1])
 
 
-'''--------------------- data_to_zip ------------------------------------------ '''
+'''--------------------- rename_file ------------------------------------------ '''
 
 
 def rename_file(nameFolder, zip_name=None):
     files = [str(os.path.join(dp, f)) for dp, dn, filenames in os.walk(nameFolder) for f in filenames]
+    print("The files are " + str(files))
+    people = {}
 
     for i, file in enumerate(files):
+
         print("file is " + file)
-        # new_name = "faces94_" + file.split(".")[0] + "_" + file.split(".")[1] + ".jpeg"
+        person = file.split("/")[3]
+
+        if person not in people:
+            people[person] = 0
+        else:
+            people[person] += 1
+
+        new_name = nameFolder + zip_name + "__" + person + "__" + str(people[person]) + ".jpg"
+        print("The new name is: " + str(new_name))
+
         try:
-            new_name = file.replace("_", "__")
             os.rename(file, new_name)
         except IndexError:
             print("already")
+
     if zip_name is not None:
         shutil.make_archive(zip_name, 'zip', nameFolder)
+        print("Archive has been made!")
 
 
 '''--------------------- data_to_zip ------------------------------------------
@@ -97,11 +110,26 @@ def data_to_zip(root_dir):
 
     zipf.close()
 
+def delete_from_zip(zip_file_in, to_remove_list, zip_file_out):
+    zin = zipfile.ZipFile(zip_file_in, 'r')
+    zout = zipfile.ZipFile(zip_file_out, 'w')
+
+    for item in zin.infolist():
+        buffer = zin.read(item.filename)
+        if item.filename not in to_remove_list:
+            zout.writestr(item, buffer)
+    zout.close()
+    zin.close()
 
 
 if __name__ == "__main__":
     #data_to_zip()
-    nameFolder = 'data/gbrieven/gbrieven/'
-    rename_file(nameFolder, zip_name="gbrieven")
+    nameFolder = 'data/gbrieven/cfp/'
+    zip_name = "cfp"
+    #rename_file(nameFolder, zip_name=zip_name)
+    file_to_remove = "cfp__003__10.jpg"
+    zip_file_in = "data/gbrieven/cfp3.zip"
+    zip_file_out = "data/cfp3.zip"
+    delete_from_zip(zip_file_in, file_to_remove, zip_file_out)
 
 

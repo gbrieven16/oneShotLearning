@@ -1,9 +1,10 @@
 import time
-from random import shuffle, randint
+import pickle
+from random import shuffle, randint, Random
 import numpy as np
 import torch
 from torch import nn
-from Dataprocessing import from_zip_to_data, TRANS
+from Dataprocessing import from_zip_to_data, TRANS, FOLDER_DB, FaceImage
 from Visualization import multi_line_graph
 from Main import WITH_PROFILE, load_model
 
@@ -14,16 +15,16 @@ from Main import WITH_PROFILE, load_model
 NB_PROBES = 30
 SIZE_GALLERY = 80  # Nb of people to consider
 TOLERANCE = 3  # Max nb of times the model can make mistake in comparing p_test and the pictures of 1 person
-NB_REPET = 10  # Nb of times test is repeated (over different probes)
+NB_REPET = 1  # Nb of times test is repeated (over different probes)
 THRESHOLDS_LIST = list(np.arange(0, 5, 0.05))  # For MeanSquare
 DETAILED_PRINT = False
-DIST_METRIC = "Cosine_Sym"  #"MeanSquare" #"Manhattan"
+DIST_METRIC = "Cosine_Sym"  # "MeanSquare" #"Manhattan"
+MIN_NB_IM_PER_PERS = 4
 
 
 # ======================================================================
 #                    CLASS: FaceRecognition
 # ======================================================================
-
 
 class Probe:
     def __init__(self, person, picture, index_pict):
@@ -31,7 +32,7 @@ class Probe:
         self.picture = picture
         self.index = index_pict
 
-        self.dist_pers = {} # dic where the key is the person's name and the value is the list of distances from probe
+        self.dist_pers = {}  # dic where the key is the person's name and the value is the list of distances from probe
         self.dist_avg_pers = {}
         self.vote_pers = {}
 
@@ -45,7 +46,7 @@ class Probe:
     def median_dist(self, person, nb_pictures):
         if 1 < nb_pictures:
             self.dist_avg_pers[person] = np.median(self.dist_pers[person])
-            print("median: " + str(self.dist_avg_pers[person]))
+            #print("median: " + str(self.dist_avg_pers[person]))
 
     def predict_from_dist(self, res_acc_dist):
         pred_pers_dist = sorted(self.dist_avg_pers.items(), key=lambda x: x[1])[0][0]
@@ -89,7 +90,7 @@ class Probe:
 
 
 class FaceRecognition:
-    def __init__(self, model_path):
+    def __init__(self, model_path, db_source="testdb"):
 
         self.k_considered = []
         self.distances = {}
@@ -98,18 +99,19 @@ class FaceRecognition:
         self.siamese_model = model
 
         # ------- Get data (from MAIN_ZIP) --------------
-        fileset = from_zip_to_data(WITH_PROFILE)
         self.probes = []  # list of 10 lists of lists (person, picture, index_pict)
         self.not_probes = []  # list of of 10 lists of people not in probe (so that one of their picture is missed)
 
+        # ------- Gallery Definition --------------
+        self.gallery = get_gallery(SIZE_GALLERY, db_source)
+        self.nb_sim = len(self.gallery[next(iter(self.gallery))]) - 1  # nb of pictures "similar" to a probe
+        self.nb_dif = self.nb_sim * (len(self.gallery) - 1)  # nb of pictures "different" from a probe
+
+        people_gallery = list(self.gallery.keys())
+
         # ------- Build NB_REPET probes --------------
         for rep_index in range(NB_REPET):
-            self.gallery = fileset.order_per_personName(TRANS, nb_people=SIZE_GALLERY, same_nb_pict=True)
-            self.nb_sim = len(self.gallery[next(iter(self.gallery))]) - 1  # nb of pictures "similar" to a probe
-            self.nb_dif = self.nb_sim * (len(self.gallery) - 1)  # nb of pictures "different" from a probe
 
-            people_gallery = list(self.gallery.keys())
-            # print("People Gallery is " + str(people_gallery))
             # Pick different people (s.t. the test pictures are related to different people)
             shuffle(people_gallery)
 
@@ -120,7 +122,7 @@ class FaceRecognition:
 
             self.probes.append(probes_k)
 
-            # To ensure having the same nb of pictures per person
+            # To ensure having the same nb of pictures per person (used later)
             not_probes_k = []
             for pers_j, person in enumerate(people_gallery[NB_PROBES:]):
                 not_probes_k.append(person)
@@ -141,7 +143,7 @@ class FaceRecognition:
 
         # --- Go through each probe --- #
         for i, probe in enumerate(self.probes[index]):
-            fr_1 = picture.get_feature_repres(self.siamese_model)
+            fr_1 = probe.picture.get_feature_repres(self.siamese_model)
 
             if DETAILED_PRINT: probe.picture.display_im(to_print="The face to identify is: ")
 
@@ -157,14 +159,14 @@ class FaceRecognition:
                 else:
                     pictures_gallery = pictures
 
-                # --- Go through each picture of the current person --- #
+                # --- Go through each picture of the current person of the gallery --- #
                 for l, picture in enumerate(pictures_gallery):
 
                     fr_2 = picture.get_feature_repres(self.siamese_model)
 
                     # --- Distance reasoning for prediction ----
                     dist = picture.get_dist(probe.person, probe.index, probe.picture, self.siamese_model)
-                    #dist = get_distance(fr_1, fr_2)
+                    # dist = get_distance(fr_1, fr_2)
                     if DETAILED_PRINT:
                         picture.display_im(to_print="The compared face is printed and the dist is: " + str(dist))
 
@@ -185,7 +187,7 @@ class FaceRecognition:
                         probe.vote_pers[person] = 1 if person not in probe.vote_pers else probe.vote_pers[person] + 1
 
                 # --- Distance reasoning for prediction ----
-                #probe.avg_dist(person, len(pictures))
+                # probe.avg_dist(person, len(pictures))
                 probe.median_dist(person, len(pictures))
 
             # Predicted Person with class prediction reasoning
@@ -249,7 +251,6 @@ between the 2 given feature representations
 
 
 def get_distance(feature_repr1, feature_repr2):
-
     if DIST_METRIC == "Manhattan":
         difference_sum = torch.sum(torch.abs(feature_repr2 - feature_repr1))
 
@@ -281,12 +282,35 @@ def print_err(far, frr):
     print("The equal error rate is: " + str(eer))
 
 
+'''------------------- get_gallery --------------------------
+The function returns a gallery with size_gallery people from
+the database 
+----------------------------------------------------------- '''
+
+
+def get_gallery(size_gallery, db_source):
+    try:
+        face_dic = pickle.load(open(FOLDER_DB + "faceDic_" + db_source + ".pkl", "rb"))
+        face_dic = {label: pictures for label, pictures in face_dic.items() if MIN_NB_IM_PER_PERS <= len(pictures)}
+    except FileNotFoundError:
+        print("The file " + FOLDER_DB + db_source + ".zip coundn't be found ... \n")
+        fileset = from_zip_to_data(WITH_PROFILE, fname=FOLDER_DB + db_source + ".zip")
+        face_dic = fileset.order_per_personName(TRANS, same_nb_pict=True, save=db_source)
+
+    # Return "size_gallery" people
+    people = list(face_dic)
+    Random().shuffle(people)
+    return {k: v for k, v in face_dic.items() if k in people[:size_gallery]}
+
+
 # ================================================================
 #                    MAIN
 # ================================================================
 
 if __name__ == '__main__':
-    fr = FaceRecognition("models/siameseFace_ds0123456_diff_100_32_triplet_loss.pt")
+    db_source = "gbrieven"
+    model = "models/dsgbrievencfplfwfaceScrub_diff_100_32_triplet_loss_pretrainautoencoder.pt"
+    fr = FaceRecognition(model, db_source=db_source)
 
     # ------- Accumulators Definition --------------
     acc_nb_correct = 0
@@ -313,6 +337,6 @@ if __name__ == '__main__':
           + str(acc_nb_mistakes_dist / NB_REPET) + " wrong recognitions")
     print(" -------------------------------------------------------------------------------\n")
 
-    print("The time for the recognition of " + str(NB_PROBES*NB_REPET) + " people is " + str(time.time() - t_init))
+    print("The time for the recognition of " + str(NB_PROBES * NB_REPET) + " people is " + str(time.time() - t_init))
 
     fr.compute_far_frr()

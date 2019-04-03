@@ -19,7 +19,7 @@ PT_NUM_EPOCHS = 200
 ROUND_DEC = 5
 
 STOP_TOLERANCE_EPOCH = 35
-MIN_AVG_F1 = 60
+MIN_AVG_F1 = 65
 TOLERANCE_MAX_SAME_F1 = 8
 
 # Specifies where the torch.tensor is allocated
@@ -93,7 +93,7 @@ class Model:
 
     def pretraining(self, Face_DS_train, hyper_par, num_epochs=PT_NUM_EPOCHS, batch_size=PT_BS):
 
-        name_trained_net = "encoder_" + TYPE_ARCH + ".pkl"
+        name_trained_net = "encoder_al_" + TYPE_ARCH + ".pkl"
         try:
             with open(name_trained_net, "rb") as f:
                 self.network.embedding_net = pickle.load(f)
@@ -117,7 +117,7 @@ class Model:
        compared to the ones of a NN that was pretrained) 
     -------------------------------------------------------------------------------- '''
 
-    def train_nonpretrained(self, num_epochs, hyp_par):
+    def train_nonpretrained(self, num_epochs, hyp_par, save=False):
 
         train_param = {"train_loader": self.train_loader, "loss_type": self.loss_type, "hyper_par": hyp_par}
         model_comp = Model(train_param, validation_loader=self.validation_loader, test_loader=self.test_loader,
@@ -134,6 +134,16 @@ class Model:
 
             if should_break(self.f1_validation["Non-pretrained Model"], epoch):
                 break
+
+        if save:
+            name_model = "models/" + self.loss_type + "_nonpretrained.pt"
+            try:
+                torch.save(model_comp, name_model)
+            except IOError:  # FileNotFoundError
+                os.mkdir(name_model.split("/")[0])
+                torch.save(model_comp, name_model)
+            print("Model not pretrained is saved!")
+
 
     '''---------------------------- train --------------------------------
      This function trains the network attached to the model  
@@ -154,14 +164,14 @@ class Model:
             try:
                 if autoencoder:
                     # ----------- CASE 1: Autoencoder Training -----------
-                    #data = data.to(DEVICE)  # torch.unsqueeze(data, 0)
+                    data = data.to(DEVICE)  # torch.unsqueeze(data, 0)
                     encoded, decoded = self.network(data)
                     loss = nn.MSELoss()(decoded, data)  # mean square error
 
                 else:
                     # ----------- CASE 2: Image Differentiation Training -----------
-                    #for i in range(len(data)):  # List of 3 tensors
-                        #data[i] = data[i].to(DEVICE)
+                    for i in range(len(data)):  # List of 3 tensors
+                        data[i] = data[i].to(DEVICE)
                     loss = self.network.get_loss(data, target, self.class_weights)
 
             except IOError:  # The batch is "not complete"

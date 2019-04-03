@@ -2,14 +2,10 @@
 
 import numpy as np
 import scipy.ndimage
-import os
 import PIL.Image
-import sys
 import bz2
 import dlib
 from keras.utils import get_file
-from io import BytesIO
-import zipfile
 
 #########################################
 #       GLOBAL VARIABLES                #
@@ -18,7 +14,7 @@ import zipfile
 LANDMARKS_MODEL_URL = 'http://dlib.net/files/shape_predictor_68_face_landmarks.dat.bz2'
 RAW_IMAGES_DIR = "/data/gbrieven/FFHQ500"  # "/data/gbrieven/FFHQ500"
 
-ALIGNED_IMAGES_DIR = "/data/gbrieven/FFHQ500_aligned/"
+ALIGNED_IMAGES_DIR = "/data/gbrieven/FFHQ500_aligned/" #TO ADD FOR LINUX : "/"
 ZIP_FILE = None  # "/data/gbrieven/FFHQ500.zip"
 
 
@@ -62,8 +58,7 @@ def unpack_bz2(src_path):
     return dst_path
 
 print("LandmarksDetector Definition ... \n")
-landmarks_model_path = unpack_bz2(get_file('shape_predictor_68_face_landmarks.dat.bz2',
-                                           LANDMARKS_MODEL_URL, cache_subdir='temp'))
+landmarks_model_path = unpack_bz2(get_file('shape_predictor_68_face_landmarks.dat.bz2', LANDMARKS_MODEL_URL, cache_subdir='temp'))
 landmarks_detector = LandmarksDetector(landmarks_model_path)
 
 #########################################
@@ -72,7 +67,7 @@ landmarks_detector = LandmarksDetector(landmarks_model_path)
 
 """
 IN: img: PIL.Image.Image object 
-    loaded: 
+RETURN: image of type PIL 
 """
 
 
@@ -168,7 +163,7 @@ def align_faces(img, save_name=None, loaded=None, output_size=(256, 256), transf
         # Save aligned image.
         # -----------------------------
         if save_name is not None:
-            img.save(ALIGNED_IMAGES_DIR + save_name, 'jpeg')
+            img.save(ALIGNED_IMAGES_DIR + save_name, 'jpg')
         return img
 
 

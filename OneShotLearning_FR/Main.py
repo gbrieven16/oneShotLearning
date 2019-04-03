@@ -1,7 +1,7 @@
-
 import platform
 import torch
-if platform.system() != "Darwin": torch.cuda.set_device(0)
+
+if platform.system() != "Darwin": torch.cuda.set_device(2)
 import time
 import pickle
 from functools import partial
@@ -20,16 +20,16 @@ NUM_EPOCH = 8 if platform.system() == "Darwin" else 100
 BATCH_SIZE = 32
 
 LEARNING_RATE = 0.001
-WITH_LR_SCHEDULER = "StepLR"  #"StepLR"  #"ExponentialLR"  # "StepLR"
+WITH_LR_SCHEDULER = "StepLR"  # "StepLR"  #"ExponentialLR"  # "StepLR"
 WEIGHT_DECAY = 0.001  # To control regularization
 OPTIMIZER = "Adam"  # Adagrad "SGD"
 
 WEIGHTED_CLASS = False
 WITH_EPOCH_OPT = False
-LOSS = "ce_classif" #"triplet_loss"  # "cross_entropy"  # "ce_classif"   "constrastive_loss"
+LOSS = "triplet_loss"  # "triplet_loss"  # "cross_entropy"  # "ce_classif"   "constrastive_loss"
 
 MODE = "learn"  # "classifier training"
-PRETRAINING = "autoencoder" #""autoencoder"  # "autoencoder_only" "none"
+PRETRAINING = "autoencoder"  # ""autoencoder"  # "autoencoder_only" "none"
 
 DIFF_FACES = True  # If true, we have different faces in the training and the testing set
 WITH_PROFILE = False  # True if both frontally and in profile people
@@ -43,7 +43,6 @@ WITH_PROFILE = False  # True if both frontally and in profile people
 
 def main(loss_type=LOSS, batch_size=BATCH_SIZE, lr=LEARNING_RATE, db_train=None, wd=WEIGHT_DECAY,
          fname=None, nb_classes=0):
-
     hyp_par = {"opt_type": OPTIMIZER, "lr": lr, "wd": wd, "lr_scheduler": WITH_LR_SCHEDULER, "num_epoch": NUM_EPOCH}
     train_param = {"loss_type": loss_type, "hyper_par": hyp_par, "weighted_class": WEIGHTED_CLASS}
 
@@ -81,6 +80,7 @@ def main(loss_type=LOSS, batch_size=BATCH_SIZE, lr=LEARNING_RATE, db_train=None,
         sets_list = load_sets(db_name, DEVICE, nb_classes, [training_set, validation_set, test_set])
 
         train_loader = torch.utils.data.DataLoader(sets_list[0], batch_size=batch_size, shuffle=True)
+
         validation_loader = torch.utils.data.DataLoader(sets_list[1], batch_size=batch_size, shuffle=False)
 
         if loss_type != "ce_classif":
@@ -191,6 +191,7 @@ def load_model(model_name):
     pickle.Unpickler = partial(pickle.Unpickler)
     return torch.load(model_name, map_location=lambda storage, loc: storage, pickle_module=pickle)  # network
 
+
 '''----------------------- get_db_name --------------------------------------
  This function returns a string merging the name of the different bd used 
  for training 
@@ -211,7 +212,7 @@ def get_db_name(fname, db_train):
 
 if __name__ == '__main__':
     # main()
-    test = 3 if platform.system() == "Darwin" else 2
+    test = 3 if platform.system() == "Darwin" else 4
 
     # -----------------------------------------------------------------------
     # Test 1: Confusion Matrix with different db for training and testing
@@ -246,7 +247,7 @@ if __name__ == '__main__':
     # "Test 3": Train Model from different db
     # -----------------------------------------------------------------------
     if test == 3 or test is None:
-        db_name_train = ["cfpSmall"]  # "faceScrub", "lfw", "cfp", "gbrieven", "testdb"] #"testCropped"
+        db_name_train = ["cfp70"]  # "faceScrub", "lfw", "cfp", "gbrieven", "testdb"] #"testCropped"
         for i, curr_db in enumerate(db_name_train):
             main(fname=[FOLDER_DB + curr_db + ".zip"])
 
@@ -254,8 +255,9 @@ if __name__ == '__main__':
     # "Test 4": Train Model from all db
     # -----------------------------------------------------------------------
     if test == 4 or test is None:
-        db_name_train = [FOLDER_DB + "gbrieven.zip", FOLDER_DB + "cfp.zip", FOLDER_DB + "lfw.zip",
-                         FOLDER_DB + "faceScrub.zip"]
+        print("Test 4: Training on all db ... \n")
+        db_name_train = [FOLDER_DB + "gbrievenF.zip", FOLDER_DB + "cfpF.zip", FOLDER_DB + "lfwF.zip",
+                         FOLDER_DB + "faceScrubF.zip"]
         main(fname=db_name_train)
 
     # -----------------------------------------------------------------------
@@ -267,6 +269,6 @@ if __name__ == '__main__':
         main()
         # => Go in FaceRecognition to test
 
-    # -----------------------------------------------------------------------
-    # Test 6: Test New Architecture: VGG16
-    # -----------------------------------------------------------------------
+        # -----------------------------------------------------------------------
+        # Test 6: Test New Architecture: VGG16
+        # -----------------------------------------------------------------------

@@ -1,10 +1,9 @@
 import os
 import pickle
-import zipfile
+import platform
 from tqdm import tqdm
 import PIL.Image
 import numpy as np
-import dnnlib
 import dnnlib.tflib as tflib
 import config
 from encoder.generator_model import Generator
@@ -25,30 +24,33 @@ To generate new data, 2 approaches can be used:
 #       GLOBAL VARIABLES                #
 #########################################
 
-GENERATED_IMAGES_DIR = "/data/gbrieven/FFHQ500_generated"
-DLATENT_DIR = "/data/gbrieven/FFHQ500_latent"
+GENERATED_IMAGES_DIR = "/data/gbrieven/FFHQ500_generated/"
+DLATENT_DIR = "/data/gbrieven/FFHQ500_latent/"
 
-if generated_images_dir is not None:
-    # ----- Define Directories if they don't exist ----------
-    os.makedirs(GENERATED_IMAGES_DIR, exist_ok=True)
-    os.makedirs(DLATENT_DIR, exist_ok=True)
+if GENERATED_IMAGES_DIR is not None:
+    try:
+        # ----- Define Directories if they don't exist ----------
+        os.makedirs(GENERATED_IMAGES_DIR, exist_ok=True)
+        os.makedirs(DLATENT_DIR, exist_ok=True)
+    except PermissionError:
+        print("IN STYLE ENCODER:Directories couldn't be created: do it manually! \n")
 
 URL_FFHQ = 'https://drive.google.com/uc?id=1MEGjdvVpUsu1jB4zrXZN7Y4kBBOzizDQ'  # karras2019stylegan-ffhq-1024x1024.pkl
+STYLE_GAN = "models/karras2019stylegan-ffhq-1024x1024.pkl"
 BATCH_SIZE = 1  # If more than 1, then mix of faces
 NB_PICTURES = 3
 IMAGE_SIZE = 256
 LR = 1  # CHANGE Was set to 1
-NB_ITERATIONS = 1000  # !!! the higher it is, the more similar to the given input data the generated image is
+NB_ITERATIONS = 10  # !!! the higher it is, the more similar to the given input data the generated image is
 RANDOMIZE_NOISE = False
 
 CHANGES = ["smile", "gender", "age"]
 COEF = [-1, 0, 2]  # Coefficient measuring the intensity of change
 
-tflib.init_tf()  # Initialization of TensorFlow session
-with dnnlib.util.open_url(URL_FFHQ, cache_dir=config.cache_dir) as f:
-    _, _, GS_NETWORK = pickle.load(f)  # generator_network, discriminator_network
-
-GENERATOR = Generator(GS_NETWORK, BATCH_SIZE, randomize_noise=RANDOMIZE_NOISE)
+if platform.system() != "Darwin":
+    tflib.init_tf()  # Initialization of TensorFlow session
+    _, _, GS_NETWORK = pickle.load(open(STYLE_GAN, "rb"))  # generator_network, discriminator_network
+    GENERATOR = Generator(GS_NETWORK, BATCH_SIZE, randomize_noise=RANDOMIZE_NOISE)
 
 
 #########################################
@@ -117,7 +119,8 @@ def move_and_show(latent_vector, direction, coeff, save_result):
     plt.imshow(synthetic_image)
     plt.title('Coeff: %0.1f' % coeff)
     plt.show()
-    plt.savefig(save_result)
+    if save_result is not None:
+        plt.savefig(save_result)
     return synthetic_image
 
 
@@ -146,36 +149,38 @@ OUT: list of the dlatent representation of the pictures contained in src dir
 --------------------------------------------------------------------------------------------------------- """
 
 
-def get_encoding(db_source, filename, perceptual_model, generated_images_dir=None, dlatent_dir=None):
+def get_encoding(db_source, filename, perceptual_model, generated_images_dir=None, dlatent_dir=None, with_save=False):
     print("Optimize (only) dlatents by minimizing perceptual loss between reference and generated images in "
           "feature space... \n")
 
-    perceptual_model.set_reference_images(filename, zip_file=db_source)
-    op = perceptual_model.optimize(GENERATOR.dlatent_variable, iterations=NB_ITERATIONS, learning_rate=LR)
-    pbar = tqdm(op, leave=False, total=NB_ITERATIONS)
-    for loss in pbar:
-        pbar.set_description(' '.join(names) + ' Loss: %.2f' % loss)
-    print(' '.join(names), ' loss:', loss)
+    for images_batch in tqdm(split_to_batches([filename], BATCH_SIZE), total=1 // BATCH_SIZE):
 
-    # ---- Generate images from found dlatents (and save them) ... -----
-    generated_images = GENERATOR.generate_images()
-    generated_dlatents = GENERATOR.get_dlatents()  # of type'numpy.ndarray' 1x18x512 (= 9216 elements)
+        perceptual_model.set_reference_images(images_batch, zip_file=db_source)
+        op = perceptual_model.optimize(GENERATOR.dlatent_variable, iterations=NB_ITERATIONS, learning_rate=LR)
+        pbar = tqdm(op, leave=False, total=NB_ITERATIONS)
+        for loss in pbar:
+            pbar.set_description(' '.join([filename]) + ' Loss: %.2f' % loss)
+        print(' '.join([filename]), ' loss:', loss)
 
-    if with_save:
-        for img_array, dlatent, img_name in zip(generated_images, generated_dlatents, names):
-            img = PIL.Image.fromarray(img_array, 'RGB')
-            img.save(os.path.join(generated_images_dir, f'{img_name}.jpeg'), 'jpeg')
-            np.save(os.path.join(dlatent_dir, f'{img_name}.npy'), dlatent)
+        # ---- Generate images from found dlatents (and save them) ... -----
+        generated_images = GENERATOR.generate_images()
+        generated_dlatents = GENERATOR.get_dlatents()  # of type'numpy.ndarray' 1x18x512 (= 9216 elements)
 
-    GENERATOR.reset_dlatents()
+        if with_save:
+            img = PIL.Image.fromarray(generated_images, 'RGB')
+            img.save(os.path.join(generated_images_dir, f'{filename}.jpeg'), 'jpeg')
+            np.save(os.path.join(dlatent_dir, f'{filename}.npy'), generated_dlatents)
+
+        GENERATOR.reset_dlatents()
 
     return generated_dlatents
 
 
-"""
-This function adds to the dictionary synthetic images representing the key person 
+""" ------------------------------------ data_augmentation ----------------------------------------------------
+This function adds to the dictionary synthetic images representing the key person
 IN: face_dic: dictionary where the key is the name of a person and the value is a list of FaceImage corresponding 
               to the person 
+    images: list of face pictures 
     nb_add_instances: number of additional instances to produce per person 
     
 "REMINDER":FaceImage:         
@@ -188,10 +193,10 @@ IN: face_dic: dictionary where the key is the name of a person and the value is 
         self.index = i
 
 REM: IMPL_CHOICE: the latent representation related to a person is derived from their first picture (only) 
-"""
+----------------------------------------------------------------------------------------------------------------- """
 
 
-def data_augmentation(face_dic, nb_add_instances=3):
+def data_augmentation(face_dic=None, nb_add_instances=3, save=False):
     if nb_add_instances == 0:
         return
 
@@ -204,16 +209,24 @@ def data_augmentation(face_dic, nb_add_instances=3):
         latent_repres = get_encoding(images[0].db_path, images[0].file_path, perceptual_model)
         nb_additional_pict = 0
 
-            for i, change in enumerate(CHANGES):
-                for j, coef in enumerate(COEF):
+        for i, change in enumerate(CHANGES):
+            for j, coef in enumerate(COEF):
 
-                    if nb_additional_pict < nb_add_instances:
-                        nb_additional_pict += 1
-                    else:
-                        break
+                if nb_additional_pict < nb_add_instances:
+                    nb_additional_pict += 1
+                else:
+                    break
 
-                    new_image = apply_latent_direction(latent_repres, direction=change, coef=coef)
-                    print("New image is " + str(new_image) + ' and the type is ' + str(type(new_image)))
+                new_image = apply_latent_direction(latent_repres, direction=change, coef=coef) #save_result=...
+                print("New image is " + str(new_image) + ' and the type is ' + str(type(new_image)))
 
-                    # Add the new image in the dictionary
+                # Add the new image in the dictionary
+                face_dic[person].append(new_image)
 
+                if save:
+                    name = GENERATED_IMAGES_DIR + person + "__" + str(i) + str(j) + "jpeg"
+                    new_image.save(name, "jpeg")
+                    print("Synthetic image saved as " + name + "\n")
+
+if __name__ == "__main__":
+    pass
