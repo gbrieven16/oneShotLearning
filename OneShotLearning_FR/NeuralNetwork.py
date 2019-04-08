@@ -50,10 +50,12 @@ def get_median(tensor):
 #                   CLASS: DistanceBased_Net
 # ================================================================
 class DistanceBased_Net(nn.Module):
-    def __init__(self):
+    def __init__(self, embeddingNet):
         super(DistanceBased_Net, self).__init__()
 
-        if TYPE_ARCH == "1default":
+        if embeddingNet is not None:
+            self.embedding_net = embeddingNet
+        elif TYPE_ARCH == "1default":
             self.embedding_net = BasicNet(DIM_LAST_LAYER)
         elif TYPE_ARCH == "4AlexNet":
             self.embedding_net = AlexNet(DIM_LAST_LAYER)
@@ -120,17 +122,20 @@ class DistanceBased_Net(nn.Module):
     '''-------------------------- predict --------------------------------- '''
 
     def predict(self, data):
-        embedded1 = self.embedding_net([data[0]])
-        embedded2 = self.embedding_net([data[1]])
+        print("data in predict is " + str(data))
+        embedded1 = self.embedding_net(data[0])
+        embedded2 = self.embedding_net(data[1])
         return self.output_from_embedding(embedded1, embedded2)
 
     '''----------------- output_from_embedding -------------------------------- '''
 
     def output_from_embedding(self, embedding1, embedding2):
         distance, _ = self.get_distance(embedding1, embedding2, as_embedding=True)
+        print("dstance in outpout is " + str(distance))
         output = torch.ones([distance.size()[0], 2], dtype=torch.float64).to(DEVICE)
         output[distance <= self.dist_threshold, 1] = 0
         output[distance > self.dist_threshold, 1] = 2
+        print("output is " + str(output))
 
         if not torch.cuda.is_available():
             return torch.squeeze(torch.argmax(output, dim=1)).cpu().item()
@@ -313,10 +318,12 @@ class CenterLoss(nn.Module):
 # ================================================================
 
 class Classif_Net(nn.Module):
-    def __init__(self, nb_classes=10, with_center_loss=True):
+    def __init__(self, embeddingNet, nb_classes=10, with_center_loss=True):
         super(Classif_Net, self).__init__()
 
-        if TYPE_ARCH == "1default":
+        if embeddingNet is not None:
+            self.embedding_net = embeddingNet
+        elif TYPE_ARCH == "1default":
             self.embedding_net = BasicNet(DIM_LAST_LAYER)
         elif TYPE_ARCH == "4AlexNet":
             self.embedding_net = AlexNet(DIM_LAST_LAYER)
@@ -363,10 +370,12 @@ class Classif_Net(nn.Module):
 # ================================================================
 
 class SoftMax_Net(nn.Module):
-    def __init__(self, with_center_loss=False, nb_classes=2):
+    def __init__(self, embeddingNet, with_center_loss=False, nb_classes=2):
         super(SoftMax_Net, self).__init__()
 
-        if TYPE_ARCH == "1default":
+        if embeddingNet is not None:
+            self.embedding_net = embeddingNet
+        elif TYPE_ARCH == "1default":
             self.embedding_net = BasicNet(DIM_LAST_LAYER)
         elif TYPE_ARCH == "4AlexNet":
             self.embedding_net = AlexNet(DIM_LAST_LAYER)

@@ -13,7 +13,7 @@ from io import BytesIO
 
 import matplotlib
 
-matplotlib.use('Agg')
+matplotlib.use("TkAgg")  # ('Agg')
 import matplotlib.pyplot as plt
 
 import torch
@@ -47,7 +47,6 @@ MIN_NB_IM_PER_PERSON = 2
 MAX_NB_IM_PER_PERSON = 20
 MIN_NB_PICT_CLASSIF = 4  # s.t. 25% is used for testing
 NB_TRIPLET_PER_PICT = 2
-IND_SYNT = 20  # Start index for the synthetic images
 WITH_AL = False
 
 RATIO_HORIZ_CROP = 0.15
@@ -55,8 +54,8 @@ CENTER_CROP = (200, 150)
 TRANS = transforms.Compose([transforms.CenterCrop(CENTER_CROP), transforms.ToTensor(),
                             transforms.Normalize((0.5, 0.5, 0.5), (1.0, 1.0, 1.0))])
 
-Q_DATA_AUGM = 0
-DIST_METRIC = "Cosine_Sym"
+Q_DATA_AUGM = 8
+DIST_METRIC = "Manhattan"  # "Cosine_Sym"
 
 
 # ================================================================
@@ -65,12 +64,14 @@ DIST_METRIC = "Cosine_Sym"
 
 
 class Data:
-    def __init__(self, file, fn, db_path, to_process=False):
-        self.file = file
+    def __init__(self, fn, db_path, to_process=False, picture=None):
         self.filename = fn  # Picture of the person
         self.db_path = db_path
         fn = fn.replace("/", SEPARATOR)
         self.db_source = fn.split(SEPARATOR)[0]
+
+        if picture is not None:
+            self.file = picture
 
         if to_process:
             # name_person, index, extension = self.extract_info_from_name()
@@ -86,7 +87,7 @@ class Data:
 
         self.name_person = name_person
         self.lateral_face = True if name_person[-1] == "!" else False
-        self.synthetic = True if name_person[-1] == "?" else False
+        self.synthetic = True if len(index.split("_")) == 2 else False
         self.index = index
         self.extension = extension
 
@@ -113,7 +114,7 @@ class Data:
         elif self.extension == "jpg":
             # Rename under the formalism dbSource_personName_index.jpeg
             self.file.filename = new_name
-            zipfile.ZipFile(self.db_path, 'r').extract(self.file)
+            zipfile.ZipFile(self.db_path, 'r').extract(self.filename)
 
         # Ok in the case of .gif at least
         elif self.extension != ".txt" and self.extension != "png.json":
@@ -125,51 +126,6 @@ class Data:
 
             return path, new_name
 
-    '''---------------- extract_info_from_name --------------------------------
-     This function extracts from the name of the file: the name of the person, 
-     the index of each picture and the extension of the file 
-     --------------------------------------------------------------------------'''
-
-    def extract_info_from_name(self):
-
-        # === CASE 1: Right format is assumed ===
-
-        if 1 < len(self.filename.split("/")) and self.filename.split("/")[1].split(".")[0].isdigit():
-            # From the name of the image: namePerson_index.extension
-            name_person = self.filename.split(SEPARATOR)[0]
-            index = self.filename.split(SEPARATOR)[1].split(".")[0]
-            extension = ".".join(self.filename.split(".")[1:])
-            return name_person, index, extension
-
-        # === CASE 2: facescrub_aligned/namePerson/namePerson_id.extension ===
-        elif self.filename.split("/")[0] == "facescrub_aligned":
-
-            name_person = self.filename.split("/")[1]
-            index = self.filename.split("/")[2].split("_")[-1].split(".")[0]
-            extension = ".".join(self.filename.split(".")[1:])
-            return name_person, index, extension
-
-        # === CASE 3: No separation between the name of the person and the index ===
-        number_if_error = 1
-
-        # Check if there's no separator _ inside the name (if so delete it) f4001.jpg
-        label = self.filename.translate(str.maketrans('', '', digits)).split(".")[0]
-        extension = ".jpg"  # First default value
-
-        try:
-            digits_in_name = list(filter(str.isdigit, self.filename))
-            label = label.replace("_", "") + "".join(digits_in_name[:NB_DIGIT_IN_ID])
-
-            extension = "." + self.filename.split(".")[1]
-            id = "".join(digits_in_name[len(digits_in_name) - NB_DIGIT_IN_ID:])
-
-        except ValueError:
-            print("There's no number id in the filename: " + str(self.filename))
-            print("A number has been added then!")
-            id = str(number_if_error)
-            number_if_error += 1
-
-        return label, id, extension
 
 
 # ================================================================
@@ -294,7 +250,7 @@ class Fileset:
      ----------------------------------------------------------------------- '''
 
     def order_per_personName(self, transform, nb_people=None, max_nb_pict=MAX_NB_IM_PER_PERSON,
-                             min_nb_pict=MIN_NB_IM_PER_PERSON, same_nb_pict=False, save=None):
+                             min_nb_pict=MIN_NB_IM_PER_PERSON, save=None):
 
         faces_dic = {}
         random.Random(SEED).shuffle(self.data_list)
@@ -327,10 +283,6 @@ class Fileset:
                 if nb_people is None or len(faces_dic) < nb_people:
                     faces_dic[personName] = [img]
 
-        if same_nb_pict:
-            pictures_nbs = [len(pictures_list) for person_name, pictures_list in faces_dic.items()]
-            min_nb_pict = min(pictures_nbs)
-
         print("The total number of pictures where the face wasn't detected is: " + str(nb_undetected_faces))
         # --- Remove element where value doesn't contain enough pictures -----
         faces_dic = {label: pictures for label, pictures in faces_dic.items() if min_nb_pict <= len(pictures)}
@@ -339,12 +291,26 @@ class Fileset:
             try:
                 pickle.dump(faces_dic, open(FOLDER_DB + "faceDic_" + save + ".pkl", "wb"))
             except OSError:
-                mid = int(round(len(faces_dic) / 2))
-                faces_dic1 = {k: v for k, v in faces_dic.items() if k in list(faces_dic)[:mid]}
-                faces_dic2 = {k: v for k, v in faces_dic.items() if k in list(faces_dic)[mid:]}
+                try:
+                    mid = int(round(len(faces_dic) / 2))
+                    faces_dic1 = {k: v for k, v in faces_dic.items() if k in list(faces_dic)[:mid]}
+                    faces_dic2 = {k: v for k, v in faces_dic.items() if k in list(faces_dic)[mid:]}
 
-                pickle.dump(faces_dic1, open(FOLDER_DB + "faceDic1_" + save + ".pkl", "wb"))
-                pickle.dump(faces_dic2, open(FOLDER_DB + "faceDic2_" + save + ".pkl", "wb"))
+                    pickle.dump(faces_dic1, open(FOLDER_DB + "faceDic_" + save + "1.pkl", "wb"))
+                    pickle.dump(faces_dic2, open(FOLDER_DB + "faceDic_" + save + "2.pkl", "wb"))
+                except OSError:
+                    mid1 = int(round(len(faces_dic1) / 2))
+                    faces_dic11 = {k: v for k, v in faces_dic1.items() if k in list(faces_dic1)[:mid1]}
+                    faces_dic12 = {k: v for k, v in faces_dic1.items() if k in list(faces_dic1)[mid1:]}
+
+                    pickle.dump(faces_dic11, open(FOLDER_DB + "faceDic_" + save + "1.pkl", "wb"))
+                    pickle.dump(faces_dic12, open(FOLDER_DB + "faceDic_" + save + "2.pkl", "wb"))
+
+                    faces_dic21 = {k: v for k, v in faces_dic2.items() if k in list(faces_dic2)[:mid1]}
+                    faces_dic22 = {k: v for k, v in faces_dic2.items() if k in list(faces_dic2)[mid1:]}
+
+                    pickle.dump(faces_dic21, open(FOLDER_DB + "faceDic_" + save + "3.pkl", "wb"))
+                    pickle.dump(faces_dic22, open(FOLDER_DB + "faceDic_" + save + "4.pkl", "wb"))
 
         return faces_dic
 
@@ -410,7 +376,6 @@ class FaceImage():
 
     def display_im(self, to_print="A face is displayed"):
         print(to_print)
-        print("path is " + str(self.db_path))
         with zipfile.ZipFile(self.db_path, 'r') as archive:
             image = Image.open(BytesIO(archive.read(self.file_path))).convert("RGB")
 
@@ -555,7 +520,9 @@ class Face_DS(torch.utils.data.Dataset):
         # ================= Consider each person =================
         for label, pictures_list in faces_dic.items():
             # all_labels.remove(label)
+            print("faces_dic" + str(faces_dic))
             labels_indexes_neg = [x for x in range(0, nb_labels) if x != all_labels.index(label)]
+            print("labels_indexes_neg " + str(labels_indexes_neg))
             pos_pict_lists = []  # pictures_list
 
             # ================= Consider each picture of the person =================
@@ -702,6 +669,7 @@ def load_sets(db_name, dev, nb_classes, sets_list):
         except (ValueError, IOError) as e:  # EOFError  IOError FileNotFoundError
             print("\nThe set " + name_file + " couldn't be loaded...")
             print("Building Process ...")
+            #print("sset" + str(set.data_list))
             result_sets_list.append(Face_DS(fileset=set, device=dev, triplet_version=(nb_classes == 0), save=name_file))
 
         # ------- Classification Case: no testset -------
@@ -727,7 +695,7 @@ def include_data_to_zip():
             if fn == ".DS_Store" or fn == "__MACOSX/" or fn[-1] == "/":
                 continue
 
-            new_data = Data(file_list[i], fn, ZIP_TO_PROCESS, True)
+            new_data = Data(fn, ZIP_TO_PROCESS, True)
             dataset.add_data(new_data)
 
     dataset.ds_to_zip()
@@ -749,8 +717,7 @@ def from_zip_to_data(with_profile, fname=MAIN_ZIP, dataset=None):
 
     print("\nData Loading from " + fname + " ...")
     with zipfile.ZipFile(fname, 'r') as archive:
-        file_names = archive.namelist()
-        file_list = archive.filelist
+        file_names = list(set(archive.namelist()))
 
         nb_entry = 0
         nb_entry_pers = 0
@@ -780,7 +747,7 @@ def from_zip_to_data(with_profile, fname=MAIN_ZIP, dataset=None):
             except IndexError:  # case where the structure of the db isn't through folders
                 pass
 
-            new_data = Data(file_list[i], fn, fname, False)
+            new_data = Data(fn, fname, False)
 
             if (with_profile or not new_data.lateral_face):
                 dataset.add_data(new_data)
@@ -797,12 +764,12 @@ def from_zip_to_data(with_profile, fname=MAIN_ZIP, dataset=None):
 
 """
 This function generates synthetic images of each person contained in the given database
-and add them in the database under the name "db__personName?_index.jpg"
+and add them in the database under the name "db__personName__indexReal_indexSynth.jpg"
 IN: zip_db: Zip file containing the pictures the db is made up of  
 """
 
 
-def generate_synthetic_im(db, nb_additional_images=8):
+def generate_synthetic_im(db, nb_additional_images=Q_DATA_AUGM):
     # -------------------------------
     # 1. Open the DB
     # -------------------------------
@@ -826,7 +793,9 @@ def generate_synthetic_im(db, nb_additional_images=8):
             current_person = fn.split(SEPARATOR)[1]
             if current_person in face_dic:
                 continue
-        pict = FaceImage(fn, None, db_path=db)
+
+        pict = FaceImage(fn, None, db_path=db, i=fn.split(SEPARATOR)[2].split(".")[0])
+        print("fn is " + str(fn))
         face_dic[current_person] = [pict]
 
     # ----------------------------------------------------------------------
@@ -842,16 +811,17 @@ def generate_synthetic_im(db, nb_additional_images=8):
 
     for person, pictures_list in face_dic.items():
         for i, picture in enumerate(pictures_list):
-            # fname = db__person?__index.jpg
+            # fname = db__person__indexReal_indexSynth.jpg
             db_name = db.split("/")[-1].split("zip")[0]
             print("db name is " + db_name)
             print("person is " + person)
-            index = 1 + i if db == FOLDER_DB + "FFHQ.zip" else IND_SYNT + i
-            fname = db_name + SEPARATOR + person + "?" + SEPARATOR + str(index) + "jpg"
-            data = Data(picture, fname, db, to_process=True)
+            index = str(picture.i) + "_" + str(1 + i)
+            fname = db_name + SEPARATOR + person + SEPARATOR + index + "jpg"
+            data = Data(fname, db, to_process=True, picture=picture)
             fset.add_data(data)
 
-    fset.ds_to_zip(db + "_synthIm", file_is_pil=True)
+    #fset.ds_to_zip(db_destination=db + "_synthIm", file_is_pil=True) New db: Case of synthetic People
+    fset.ds_to_zip(db_destination=db, file_is_pil=True)
 
 
 """
@@ -884,7 +854,7 @@ def register_aligned(db):
                 print("The file " + fn + " resulted in nontype transformation")
                 to_remove.append(fn)
                 continue
-            data = Data(res_image, fn, db, to_process=True)
+            data = Data(fn, db, to_process=True, picture=res_image)
             al_fset.add_data(data)
 
         # -----------------------------------------------------------------
@@ -902,20 +872,44 @@ def register_aligned(db):
 
 if __name__ == "__main__":
 
-    test_id = 1
+    test_id = 2
 
     if test_id == 1:
-        db_list = ["cfp", "lfw", "faceScrub"]
+        db_list = ["gbrieven", "cfp", "faceScrub", "lfw"]
 
         for i, db in enumerate(db_list):
             fileset = from_zip_to_data(False, fname=FOLDER_DB + db + ".zip")
-            fileset.order_per_personName(TRANS, same_nb_pict=True, save=db)
-
+            fileset.order_per_personName(TRANS, save=db)
 
     # TOTEST
     if test_id == 2:
-        db_list = ["cfp70.zip"] #, "FFHQ.zip"] #, "lfw.zip", "gbrieven.zip", "faceScrub.zip", "testdb.zip"]
+        db_list = ["cfp70.zip"]  # , "FFHQ.zip"] #, "lfw.zip", "gbrieven.zip", "faceScrub.zip", "testdb.zip"]
 
         for i, db in enumerate(db_list):
             print("Current db is " + str(FOLDER_DB + db) + "...\n")
             generate_synthetic_im(FOLDER_DB + db)
+
+    if test_id == 3:
+        with zipfile.ZipFile(db, 'r') as archive:
+            file_names = archive.namelist()
+            try:
+                file_names.remove(".DS_Store")
+            except ValueError:
+                pass
+
+        face_dic = {}
+
+        # ----------------------------------------------------------------------
+        # 2. Go over each file and put 1 file per person as value
+        # in a dictionary where the key is the person's name
+        # ----------------------------------------------------------------------
+        for i, fn in enumerate(file_names):  # fn = name[!]_id.extension
+            if db == FOLDER_DB + "FFHQ.zip":
+                current_person = fn.split(".png")[0]
+            else:
+                current_person = fn.split(SEPARATOR)[1]
+                if current_person in face_dic:
+                    continue
+
+            face_dic[current_person] = ["coucou"]
+            print("fn is " + fn)

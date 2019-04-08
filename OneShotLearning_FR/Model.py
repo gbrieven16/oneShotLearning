@@ -25,6 +25,7 @@ TOLERANCE_MAX_SAME_F1 = 8
 # Specifies where the torch.tensor is allocated
 DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
+
 # Loss combination not considered here
 
 
@@ -51,13 +52,13 @@ class Model:
         if train_param is not None:
             # ----------------- Network Definition -------------
             if train_param["loss_type"] == "triplet_loss":
-                self.network = Tripletnet()
+                self.network = Tripletnet(embedding_net)
             elif train_param["loss_type"] == "constrastive_loss":
-                self.network = ContrastiveLoss()
+                self.network = ContrastiveLoss(embedding_net)
             elif train_param["loss_type"] is None:
                 self.network = AutoEncoder_Net(embedding_net)
             elif train_param["loss_type"] == "cross_entropy":
-                self.network = SoftMax_Net()
+                self.network = SoftMax_Net(embedding_net)
             elif train_param["loss_type"] == "ce_classif":
                 self.network = Classif_Net(nb_classes=nb_classes)
 
@@ -75,7 +76,7 @@ class Model:
                 pass  # We keep the default setting
         else:
             pass
-            #self.loss_type = "None"
+            # self.loss_type = "None"
 
         self.eval_dic = {"nb_correct": 0, "nb_labels": 0, "recall_pos": 0, "recall_neg": 0, "f1_pos": 0, "f1_neg": 0}
 
@@ -102,14 +103,15 @@ class Model:
             train_data = Face_DS_train.to_single(Face_DS_train) if self.nb_classes is None else Face_DS_train
             train_loader = torch.utils.data.DataLoader(train_data, batch_size=batch_size, shuffle=True)
             train_param = {"loss_type": None, "hyper_par": hyper_par}
-            autoencoder = Model(train_param=train_param, embedding_net=self.network.embedding_net, train_loader=train_loader)
+            autoencoder = Model(train_param=train_param, embedding_net=self.network.embedding_net,
+                                train_loader=train_loader)
 
             print(" ------------ Train as Autoencoder ----------------- ")
             for epoch in range(num_epochs):
                 autoencoder.train(epoch, autoencoder=True)
             autoencoder.network.visualize_dec()
 
-            pickle.dump(self.network.embedding_net, open(name_trained_net, "wb")) #, protocol=2)
+            pickle.dump(self.network.embedding_net, open(name_trained_net, "wb"))  # , protocol=2)
             print("The autoencoder has been saved as " + name_trained_net + "!\n")
 
     '''------------------ train_nonpretrained -------------------------------------
@@ -144,7 +146,6 @@ class Model:
                 torch.save(model_comp, name_model)
             print("Model not pretrained is saved!")
 
-
     '''---------------------------- train --------------------------------
      This function trains the network attached to the model  
      -----------------------------------------------------------------------'''
@@ -176,7 +177,7 @@ class Model:
 
             except IOError:  # The batch is "not complete"
                 break
-            except RuntimeError: # The batch is "not complete"
+            except RuntimeError:  # The batch is "not complete"
                 break
 
             loss.backward()  # backpropagation, compute gradients
@@ -224,26 +225,26 @@ class Model:
             for batch_idx, (data, target) in enumerate(data_loader):
                 try:
                     loss = self.network.get_loss(data, target, self.class_weights, train=False)
-                    #target = target.type(torch.LongTensor).to(DEVICE)
+                    # target = target.type(torch.LongTensor).to(DEVICE)
 
                     # ----------- Case 1: Classification ----------------
                     if self.nb_classes is not None:
                         output = self.network(data, target)
-                        #target = target.type(torch.LongTensor).to(DEVICE)
+                        # target = target.type(torch.LongTensor).to(DEVICE)
 
                         if torch.cuda.is_available():
                             acc = torch.sum(torch.argmax(output, dim=1) == target).cuda()  # = 0
                         else:
                             acc = torch.sum(torch.argmax(output, dim=1) == target).cpu()  # = 0
 
-                        acc_loss += loss # Accumulator of losses
+                        acc_loss += loss  # Accumulator of losses
                         self.eval_dic["nb_correct"] += acc
                         self.eval_dic["nb_labels"] += len(target)
 
                     # ----------- Case 2: Siamese Network ---------------
                     else:
                         out_pos, out_neg = self.network(data)
-                        target = target.type(torch.LongTensor).to(DEVICE) # !! Important
+                        target = target.type(torch.LongTensor).to(DEVICE)  # !! Important
                         tar_pos = torch.squeeze(target[:, 0])  # = Only 0 here
                         tar_neg = torch.squeeze(target[:, 1])  # = Only 1 here
 
@@ -454,15 +455,15 @@ IN: f1_validation
     epoch
 """
 
-def should_break(f1_list, epoch):
 
+def should_break(f1_list, epoch):
     curr_avg_f1 = sum(f1_list) / len(f1_list)
 
     constant = True
     curr_f1 = f1_list[-1]
 
     for i in range(TOLERANCE_MAX_SAME_F1):
-        if epoch < TOLERANCE_MAX_SAME_F1 or curr_f1 != f1_list[len(f1_list)-1-i]:
+        if epoch < TOLERANCE_MAX_SAME_F1 or curr_f1 != f1_list[len(f1_list) - 1 - i]:
             constant = False
             break
 

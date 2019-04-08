@@ -57,9 +57,9 @@ def unpack_bz2(src_path):
         fp.write(data)
     return dst_path
 
-print("LandmarksDetector Definition ... \n")
-landmarks_model_path = unpack_bz2(get_file('shape_predictor_68_face_landmarks.dat.bz2', LANDMARKS_MODEL_URL, cache_subdir='temp'))
-landmarks_detector = LandmarksDetector(landmarks_model_path)
+#print("LandmarksDetector Definition ... \n")
+#landmarks_model_path = unpack_bz2(get_file('shape_predictor_68_face_landmarks.dat.bz2', LANDMARKS_MODEL_URL, cache_subdir='temp'))
+#landmarks_detector = LandmarksDetector(landmarks_model_path)
 
 #########################################
 #       FUNCTIONS                       #

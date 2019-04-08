@@ -26,7 +26,7 @@ OPTIMIZER = "Adam"  # Adagrad "SGD"
 
 WEIGHTED_CLASS = False
 WITH_EPOCH_OPT = False
-LOSS = "triplet_loss"  # "triplet_loss"  # "cross_entropy"  # "ce_classif"   "constrastive_loss"
+LOSS = "cross_entropy"  # "triplet_loss"   "ce_classif"   "constrastive_loss"
 
 MODE = "learn"  # "classifier training"
 PRETRAINING = "autoencoder"  # ""autoencoder"  # "autoencoder_only" "none"
@@ -34,6 +34,7 @@ PRETRAINING = "autoencoder"  # ""autoencoder"  # "autoencoder_only" "none"
 DIFF_FACES = True  # If true, we have different faces in the training and the testing set
 WITH_PROFILE = False  # True if both frontally and in profile people
 
+NB_PREDICTIONS = 1
 
 ##################################################################################################
 #                                   FUNCTION main
@@ -42,14 +43,19 @@ WITH_PROFILE = False  # True if both frontally and in profile people
 ##################################################################################################
 
 def main(loss_type=LOSS, batch_size=BATCH_SIZE, lr=LEARNING_RATE, db_train=None, wd=WEIGHT_DECAY,
-         fname=None, nb_classes=0):
+         fname=None, nb_classes=0, name_model=None):
     hyp_par = {"opt_type": OPTIMIZER, "lr": lr, "wd": wd, "lr_scheduler": WITH_LR_SCHEDULER, "num_epoch": NUM_EPOCH}
     train_param = {"loss_type": loss_type, "hyper_par": hyp_par, "weighted_class": WEIGHTED_CLASS}
 
     # Define db_name as part of the file name
-    db_name, db_title = get_db_name(fname, db_train)
-    name_model = "models/" + "ds" + db_title + ("_diff_" if DIFF_FACES else "_same_") \
+    if name_model is None:
+        embeddingNet = None
+        db_name, db_title = get_db_name(fname, db_train)
+        name_model = "models/" + "ds" + db_title + ("_diff_" if DIFF_FACES else "_same_") \
                  + str(NUM_EPOCH) + "_" + str(BATCH_SIZE) + "_" + LOSS + "_pretrain" + PRETRAINING + ".pt"
+    else:
+        embeddingNet = load_model(name_model).embedding_net
+        db_name, db_title = get_db_name(fname, db_train)
 
     visualization = True
     save_model = True
@@ -91,7 +97,7 @@ def main(loss_type=LOSS, batch_size=BATCH_SIZE, lr=LEARNING_RATE, db_train=None,
 
         # ------------------- Model Definition -----------------
         model_learn = Model(train_param=train_param, train_loader=train_loader, validation_loader=validation_loader,
-                            test_loader=test_loader, nb_classes=sets_list[0].nb_classes)
+                            test_loader=test_loader, nb_classes=sets_list[0].nb_classes, embedding_net=embeddingNet)
 
         time_init = time.time()
 
@@ -145,28 +151,29 @@ def main(loss_type=LOSS, batch_size=BATCH_SIZE, lr=LEARNING_RATE, db_train=None,
         dataset = Face_DS(fileset=fileset, to_print=True, device=DEVICE)
 
         # batch_size = Nb of pairs you want to test
-        prediction_loader = torch.utils.data.DataLoader(dataset, batch_size=1, shuffle=True)
-        model = torch.load(name_model)
+        prediction_loader = torch.utils.data.DataLoader(dataset, batch_size=NB_PREDICTIONS, shuffle=True)
+        model = load_model(name_model)
 
         # ------------ Data: list containing the tensor representations of the 2 images ---
-        data = []
-        should_be_the_same = False
+        for i in range(NB_PREDICTIONS):
+            data = []
+            should_be_the_same = False
 
-        if should_be_the_same:
-            data.extend(next(iter(prediction_loader))[0][:2])  # The 2 faces are the same
-            print("GROUNDTRUE: The 2 faces are the same ")
+            if should_be_the_same:
+                data.extend(next(iter(prediction_loader))[i][:2])  # The 2 faces are the same
+                print("GROUNDTRUE: The 2 faces are the same ")
+            else:
+                print("next(iter(prediction_loader))[i][:3:2] " + str(next(iter(prediction_loader))[i][:3:2]))
+                data.extend(next(iter(prediction_loader))[i][:3:2])  # The 2 faces are different
+                print("GROUNDTRUE: The 2 faces are different ")
 
-        else:
-            data.extend(next(iter(prediction_loader))[0][:3:2])  # The 2 faces are different
-            print("GROUNDTRUE: The 2 faces are different ")
+            # print("One data given to the onshot function is: " + str(data[0]))
 
-        # print("One data given to the onshot function is: " + str(data[0]))
-
-        same = model.network.predict(data)
-        if same == 0:
-            print('=> PREDICTION: These two images represent the same person')
-        else:
-            print("=> PREDICTION: These two images don't represent the same person")
+            same = model.predict(data)
+            if same == 0:
+                print('=> PREDICTION: These two images represent the same person')
+            else:
+                print("=> PREDICTION: These two images don't represent the same person")
 
     elif MODE == "evaluation":
         # -----------------------------------------------------------------
@@ -210,9 +217,13 @@ def get_db_name(fname, db_train):
     return db_name, "_".join(db_train) if db_train is not None else db_name
 
 
+#########################################
+#       MAIN                            #
+#########################################
+
 if __name__ == '__main__':
     # main()
-    test = 3 if platform.system() == "Darwin" else 4
+    test = 7 if platform.system() == "Darwin" else 4
 
     # -----------------------------------------------------------------------
     # Test 1: Confusion Matrix with different db for training and testing
@@ -256,8 +267,8 @@ if __name__ == '__main__':
     # -----------------------------------------------------------------------
     if test == 4 or test is None:
         print("Test 4: Training on all db ... \n")
-        db_name_train = [FOLDER_DB + "gbrievenF.zip", FOLDER_DB + "cfpF.zip", FOLDER_DB + "lfwF.zip",
-                         FOLDER_DB + "faceScrubF.zip"]
+        db_name_train = [FOLDER_DB + "gbrieven.zip", FOLDER_DB + "cfp.zip", FOLDER_DB + "lfw.zip",
+                         FOLDER_DB + "faceScrub.zip"]
         main(fname=db_name_train)
 
     # -----------------------------------------------------------------------
@@ -269,6 +280,19 @@ if __name__ == '__main__':
         main()
         # => Go in FaceRecognition to test
 
-        # -----------------------------------------------------------------------
-        # Test 6: Test New Architecture: VGG16
-        # -----------------------------------------------------------------------
+    # -----------------------------------------------------------------------
+    # Test 6: Test the model which has been registered
+    # -----------------------------------------------------------------------
+    if test == 6 or test is None:
+        MODE = "prediction"
+        main(name_model="models/dsgbrievencfplfwfaceScrub_diff_100_32_triplet_loss_pretrainautoencoder.pt")
+
+    # -----------------------------------------------------------------------
+    # Test 7: Test the model which has been registered
+    # -----------------------------------------------------------------------
+    if test == 7 or test is None:
+        MODE = "learn"
+        name_model = "models/dsgbrievencfplfwfaceScrub_diff_100_32_triplet_loss_pretrainautoencoder.pt"
+        db_name_train = [FOLDER_DB + "cfp3.zip"] #, FOLDER_DB + "cfp.zip", FOLDER_DB + "lfw.zip",
+                         #FOLDER_DB + "faceScrub.zip"]
+        main(name_model=name_model, fname=db_name_train)

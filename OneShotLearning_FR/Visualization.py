@@ -1,5 +1,5 @@
 import matplotlib
-matplotlib.use('Agg')
+matplotlib.use('TkAgg')
 import matplotlib.pyplot as plt
 
 import random
@@ -12,6 +12,7 @@ import numpy as np
 # ================================================================
 
 CSV_NAME = "model_evaluation.csv"
+FR_CSV_NAME = "fr_model_evaluation.csv"
 NB_DATA_GRAPH = 1000
 MAX_NB_KEYS = 12
 
@@ -202,6 +203,32 @@ def store_in_csv(data, training, result, train_time):
             curr_parameters + curr_evaluation + [str(best_f1)] + [str(best_epoch)] + [result[2]] + [str(train_time)])
 
     return best_f1
+
+
+''' -------------------- store_in_csv ----------------------------
+This function extends the csv file containing all the current 
+results related to the different scenarios that were experimented 
+IN: List of information to record about:
+    - The data: [nb_repet, gallery_size, nb_probes, im_per_pers, db_test]
+    - The algo: [model name, thresh, distance metric]
+    - The result: 
+        - Performance using the "yes/no => voting" strategy 
+        - Performance using the distance-based ranking  
+-------------------------------------------------------------------'''
+
+
+def fr_in_csv(data, algo, result):
+
+    #titles = ["nb_repet", "gallery_size", "nb_probes", "im_per_pers", "db_test", "model name", "thresh",
+             # "distance metric", "nb_correct_vote", "nb_correct_dist"]
+
+    with open(FR_CSV_NAME, 'a') as f:
+        writer = csv.writer(f, delimiter=";")
+        #writer.writerow(titles)
+        writer.writerow(data + algo + result)
+
+    print("The results from the FR task have been registered \n")
+
 
 
 '''------------------ visualization_train -------------------------------------------

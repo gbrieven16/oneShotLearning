@@ -1,25 +1,27 @@
+import matplotlib
+
+matplotlib.use('TkAgg')
+import matplotlib.pyplot as plt
+
 import time
 import pickle
 from random import shuffle, randint, Random
 import numpy as np
-import torch
-from torch import nn
-from Dataprocessing import from_zip_to_data, TRANS, FOLDER_DB, FaceImage
-from Visualization import multi_line_graph
+from Dataprocessing import from_zip_to_data, TRANS, FOLDER_DB, FaceImage, DIST_METRIC
+from Visualization import multi_line_graph, fr_in_csv
 from Main import WITH_PROFILE, load_model
 
 # ================================================================
 #                   GLOBAL VARIABLES
 # ================================================================
 
-NB_PROBES = 30
-SIZE_GALLERY = 80  # Nb of people to consider
-TOLERANCE = 3  # Max nb of times the model can make mistake in comparing p_test and the pictures of 1 person
-NB_REPET = 1  # Nb of times test is repeated (over different probes)
+NB_PROBES = 5
+SIZE_GALLERY = 20 # Nb of people to consider
+TOLERANCE = 10   # 3 Max nb of times the model can make mistake in comparing p_test and the pictures of 1 person
+NB_REPET = 6  # Nb of times test is repeated (over different probes)
 THRESHOLDS_LIST = list(np.arange(0, 5, 0.05))  # For MeanSquare
 DETAILED_PRINT = False
-DIST_METRIC = "Cosine_Sym"  # "MeanSquare" #"Manhattan"
-MIN_NB_IM_PER_PERS = 4
+NB_IM_PER_PERS = 10
 
 
 # ======================================================================
@@ -46,7 +48,7 @@ class Probe:
     def median_dist(self, person, nb_pictures):
         if 1 < nb_pictures:
             self.dist_avg_pers[person] = np.median(self.dist_pers[person])
-            #print("median: " + str(self.dist_avg_pers[person]))
+            # print("median: " + str(self.dist_avg_pers[person]))
 
     def predict_from_dist(self, res_acc_dist):
         pred_pers_dist = sorted(self.dist_avg_pers.items(), key=lambda x: x[1])[0][0]
@@ -91,7 +93,7 @@ class Probe:
 
 class FaceRecognition:
     def __init__(self, model_path, db_source="testdb"):
-
+        print(NB_IM_PER_PERS)
         self.k_considered = []
         self.distances = {}
         # -------- Model Loading ----------------
@@ -153,11 +155,10 @@ class FaceRecognition:
                 nb_pred_diff = 0  # Nb times the person is predicted as diffent from the current probe
 
                 # Ensure balance in the gallery
-                if person in self.not_probes[index] or person == probe.person:
-                    j = probe.index if person == probe.person else randint(0, len(self.gallery[person]) - 1)
-                    pictures_gallery = pictures[:j] + pictures[j + 1:]
-                else:
-                    pictures_gallery = pictures
+                j = probe.index if person == probe.person else randint(0, len(self.gallery[person]) - 1)
+                pictures_gallery = pictures[:j] + pictures[j + 1:]
+
+                #print("\nSize pictures_gallery: " + str(len(pictures_gallery)) + " for person " + str(person))
 
                 # --- Go through each picture of the current person of the gallery --- #
                 for l, picture in enumerate(pictures_gallery):
@@ -244,28 +245,6 @@ class FaceRecognition:
 #                    Functions
 # ================================================================
 
-'''--------------------- get_distance -------------------------------------
-The function returns the avg of the elements resulting from the difference
-between the 2 given feature representations
------------------------------------------------------------------------- '''
-
-
-def get_distance(feature_repr1, feature_repr2):
-    if DIST_METRIC == "Manhattan":
-        difference_sum = torch.sum(torch.abs(feature_repr2 - feature_repr1))
-
-    elif DIST_METRIC == "MeanSquare":
-        difference_sum = torch.sum((feature_repr1 - feature_repr2) ** 2)
-
-    elif DIST_METRIC == "Cosine_Sym":
-        cos = nn.CosineSimilarity(dim=1, eps=1e-6)
-        return cos(feature_repr1, feature_repr2)
-    else:
-        print("ERR: Invalid Distane Metric")
-        raise IOError
-
-    return difference_sum / len(feature_repr1[0])
-
 
 '''------------------- print_eer --------------------------
 The function computes and prints the equal error rate 
@@ -291,11 +270,12 @@ the database
 def get_gallery(size_gallery, db_source):
     try:
         face_dic = pickle.load(open(FOLDER_DB + "faceDic_" + db_source + ".pkl", "rb"))
-        face_dic = {label: pictures for label, pictures in face_dic.items() if MIN_NB_IM_PER_PERS <= len(pictures)}
+        # face_dic = {label: pictures for label, pictures in face_dic.items() if NB_IM_PER_PERS <= len(pictures)}
+        # face_dic = {label: pictures[:NB_IM_PER_PERS] for label, pictures in face_dic.items()}
     except FileNotFoundError:
         print("The file " + FOLDER_DB + db_source + ".zip coundn't be found ... \n")
         fileset = from_zip_to_data(WITH_PROFILE, fname=FOLDER_DB + db_source + ".zip")
-        face_dic = fileset.order_per_personName(TRANS, same_nb_pict=True, save=db_source)
+        face_dic = fileset.order_per_personName(TRANS, save=db_source, max_nb_pict=NB_IM_PER_PERS, min_nb_pict=NB_IM_PER_PERS)
 
     # Return "size_gallery" people
     people = list(face_dic)
@@ -308,35 +288,51 @@ def get_gallery(size_gallery, db_source):
 # ================================================================
 
 if __name__ == '__main__':
-    db_source = "gbrieven"
+
+    nb_probes = [5, 10, 20, 30]
+    size_gallery = [20, 50, 70, 100, 200, 400]  # Nb of people to consider
+    tolerance = [10,8, 6, 4, 3]
+    nb_im_per_pers = [3, 4, 5, 6, 7, 8, 9, 10]
+    db_source_list = ["cfp", "gbrieven", "faceScrub", "lfw", "testdb"]
     model = "models/dsgbrievencfplfwfaceScrub_diff_100_32_triplet_loss_pretrainautoencoder.pt"
-    fr = FaceRecognition(model, db_source=db_source)
 
-    # ------- Accumulators Definition --------------
-    acc_nb_correct = 0
-    acc_nb_mistakes = 0
-    acc_nb_correct_dist = 0
-    acc_nb_mistakes_dist = 0
-    t_init = time.time()
+    for i, SIZE_GALLERY in enumerate(size_gallery):
+        for m, NB_PROBES in enumerate(nb_probes):
+            for j, NB_IM_PER_PERS in enumerate(nb_im_per_pers):
+                for k, db_source in enumerate(db_source_list):
+                    for l, TOLERANCE in enumerate(tolerance):
 
-    # ------- Build NB_REPET probes --------------
-    for rep_index in range(NB_REPET):
-        res_vote, res_dist = fr.recognition(rep_index)
+                        fr = FaceRecognition(model, db_source=db_source)
 
-        acc_nb_correct += res_vote["nb_correct"]
-        acc_nb_mistakes += res_vote["nb_mistakes"]
-        acc_nb_correct_dist += res_dist["nb_correct_dist"]
-        acc_nb_mistakes_dist += res_dist["nb_mistakes_dist"]
+                        # ------- Accumulators Definition --------------
+                        acc_nb_correct = 0
+                        acc_nb_mistakes = 0
+                        acc_nb_correct_dist = 0
+                        acc_nb_mistakes_dist = 0
+                        t_init = time.time()
 
-    # ------ Print the average over all the different tests -------
-    print("\n ------------------------------ Global Report ---------------------------------")
-    print("Report: " + str(acc_nb_correct / NB_REPET) + " correct, " + str(acc_nb_mistakes / NB_REPET)
-          + " wrong recognitions")
+                        # ------- Build NB_REPET probes --------------
+                        for rep_index in range(NB_REPET):
+                            res_vote, res_dist = fr.recognition(rep_index)
 
-    print("Report with Distance: " + str(acc_nb_correct_dist / NB_REPET) + " correct, "
-          + str(acc_nb_mistakes_dist / NB_REPET) + " wrong recognitions")
-    print(" -------------------------------------------------------------------------------\n")
+                            acc_nb_correct += res_vote["nb_correct"]
+                            acc_nb_mistakes += res_vote["nb_mistakes"]
+                            acc_nb_correct_dist += res_dist["nb_correct_dist"]
+                            acc_nb_mistakes_dist += res_dist["nb_mistakes_dist"]
 
-    print("The time for the recognition of " + str(NB_PROBES * NB_REPET) + " people is " + str(time.time() - t_init))
+                        # ------ Print the average over all the different tests -------
+                        print("\n ------------------------------ Global Report ---------------------------------")
+                        print("Report: " + str(acc_nb_correct / NB_REPET) + " correct, " + str(acc_nb_mistakes / NB_REPET)
+                              + " wrong recognitions")
 
-    fr.compute_far_frr()
+                        print("Report with Distance: " + str(acc_nb_correct_dist / NB_REPET) + " correct, "
+                              + str(acc_nb_mistakes_dist / NB_REPET) + " wrong recognitions")
+                        print(" -------------------------------------------------------------------------------\n")
+                        total_time = str(time.time() - t_init)
+                        print("The time for the recognition of " + str(NB_PROBES * NB_REPET) + " people is " + total_time)
+
+                        fr.compute_far_frr()
+                        data = [NB_REPET, SIZE_GALLERY, NB_PROBES, NB_IM_PER_PERS, db_source]
+                        algo = [model.split("models/")[1], TOLERANCE, DIST_METRIC]
+                        result = [str(acc_nb_correct / NB_REPET), str(acc_nb_correct_dist / NB_REPET), total_time]
+                        fr_in_csv(data, algo, result)

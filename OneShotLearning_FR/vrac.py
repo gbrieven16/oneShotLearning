@@ -104,11 +104,18 @@ def data_to_zip(root_dir):
 
         if fn.split("/")[1] == "profile":
             continue
-        #new_name = "facescrub/" + fn.split("/")[0] + "/" + fn.split("/")[2]
-        #zipf.write(root_dir + "facescrub/" + fn, new_name)
+        # new_name = "facescrub/" + fn.split("/")[0] + "/" + fn.split("/")[2]
+        # zipf.write(root_dir + "facescrub/" + fn, new_name)
         zipf.write(fn)
 
     zipf.close()
+
+
+'''--------------------- delete_from_zip ------------------------------------------
+ This function "removes" the files whose name is in the to_remove_list by creating
+ a new zip file  
+ --------------------------------------------------------------------------------'''
+
 
 def delete_from_zip(zip_file_in, to_remove_list, zip_file_out):
     zin = zipfile.ZipFile(zip_file_in, 'r')
@@ -116,20 +123,47 @@ def delete_from_zip(zip_file_in, to_remove_list, zip_file_out):
 
     for item in zin.infolist():
         buffer = zin.read(item.filename)
-        if item.filename not in to_remove_list:
+        if item.filename.split(".") != "jpeg": # not in to_remove_list:
+            print("file ok  " + str(item.filename))
             zout.writestr(item, buffer)
     zout.close()
     zin.close()
 
 
+# !! Ou faire un truc récursif
+def pickle_big(dict, save):
+    FOLDER_DB = "data/gbrieven"
+    not_save = True
+    divisor = 1
+    while not_save:
+        try:
+            # trans = 1
+            # faces_dic1 = {k: v for k, v in faces_dic.items() if k in list(faces_dic)[:20]}
+            #
+            transition = int(round(len(dict) / divisor))
+            start = 0
+            for i in range(divisor):
+                dict = {k: v for k, v in dict.items() if k in list(dict)[start:(i + 1) * transition]}
+                pickle.dump(dict, open(FOLDER_DB + "faceDic_" + save + str(i) + ".pkl", "wb"))
+                start = (i + 1) * transition
+            not_save = False
+        except OSError:
+            divisor *= 2
+
+
 if __name__ == "__main__":
-    #data_to_zip()
-    nameFolder = 'data/gbrieven/cfp/'
-    zip_name = "cfp"
-    #rename_file(nameFolder, zip_name=zip_name)
-    file_to_remove = "cfp__003__10.jpg"
-    zip_file_in = "data/gbrieven/cfp3.zip"
-    zip_file_out = "data/cfp3.zip"
-    delete_from_zip(zip_file_in, file_to_remove, zip_file_out)
+    test_id = 1
 
+    if test_id == 1:
+        shutil.make_archive("data/gbrieven/faceScrub_humFiltered", 'zip', "data/gbrieven/faceScrub/")
+        print("Archive has been made!")
 
+    if test_id == 2:
+        # data_to_zip()
+        nameFolder = 'data/gbrieven/cfp/'
+        zip_name = "cfp"
+        # rename_file(nameFolder, zip_name=zip_name)
+        #file_to_remove = "cfp__003__10.jpg"
+        zip_file_in = "data/gbrieven/gbrieven.zip"
+        zip_file_out = "data/gbrieven.zip"
+        delete_from_zip(zip_file_in, None, zip_file_out)
