@@ -22,7 +22,7 @@ TYPE_ARCH (related to the embedding Network)
 4: AlexNet architecture 
 """
 
-TYPE_ARCH = "1default"  # "resnet152"  #"1default" "VGG16" #  "2def_drop" "3def_bathNorm"
+TYPE_ARCH = "4AlexNet"  # "resnet152"  #"1default" "VGG16" #  "2def_drop" "3def_bathNorm"
 DIM_LAST_LAYER = 1024 if TYPE_ARCH in ["VGG16", "4AlexNet"] else 512
 
 DIST_THRESHOLD = 0.02
@@ -122,7 +122,6 @@ class DistanceBased_Net(nn.Module):
     '''-------------------------- predict --------------------------------- '''
 
     def predict(self, data):
-        print("data in predict is " + str(data))
         embedded1 = self.embedding_net(data[0])
         embedded2 = self.embedding_net(data[1])
         return self.output_from_embedding(embedded1, embedded2)
@@ -131,11 +130,9 @@ class DistanceBased_Net(nn.Module):
 
     def output_from_embedding(self, embedding1, embedding2):
         distance, _ = self.get_distance(embedding1, embedding2, as_embedding=True)
-        print("dstance in outpout is " + str(distance))
         output = torch.ones([distance.size()[0], 2], dtype=torch.float64).to(DEVICE)
         output[distance <= self.dist_threshold, 1] = 0
         output[distance > self.dist_threshold, 1] = 2
-        print("output is " + str(output))
 
         if not torch.cuda.is_available():
             return torch.squeeze(torch.argmax(output, dim=1)).cpu().item()
@@ -375,6 +372,7 @@ class SoftMax_Net(nn.Module):
 
         if embeddingNet is not None:
             self.embedding_net = embeddingNet
+            #DIM_LAST_LAYER = 1024 if embeddingNet.name_arch in ["VGG16", "4AlexNet", "resnet"] else 512
         elif TYPE_ARCH == "1default":
             self.embedding_net = BasicNet(DIM_LAST_LAYER)
         elif TYPE_ARCH == "4AlexNet":

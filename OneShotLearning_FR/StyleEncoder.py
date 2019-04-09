@@ -24,8 +24,8 @@ To generate new data, 2 approaches can be used:
 #       GLOBAL VARIABLES                #
 #########################################
 
-GENERATED_IMAGES_DIR = "/data/gbrieven/FFHQ500_generated/"
-DLATENT_DIR = "/data/gbrieven/FFHQ500_latent/"
+GENERATED_IMAGES_DIR = "/data/gbrieven/synth_im/"
+DLATENT_DIR = "/data/gbrieven/latent_repres/"
 
 if GENERATED_IMAGES_DIR is not None:
     try:
@@ -41,11 +41,12 @@ BATCH_SIZE = 1  # If more than 1, then mix of faces
 NB_PICTURES = 3
 IMAGE_SIZE = 256
 LR = 1  # CHANGE Was set to 1
-NB_ITERATIONS = 10  # !!! the higher it is, the more similar to the given input data the generated image is
+NB_ITERATIONS = 1400  # !!! the higher it is, the more similar to the given input data the generated image is
 RANDOMIZE_NOISE = False
 
-CHANGES = ["smile", "gender", "age"]
-COEF = [-1, 0, 2]  # Coefficient measuring the intensity of change
+CHANGES = ["smile", "age", "gender"]
+COEF = {"smile": [-1, 0, 1], "age": [-1, 0], "gender": [-1, 0]}
+#COEF = [-1, 0, 1]  # Coefficient measuring the intensity of change
 
 if platform.system() != "Darwin":
     tflib.init_tf()  # Initialization of TensorFlow session
@@ -206,11 +207,13 @@ def data_augmentation(face_dic=None, nb_add_instances=3, save=False):
 
     for person, images in face_dic.items():
         # Get latent representation of the person
+        if save:
+            images[0].save_im(GENERATED_IMAGES_DIR + person + ".jpg")
         latent_repres = get_encoding(images[0].db_path, images[0].file_path, perceptual_model)
         nb_additional_pict = 0
 
         for i, change in enumerate(CHANGES):
-            for j, coef in enumerate(COEF):
+            for j, coef in enumerate(COEF[change]):
 
                 if nb_additional_pict < nb_add_instances:
                     nb_additional_pict += 1
@@ -224,7 +227,7 @@ def data_augmentation(face_dic=None, nb_add_instances=3, save=False):
                 face_dic[person].append(new_image)
 
                 if save:
-                    name = GENERATED_IMAGES_DIR + person + "__" + str(i) + str(j) + "jpeg"
+                    name = GENERATED_IMAGES_DIR + person + "__" + str(i) + str(j) + ".jpg"
                     new_image.save(name, "jpeg")
                     print("Synthetic image saved as " + name + "\n")
 

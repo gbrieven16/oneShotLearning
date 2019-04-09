@@ -4,7 +4,6 @@ import pickle
 import platform
 import zipfile
 import random
-from string import digits
 from StyleEncoder import data_augmentation
 import torch.utils.data
 
@@ -17,6 +16,8 @@ matplotlib.use("TkAgg")  # ('Agg')
 import matplotlib.pyplot as plt
 
 import torch
+
+if platform.system() != "Darwin": torch.cuda.set_device(0)
 import torchvision.transforms as transforms
 from torch import nn
 from Face_alignment import align_faces, ALIGNED_IMAGES_DIR
@@ -54,7 +55,7 @@ CENTER_CROP = (200, 150)
 TRANS = transforms.Compose([transforms.CenterCrop(CENTER_CROP), transforms.ToTensor(),
                             transforms.Normalize((0.5, 0.5, 0.5), (1.0, 1.0, 1.0))])
 
-Q_DATA_AUGM = 8
+Q_DATA_AUGM = 6
 DIST_METRIC = "Manhattan"  # "Cosine_Sym"
 
 
@@ -125,7 +126,6 @@ class Data:
                 self.file.filename = new_name
 
             return path, new_name
-
 
 
 # ================================================================
@@ -250,7 +250,12 @@ class Fileset:
      ----------------------------------------------------------------------- '''
 
     def order_per_personName(self, transform, nb_people=None, max_nb_pict=MAX_NB_IM_PER_PERSON,
-                             min_nb_pict=MIN_NB_IM_PER_PERSON, save=None):
+                             min_nb_pict=MIN_NB_IM_PER_PERSON, save=None, with_synth=True):
+
+        if min_nb_pict is None:
+            min_nb_pict = MIN_NB_IM_PER_PERSON
+        if max_nb_pict is None:
+            max_nb_pict = MAX_NB_IM_PER_PERSON
 
         faces_dic = {}
         random.Random(SEED).shuffle(self.data_list)
@@ -275,6 +280,8 @@ class Fileset:
                 continue
 
             img = FaceImage(data.filename, formatted_image, db_path=data.db_path, pers=personName, i=data.index)
+            if not with_synth and img.is_synth:
+                continue
 
             try:
                 if len(faces_dic[personName]) < max_nb_pict:
@@ -291,26 +298,12 @@ class Fileset:
             try:
                 pickle.dump(faces_dic, open(FOLDER_DB + "faceDic_" + save + ".pkl", "wb"))
             except OSError:
-                try:
-                    mid = int(round(len(faces_dic) / 2))
-                    faces_dic1 = {k: v for k, v in faces_dic.items() if k in list(faces_dic)[:mid]}
-                    faces_dic2 = {k: v for k, v in faces_dic.items() if k in list(faces_dic)[mid:]}
+                mid = int(round(len(faces_dic) / 2))
+                faces_dic1 = {k: v for k, v in faces_dic.items() if k in list(faces_dic)[:mid]}
+                faces_dic2 = {k: v for k, v in faces_dic.items() if k in list(faces_dic)[mid:]}
 
-                    pickle.dump(faces_dic1, open(FOLDER_DB + "faceDic_" + save + "1.pkl", "wb"))
-                    pickle.dump(faces_dic2, open(FOLDER_DB + "faceDic_" + save + "2.pkl", "wb"))
-                except OSError:
-                    mid1 = int(round(len(faces_dic1) / 2))
-                    faces_dic11 = {k: v for k, v in faces_dic1.items() if k in list(faces_dic1)[:mid1]}
-                    faces_dic12 = {k: v for k, v in faces_dic1.items() if k in list(faces_dic1)[mid1:]}
-
-                    pickle.dump(faces_dic11, open(FOLDER_DB + "faceDic_" + save + "1.pkl", "wb"))
-                    pickle.dump(faces_dic12, open(FOLDER_DB + "faceDic_" + save + "2.pkl", "wb"))
-
-                    faces_dic21 = {k: v for k, v in faces_dic2.items() if k in list(faces_dic2)[:mid1]}
-                    faces_dic22 = {k: v for k, v in faces_dic2.items() if k in list(faces_dic2)[mid1:]}
-
-                    pickle.dump(faces_dic21, open(FOLDER_DB + "faceDic_" + save + "3.pkl", "wb"))
-                    pickle.dump(faces_dic22, open(FOLDER_DB + "faceDic_" + save + "4.pkl", "wb"))
+                pickle.dump(faces_dic1, open(FOLDER_DB + "faceDic_" + save + "1.pkl", "wb"))
+                pickle.dump(faces_dic2, open(FOLDER_DB + "faceDic_" + save + "2.pkl", "wb"))
 
         return faces_dic
 
@@ -369,10 +362,20 @@ class FaceImage():
         self.feature_repres = None
         self.person = pers
         self.index = i
+        self.is_synth = 1 < len(self.index.split("_"))
+
+    def resize_to_1024(self):
+        pass
 
     def isIqual(self, other_image):
         # return other_image.path == self.file_path
         return other_image.file_path == self.file_path
+
+    def save_im(self, path_dest):
+        with zipfile.ZipFile(self.db_path, 'r') as archive:
+            image = Image.open(BytesIO(archive.read(self.file_path))).convert("RGB")
+            image.save(path_dest, "jpeg")
+
 
     def display_im(self, to_print="A face is displayed"):
         print(to_print)
@@ -520,9 +523,7 @@ class Face_DS(torch.utils.data.Dataset):
         # ================= Consider each person =================
         for label, pictures_list in faces_dic.items():
             # all_labels.remove(label)
-            print("faces_dic" + str(faces_dic))
             labels_indexes_neg = [x for x in range(0, nb_labels) if x != all_labels.index(label)]
-            print("labels_indexes_neg " + str(labels_indexes_neg))
             pos_pict_lists = []  # pictures_list
 
             # ================= Consider each picture of the person =================
@@ -650,7 +651,7 @@ class Face_DS(torch.utils.data.Dataset):
 This function load the training and the testing sets derived
 from the specified db, if there's any 
 IN: db_list: list of db that were used 
-OUT: list of 3 sets 
+OUT: list of 3 sets of type FACE_DS
 -------------------------------------------------------------- '''
 
 
@@ -669,12 +670,14 @@ def load_sets(db_name, dev, nb_classes, sets_list):
         except (ValueError, IOError) as e:  # EOFError  IOError FileNotFoundError
             print("\nThe set " + name_file + " couldn't be loaded...")
             print("Building Process ...")
-            #print("sset" + str(set.data_list))
+            # print("sset" + str(set.data_list))
             result_sets_list.append(Face_DS(fileset=set, device=dev, triplet_version=(nb_classes == 0), save=name_file))
 
         # ------- Classification Case: no testset -------
         if nb_classes != 0 and i == 1:
             break
+
+            # print("len of set " + str(i) + ": " + str(len(result_sets_list[-1].train_data)))
     return result_sets_list
 
 
@@ -687,8 +690,7 @@ def include_data_to_zip():
     dataset = Fileset()
 
     with zipfile.ZipFile(ZIP_TO_PROCESS, 'r') as archive:
-        file_names = archive.namelist()
-        file_list = archive.filelist
+        file_names = list(set(archive.namelist()))
 
         # Create data from each image and add it to the dataset
         for i, fn in enumerate(file_names):  # fn = name[!]_id.extension
@@ -774,11 +776,13 @@ def generate_synthetic_im(db, nb_additional_images=Q_DATA_AUGM):
     # 1. Open the DB
     # -------------------------------
     with zipfile.ZipFile(db, 'r') as archive:
-        file_names = archive.namelist()
+        file_names = list(set(archive.namelist()))
         try:
             file_names.remove(".DS_Store")
         except ValueError:
             pass
+
+    random.Random(SEED).shuffle(file_names)
 
     face_dic = {}
 
@@ -788,21 +792,23 @@ def generate_synthetic_im(db, nb_additional_images=Q_DATA_AUGM):
     # ----------------------------------------------------------------------
     for i, fn in enumerate(file_names):  # fn = name[!]_id.extension
         if db == FOLDER_DB + "FFHQ.zip":
-            current_person = fn.split(".png")[0]
+            current_person = fn.split(".png")[0].replace("/", "_")
+            index = 0
         else:
             current_person = fn.split(SEPARATOR)[1]
+            index = fn.split(SEPARATOR)[2].split(".")[0]
             if current_person in face_dic:
                 continue
 
-        pict = FaceImage(fn, None, db_path=db, i=fn.split(SEPARATOR)[2].split(".")[0])
+        pict = FaceImage(fn, None, db_path=db, i=index)
         print("fn is " + str(fn))
         face_dic[current_person] = [pict]
 
     # ----------------------------------------------------------------------
     # 3. Generate synthetic images and add them in the dictionary
     # ----------------------------------------------------------------------
-    print("In data Augmentation...")
-    data_augmentation(face_dic, nb_add_instances=nb_additional_images, save=True)
+    print("\nIn data Augmentation...\n")
+    data_augmentation(face_dic, nb_add_instances=nb_additional_images) #, save=True)
 
     # -----------------------------------------------------------------
     # 4. Register the synthetic images in the db
@@ -810,17 +816,15 @@ def generate_synthetic_im(db, nb_additional_images=Q_DATA_AUGM):
     fset = Fileset()
 
     for person, pictures_list in face_dic.items():
-        for i, picture in enumerate(pictures_list):
+        for i, picture in enumerate(pictures_list[1:]):
             # fname = db__person__indexReal_indexSynth.jpg
-            db_name = db.split("/")[-1].split("zip")[0]
-            print("db name is " + db_name)
-            print("person is " + person)
-            index = str(picture.i) + "_" + str(1 + i)
-            fname = db_name + SEPARATOR + person + SEPARATOR + index + "jpg"
+            db_name = db.split("/")[-1].split(".zip")[0].split("_")[0]
+            index = str(pictures_list[0].index) + "_" + str(1 + i)
+            fname = db_name + SEPARATOR + person + SEPARATOR + index + ".jpg"
             data = Data(fname, db, to_process=True, picture=picture)
             fset.add_data(data)
 
-    #fset.ds_to_zip(db_destination=db + "_synthIm", file_is_pil=True) New db: Case of synthetic People
+    # fset.ds_to_zip(db_destination=db + "_synthIm", file_is_pil=True) New db: Case of synthetic People
     fset.ds_to_zip(db_destination=db, file_is_pil=True)
 
 
@@ -837,7 +841,7 @@ def register_aligned(db):
     to_remove = []
 
     with zipfile.ZipFile(db, 'r') as archive:
-        file_names = archive.namelist()
+        file_names = list(set(archive.namelist()))
         try:
             file_names.remove(".DS_Store")
         except ValueError:
@@ -873,7 +877,7 @@ def register_aligned(db):
 if __name__ == "__main__":
 
     test_id = 2
-
+    # ----------------- Galleries Generation and saving ----------------
     if test_id == 1:
         db_list = ["gbrieven", "cfp", "faceScrub", "lfw"]
 
@@ -881,35 +885,10 @@ if __name__ == "__main__":
             fileset = from_zip_to_data(False, fname=FOLDER_DB + db + ".zip")
             fileset.order_per_personName(TRANS, save=db)
 
-    # TOTEST
+    # ----------------- Synthetic Images Generation and saving ----------------
     if test_id == 2:
-        db_list = ["cfp70.zip"]  # , "FFHQ.zip"] #, "lfw.zip", "gbrieven.zip", "faceScrub.zip", "testdb.zip"]
+        db_list = ["lfw_filtered.zip", "cfp_filtered.zip", "gbrieven_filtered.zip", "faceScrub_filtered.zip", "testdb_filtered.zip"]
 
         for i, db in enumerate(db_list):
             print("Current db is " + str(FOLDER_DB + db) + "...\n")
             generate_synthetic_im(FOLDER_DB + db)
-
-    if test_id == 3:
-        with zipfile.ZipFile(db, 'r') as archive:
-            file_names = archive.namelist()
-            try:
-                file_names.remove(".DS_Store")
-            except ValueError:
-                pass
-
-        face_dic = {}
-
-        # ----------------------------------------------------------------------
-        # 2. Go over each file and put 1 file per person as value
-        # in a dictionary where the key is the person's name
-        # ----------------------------------------------------------------------
-        for i, fn in enumerate(file_names):  # fn = name[!]_id.extension
-            if db == FOLDER_DB + "FFHQ.zip":
-                current_person = fn.split(".png")[0]
-            else:
-                current_person = fn.split(SEPARATOR)[1]
-                if current_person in face_dic:
-                    continue
-
-            face_dic[current_person] = ["coucou"]
-            print("fn is " + fn)

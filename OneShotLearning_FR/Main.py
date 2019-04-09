@@ -29,7 +29,7 @@ WITH_EPOCH_OPT = False
 LOSS = "cross_entropy"  # "triplet_loss"   "ce_classif"   "constrastive_loss"
 
 MODE = "learn"  # "classifier training"
-PRETRAINING = "autoencoder"  # ""autoencoder"  # "autoencoder_only" "none"
+PRETRAINING = "none"  # ""autoencoder"  # "autoencoder_only" "none"
 
 DIFF_FACES = True  # If true, we have different faces in the training and the testing set
 WITH_PROFILE = False  # True if both frontally and in profile people
@@ -111,7 +111,11 @@ def main(loss_type=LOSS, batch_size=BATCH_SIZE, lr=LEARNING_RATE, db_train=None,
         # ------- Model Training ---------
         if PRETRAINING != "autoencoder_only":
             for epoch in range(NUM_EPOCH):
-                print("\n------- Training with " + TYPE_ARCH + " architecture ----------")
+                if embeddingNet is None:
+                    print("\n------- Training with " + TYPE_ARCH + " architecture ----------")
+                else:
+                    print("\n------- Retraining of model ----------")
+
                 model_learn.train(epoch, with_epoch_opt=WITH_EPOCH_OPT)
                 model_learn.prediction()
 
@@ -150,21 +154,22 @@ def main(loss_type=LOSS, batch_size=BATCH_SIZE, lr=LEARNING_RATE, db_train=None,
 
         dataset = Face_DS(fileset=fileset, to_print=True, device=DEVICE)
 
-        # batch_size = Nb of pairs you want to test
-        prediction_loader = torch.utils.data.DataLoader(dataset, batch_size=NB_PREDICTIONS, shuffle=True)
         model = load_model(name_model)
 
         # ------------ Data: list containing the tensor representations of the 2 images ---
         for i in range(NB_PREDICTIONS):
+            print(" ---------------- Prediction " + str(i) + "----------------\n")
+            # batch_size = Nb of pairs you want to test
+            prediction_loader = torch.utils.data.DataLoader(dataset, batch_size=1, shuffle=True)
             data = []
             should_be_the_same = False
 
             if should_be_the_same:
-                data.extend(next(iter(prediction_loader))[i][:2])  # The 2 faces are the same
+                data.extend(next(iter(prediction_loader))[0][:2])  # The 2 faces are the same
                 print("GROUNDTRUE: The 2 faces are the same ")
             else:
                 print("next(iter(prediction_loader))[i][:3:2] " + str(next(iter(prediction_loader))[i][:3:2]))
-                data.extend(next(iter(prediction_loader))[i][:3:2])  # The 2 faces are different
+                data.extend(next(iter(prediction_loader))[0][:3:2])  # The 2 faces are different
                 print("GROUNDTRUE: The 2 faces are different ")
 
             # print("One data given to the onshot function is: " + str(data[0]))
@@ -223,7 +228,7 @@ def get_db_name(fname, db_train):
 
 if __name__ == '__main__':
     # main()
-    test = 7 if platform.system() == "Darwin" else 4
+    test = 6 if platform.system() == "Darwin" else 4
 
     # -----------------------------------------------------------------------
     # Test 1: Confusion Matrix with different db for training and testing
@@ -293,6 +298,6 @@ if __name__ == '__main__':
     if test == 7 or test is None:
         MODE = "learn"
         name_model = "models/dsgbrievencfplfwfaceScrub_diff_100_32_triplet_loss_pretrainautoencoder.pt"
-        db_name_train = [FOLDER_DB + "cfp3.zip"] #, FOLDER_DB + "cfp.zip", FOLDER_DB + "lfw.zip",
+        db_name_train = [FOLDER_DB + "cfp.zip"] #, FOLDER_DB + "cfp.zip", FOLDER_DB + "lfw.zip",
                          #FOLDER_DB + "faceScrub.zip"]
         main(name_model=name_model, fname=db_name_train)

@@ -17,7 +17,7 @@ TYPE_ARCH (related to the embedding Network)
 4: AlexNet architecture 
 """
 
-P_DROPOUT = 0.2  # Probability of each element to be dropped
+P_DROPOUT = 0.2  # Probability of each element to be dropped (default value is 0.5)
 WITH_NORM_BATCH = False
 BATCH_SIZE = 32
 LAST_DIM = 512
@@ -41,6 +41,7 @@ W = 7
 class BasicNet(nn.Module):
     def __init__(self, dim_last_layer):
         super(BasicNet, self).__init__()
+        self.name_arch = "1default"
 
         # ----------- For Feature Representation -----------------
         self.conv1 = nn.Conv2d(3, 64, kernel_size=7)  # , padding=2)
@@ -89,6 +90,7 @@ class BasicNet(nn.Module):
 class AlexNet(nn.Module):
     def __init__(self, dim_last_layer):
         super(AlexNet, self).__init__()
+        self.name_arch = "4AlexNet"
         if WITH_GNAP: print("The GNAP module is used\n")
         self.dim_last_layer = dim_last_layer
 
@@ -137,6 +139,7 @@ class VGG16(nn.Module):
     def __init__(self, dim_last_layer, init_weights=True):  # num_class potentially to modify
 
         super(VGG16, self).__init__()
+        self.name_arch = "VGG16"
         if WITH_GNAP: print("The GNAP module is used\n")
 
         cfg = [64, 64, 'M', 128, 128, 'M', 256, 256, 256, 'M', 512, 512, 512, 'M', 512, 512, 512, 'M']
@@ -287,7 +290,7 @@ class ResNet(nn.Module):
     def __init__(self, dim_last_layer, zero_init_residual=False, resnet="resnet152"):
         super(ResNet, self).__init__()
         if WITH_GNAP: print("The GNAP module is used\n")
-
+        self.name_arch = "resnet"
         if resnet == "resnet18" or resnet == "resnet34":
             block = BasicBlock
         else:

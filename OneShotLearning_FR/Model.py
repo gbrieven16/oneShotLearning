@@ -60,7 +60,7 @@ class Model:
             elif train_param["loss_type"] == "cross_entropy":
                 self.network = SoftMax_Net(embedding_net)
             elif train_param["loss_type"] == "ce_classif":
-                self.network = Classif_Net(nb_classes=nb_classes)
+                self.network = Classif_Net(embedding_net, nb_classes=nb_classes)
 
             else:
                 print("ERR: Mismatch with loss type")
@@ -160,6 +160,7 @@ class Model:
         loss_list = []
         # ------- Go through each batch of the train_loader -------
         for batch_idx, (data, target) in enumerate(self.train_loader):
+
             self.optimizer.zero_grad()  # clear gradients for this training step
 
             try:
@@ -176,8 +177,10 @@ class Model:
                     loss = self.network.get_loss(data, target, self.class_weights)
 
             except IOError:  # The batch is "not complete"
+                print("ERR: An IO error occured in train! ")
                 break
-            except RuntimeError:  # The batch is "not complete"
+            except IndexError: #RuntimeError:  # The batch is "not complete"
+                print("ERR: A runtime error occured in train! ")
                 break
 
             loss.backward()  # backpropagation, compute gradients
@@ -224,6 +227,7 @@ class Model:
 
             for batch_idx, (data, target) in enumerate(data_loader):
                 try:
+                    print("DELETE: len of batch of data is " + str(len(data)))
                     loss = self.network.get_loss(data, target, self.class_weights, train=False)
                     # target = target.type(torch.LongTensor).to(DEVICE)
 
