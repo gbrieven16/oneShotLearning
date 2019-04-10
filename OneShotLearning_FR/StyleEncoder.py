@@ -41,7 +41,7 @@ BATCH_SIZE = 1  # If more than 1, then mix of faces
 NB_PICTURES = 3
 IMAGE_SIZE = 256
 LR = 1  # CHANGE Was set to 1
-NB_ITERATIONS = 1400  # !!! the higher it is, the more similar to the given input data the generated image is
+NB_ITERATIONS = 1000  # !!! the higher it is, the more similar to the given input data the generated image is
 RANDOMIZE_NOISE = False
 
 CHANGES = ["smile", "age", "gender"]
@@ -82,10 +82,10 @@ IN: Gs: Network
 ---------------------------------------------------------------------- """
 
 
-def generate_synth_face(Gs, save=True, nb_people=1):
+def generate_synth_face(Gs=GS_NETWORK, save=True, nb_people=1):
     # Pick latent vector => Artificial vector respecting some distribution constraints
 
-    for i in range(nb_images):
+    for i in range(nb_people):
         rnd = np.random.RandomState(i)
         latents = rnd.randn(1, Gs.input_shape[1])
 
@@ -96,7 +96,7 @@ def generate_synth_face(Gs, save=True, nb_people=1):
         # Save image.
         if save:
             os.makedirs(config.result_dir, exist_ok=True)
-            filename = os.path.join(config.result_dir, 'synthImage_m2_' + str(i) + '.jpeg')
+            filename = os.path.join(config.result_dir, 'synthImage_m2_' + str(i) + '.jpg')
             print("Saving of image in location " + filename)
             PIL.Image.fromarray(images[0], 'RGB').save(filename)
 
@@ -120,11 +120,15 @@ def move_and_show(latent_vector, direction, coeff, save_result):
     new_latent_vector = latent_vector.copy()
     new_latent_vector[:8] = (latent_vector + coeff * direction)[:8]
     synthetic_image = generate_image(new_latent_vector)
-    plt.imshow(synthetic_image)
-    plt.title('Coeff: %0.1f' % coeff)
-    plt.show()
-    if save_result is not None:
-        plt.savefig(save_result)
+    try:
+        plt.imshow(synthetic_image)
+        plt.title('Coeff: %0.1f' % coeff)
+        plt.show()
+        if save_result is not None:
+            plt.savefig(save_result)
+            print("The set of synthetic images has been saved!")
+    except:
+        pass
     return synthetic_image
 
 
@@ -154,37 +158,41 @@ OUT: list of the dlatent representation of the pictures contained in src dir
 
 
 def get_encoding(db_source, filename, generated_images_dir=None, dlatent_name=None, with_save=False):
-    print("Optimize (only) dlatents by minimizing perceptual loss between reference and generated images in "
-          "feature space... \n")
 
-    for images_batch in tqdm(split_to_batches([filename], BATCH_SIZE), total=1 // BATCH_SIZE):
+    try:
+        return np.load(DLATENT_DIR + dlatent_name)
+    except FileNotFoundError:
+        print("\nOptimize (only) dlatents by minimizing perceptual loss between reference and generated images in "
+              "feature space... ")
 
-        PERCEPTUAL_MODEL.set_reference_images(images_batch, zip_file=db_source)
-        op = PERCEPTUAL_MODEL.optimize(GENERATOR.dlatent_variable, iterations=NB_ITERATIONS, learning_rate=LR)
-        pbar = tqdm(op, leave=False, total=NB_ITERATIONS)
-        for loss in pbar:
-            pbar.set_description(' '.join([filename]) + ' Loss: %.2f' % loss)
-        print(' '.join([filename]), ' loss:', loss)
+        for images_batch in tqdm(split_to_batches([filename], BATCH_SIZE), total=1 // BATCH_SIZE):
 
-        # ---- Generate images from found dlatents (and save them) ... -----
-        generated_images = GENERATOR.generate_images()
-        generated_dlatents = GENERATOR.get_dlatents()  # of type'numpy.ndarray' 1x18x512 (= 9216 elements)
+            PERCEPTUAL_MODEL.set_reference_images(images_batch, zip_file=db_source)
+            op = PERCEPTUAL_MODEL.optimize(GENERATOR.dlatent_variable, iterations=NB_ITERATIONS, learning_rate=LR)
+            pbar = tqdm(op, leave=False, total=NB_ITERATIONS)
+            for loss in pbar:
+                pbar.set_description(' '.join([filename]) + ' Loss: %.2f' % loss)
+            print(' '.join([filename]), ' loss:', loss)
 
-        # ----------------------
-        #       Saving
-        # ----------------------
+            # ---- Generate images from found dlatents (and save them) ... -----
+            generated_images = GENERATOR.generate_images()
+            generated_dlatents = GENERATOR.get_dlatents()  # of type'numpy.ndarray' 1x18x512 (= 9216 elements)
 
-        if with_save:
-            img = PIL.Image.fromarray(generated_images, 'RGB')
-            if generated_images_dir is not None:
-                img.save(os.path.join(generated_images_dir, f'{filename}.jpeg'), 'jpeg')
-            if dlatent_name is not None:
-                np.save(dlatent_name, generated_dlatents)
-                print(dlatent_name + " has been saved!")
+            # ----------------------
+            #       Saving
+            # ----------------------
 
-        GENERATOR.reset_dlatents()
+            if with_save:
+                if generated_images_dir is not None:
+                    img = PIL.Image.fromarray(generated_images, 'RGB')
+                    img.save(os.path.join(generated_images_dir, f'{filename}.jpeg'), 'jpeg')
+                if dlatent_name is not None:
+                    np.save(DLATENT_DIR + dlatent_name, generated_dlatents)
+                    print(dlatent_name + " has been saved!")
 
-    return generated_dlatents
+            GENERATOR.reset_dlatents()
+
+        return generated_dlatents
 
 
 """ ------------------------------------ data_augmentation ----------------------------------------------------
@@ -207,16 +215,21 @@ REM: IMPL_CHOICE: the latent representation related to a person is derived from 
 ----------------------------------------------------------------------------------------------------------------- """
 
 
-def data_augmentation(face_dic=None, nb_add_instances=3, save=False):
+def data_augmentation(face_dic=None, nb_add_instances=3, save_generated_im=False, save_dlatent=False):
     if nb_add_instances == 0:
         return
 
     for person, images in face_dic.items():
-        if save:
+        if save_generated_im:
             images[0].save_im(GENERATED_IMAGES_DIR + person + ".jpg")
 
+        if save_dlatent:
+            dlatent_name = images[0].file_path.split(".")[0] + ".npy"
+        else:
+            dlatent_name=None
+
         # Get latent representation of the person
-        latent_repres = get_encoding(images[0].db_path, images[0].file_path)
+        latent_repres = get_encoding(images[0].db_path, images[0].file_path, dlatent_name=dlatent_name, with_save=True)
         nb_additional_pict = 0
 
         for i, change in enumerate(CHANGES):
@@ -228,12 +241,11 @@ def data_augmentation(face_dic=None, nb_add_instances=3, save=False):
                     break
 
                 new_image = apply_latent_direction(latent_repres, direction=change, coef=coef)  # save_result=...
-                print("New image is " + str(new_image) + ' and the type is ' + str(type(new_image)))
 
                 # Add the new image in the dictionary
                 face_dic[person].append(new_image)
 
-                if save:
+                if save_generated_im:
                     name = GENERATED_IMAGES_DIR + person + "__" + str(i) + str(j) + ".jpg"
                     new_image.save(name, "jpeg")
                     print("Synthetic image saved as " + name + "\n")

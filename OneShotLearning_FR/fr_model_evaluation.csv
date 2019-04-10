@@ -476,3 +476,6 @@ nb_repet;gallery_size;nb_probes;im_per_pers;db_test;model name;thresh;distance m
 6;400;20;;cfp_humFiltered;dsgbrievencfplfwfaceScrub_diff_100_32_triplet_loss_pretrainautoencoder.pt;8;Manhattan;2;False;0.03333333333333333;0.09166666666666666;2.178087580061264;6750.996419906616
 6;400;20;;cfp_humFiltered;dsgbrievencfplfwfaceScrub_diff_100_32_triplet_loss_pretrainautoencoder.pt;5;Manhattan;2;False;0.075;0.08333333333333333;2.0361459203564465;5556.446465015411
 6;400;20;;cfp_humFiltered;dsgbrievencfplfwfaceScrub_diff_100_32_triplet_loss_pretrainautoencoder.pt;3;Manhattan;2;False;0.05;0.125;1.8619639376218324;5836.2246470451355
+6;20;20;;cfp_humFiltered;dsgbrievencfplfwfaceScrub_diff_100_32_triplet_loss_pretrainautoencoder.pt;5;MeanSquare;2;False;46.666666666666664;66.66666666666667;1.9937865497076024;284.4096829891205
+6;50;20;;cfp_humFiltered;dsgbrievencfplfwfaceScrub_diff_100_32_triplet_loss_pretrainautoencoder.pt;5;MeanSquare;2;False;25.833333333333332;37.5;2.007142857142857;712.7358360290527
+6;100;20;;cfp_humFiltered;dsgbrievencfplfwfaceScrub_diff_100_32_triplet_loss_pretrainautoencoder.pt;5;MeanSquare;2;False;18.333333333333332;26.666666666666668;2.0239478114478113;1507.1896357536316

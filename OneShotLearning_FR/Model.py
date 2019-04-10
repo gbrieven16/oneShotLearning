@@ -87,14 +87,14 @@ class Model:
 
     '''------------------------ pretraining ----------------------------------------------
        The function trains an autoencoder based on given training data 
-       IN: train_data: Face_DS objet whose training data is a list of 
+       IN: Face_DS_train: Face_DS objet whose training data is a list of 
            face images represented through tensors 
            autocoder: an autocoder characterized by an encoder and a decoder 
     ------------------------------------------------------------------------------------ '''
 
     def pretraining(self, Face_DS_train, hyper_par, num_epochs=PT_NUM_EPOCHS, batch_size=PT_BS):
 
-        name_trained_net = "encoder_al_" + TYPE_ARCH + ".pkl"
+        name_trained_net = "encoder_al_" + TYPE_ARCH + "_" + str(len(Face_DS_train.train_data)) + ".pkl"
         try:
             with open(name_trained_net, "rb") as f:
                 self.network.embedding_net = pickle.load(f)

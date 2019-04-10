@@ -200,7 +200,8 @@ def store_in_csv(data, training, result, train_time):
         writer = csv.writer(f, delimiter=";")
         # writer.writerow(titles)
         writer.writerow(
-            curr_parameters + curr_evaluation + [str(best_f1)] + [str(best_epoch)] + [result[2]] + [str(train_time)])
+            curr_parameters + curr_evaluation + [str(best_f1)] + [str(best_epoch)] + [result[2]] + [str(train_time)]
+            + str(result[0]) + str(result[1]))
 
     return best_f1
 

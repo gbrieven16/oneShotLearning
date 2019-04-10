@@ -20,11 +20,11 @@ from Main import WITH_PROFILE, load_model
 
 NB_PROBES = 20
 SIZE_GALLERY = 80  # Nb of people to consider
-TOLERANCE = 10  # 3 Max nb of times the model can make mistake in comparing p_test and the pictures of 1 person
+TOLERANCE = 5  # 3 Max nb of times the model can make mistake in comparing p_test and the pictures of 1 person
 NB_REPET = 6  # Nb of times test is repeated (over different probes)
 THRESHOLDS_LIST = list(np.arange(0, 5, 0.05))  # For MeanSquare
 DETAILED_PRINT = False
-NB_IM_PER_PERS = 10
+NB_IM_PER_PERS = None
 WITH_SYNTHETIC_DATA = False
 NB_INST_PROBES = 2
 
@@ -253,7 +253,7 @@ class FaceRecognition:
         # ------- Graph Representation -------
         dic = {"far": far, "frr": frr}
         title = "FAR and FRR according to the threshold"
-        multi_line_graph(dic, THRESHOLDS_LIST, title, x_label="threshold", y_label="Rate Value")
+        multi_line_graph(dic, THRESHOLDS_LIST, title, x_label="threshold", y_label="Rate Value", save_name="eer")
         return print_eer(far, frr)
 
 
@@ -288,10 +288,17 @@ is a list of FaceImage objects
 
 def get_gallery(size_gallery, db_source):
     try:
-        face_dic = pickle.load(open(FOLDER_DB + "faceDic_" + db_source + ".pkl", "rb"))
+        if isinstance(db_source, list):
+            face_dic = {}
+            for i, db in enumerate(db_source):
+                face_dic.update(pickle.load(open(FOLDER_DB + "faceDic_" + db + ".pkl", "rb")))
+        else:
+            face_dic = pickle.load(open(FOLDER_DB + "faceDic_" + db_source + ".pkl", "rb"))
+
         if NB_IM_PER_PERS is not None:
             face_dic = {label: pictures for label, pictures in face_dic.items() if NB_IM_PER_PERS <= len(pictures)}
             face_dic = {label: pictures[:NB_IM_PER_PERS] for label, pictures in face_dic.items()}
+
     except FileNotFoundError:
         print("The file " + FOLDER_DB + db_source + ".zip coundn't be found ... \n")
         fileset = from_zip_to_data(WITH_PROFILE, fname=FOLDER_DB + db_source + ".zip")
@@ -303,6 +310,7 @@ def get_gallery(size_gallery, db_source):
     people = list(face_dic)
     Random().shuffle(people)
     return {k: v for k, v in face_dic.items() if k in people[:size_gallery]}
+
 
 
 '''---------------------------- get_balance_list ------------------------------------------------------
@@ -397,9 +405,9 @@ if __name__ == '__main__':
 
     test_id = 2
 
-    # --------------------
-    #       Test 3
-    # --------------------
+    # ----------------------------------------------------------------
+    #       Test 3: Use of the encoding derived from the generator
+    # ----------------------------------------------------------------
     if test_id == 3:
         db_source = "cfp3"
         model = None
@@ -423,9 +431,9 @@ if __name__ == '__main__':
 
         fr.compute_far_frr()
 
-    # --------------------
-    #       Test 1
-    # --------------------
+    # ------------------------------------------------
+    #       Test 1: Set with_synt to true
+    # ------------------------------------------------
     if test_id == 1:
         db_source = "cfp3"
         model = "models/dsgbrievencfplfwfaceScrub_diff_100_32_triplet_loss_pretrainautoencoder.pt"
@@ -463,57 +471,51 @@ if __name__ == '__main__':
     if test_id == 2:
 
         size_gallery = [20, 50, 100, 200, 400]  # Nb of people to consider
-        tolerance = [8, 5, 3]
-        nb_im_per_pers = [None, 4, 8]
         db_source_list = ["cfp_humFiltered", "lfw_filtered", "gbrieven_filtered", "testdb_filtered", "faceScrub_filtered"]
         model = "models/dsgbrievencfplfwfaceScrub_diff_100_32_triplet_loss_pretrainautoencoder.pt"
 
         for k, db_source in enumerate(db_source_list):
             for i, SIZE_GALLERY in enumerate(size_gallery):
-                for j, NB_IM_PER_PERS in enumerate(nb_im_per_pers):
-                    for l, TOLERANCE in enumerate(tolerance):
 
-                        print("Db source is: " + str(db_source))
-                        print("The size of the gallery is " + str(SIZE_GALLERY))
-                        print("The nb of images per person is " + str(NB_IM_PER_PERS))
-                        print("The Tolerance is: " + str(TOLERANCE))
+                print("Db source is: " + str(db_source))
+                print("The size of the gallery is " + str(SIZE_GALLERY))
 
-                        fr = FaceRecognition(model, db_source=db_source)
+                fr = FaceRecognition(model, db_source=db_source)
 
-                        # ------- Accumulators Definition --------------
-                        acc_nb_correct = 0
-                        acc_nb_mistakes = 0
-                        acc_nb_correct_dist = 0
-                        acc_nb_mistakes_dist = 0
-                        t_init = time.time()
+                # ------- Accumulators Definition --------------
+                acc_nb_correct = 0
+                acc_nb_mistakes = 0
+                acc_nb_correct_dist = 0
+                acc_nb_mistakes_dist = 0
+                t_init = time.time()
 
-                        # ------- Build NB_REPET probes --------------
-                        for rep_index in range(NB_REPET):
-                            res_vote, res_dist = fr.recognition(rep_index)
+                # ------- Build NB_REPET probes --------------
+                for rep_index in range(NB_REPET):
+                    res_vote, res_dist = fr.recognition(rep_index)
 
-                            acc_nb_correct += res_vote["nb_correct"]
-                            acc_nb_mistakes += res_vote["nb_mistakes"]
-                            acc_nb_correct_dist += res_dist["nb_correct_dist"]
-                            acc_nb_mistakes_dist += res_dist["nb_mistakes_dist"]
+                    acc_nb_correct += res_vote["nb_correct"]
+                    acc_nb_mistakes += res_vote["nb_mistakes"]
+                    acc_nb_correct_dist += res_dist["nb_correct_dist"]
+                    acc_nb_mistakes_dist += res_dist["nb_mistakes_dist"]
 
-                        # ------ Print the average over all the different tests -------
-                        print("\n ------------------------------ Global Report ---------------------------------")
-                        print("Report: " + str(acc_nb_correct / NB_REPET) + " correct, " + str(
-                            acc_nb_mistakes / NB_REPET)
-                              + " wrong recognitions")
+                # ------ Print the average over all the different tests -------
+                print("\n ------------------------------ Global Report ---------------------------------")
+                print("Report: " + str(acc_nb_correct / NB_REPET) + " correct, " + str(
+                    acc_nb_mistakes / NB_REPET)
+                      + " wrong recognitions")
 
-                        print("Report with Distance: " + str(acc_nb_correct_dist / NB_REPET) + " correct, "
-                              + str(acc_nb_mistakes_dist / NB_REPET) + " wrong recognitions")
-                        print(" -------------------------------------------------------------------------------\n")
-                        total_time = str(time.time() - t_init)
-                        print("The time for the recognition of " + str(
-                            NB_PROBES * NB_REPET) + " people is " + total_time)
+                print("Report with Distance: " + str(acc_nb_correct_dist / NB_REPET) + " correct, "
+                      + str(acc_nb_mistakes_dist / NB_REPET) + " wrong recognitions")
+                print(" -------------------------------------------------------------------------------\n")
+                total_time = str(time.time() - t_init)
+                print("The time for the recognition of " + str(
+                    NB_PROBES * NB_REPET) + " people is " + total_time)
 
-                        eer = fr.compute_far_frr()
-                        perc_vote_success = str(acc_nb_correct / (NB_PROBES*NB_REPET))
-                        perc_dist_success = str(acc_nb_correct_dist / (NB_PROBES*NB_REPET))
+                eer = fr.compute_far_frr()
+                perc_vote_success = str(100*acc_nb_correct / (NB_PROBES*NB_REPET))
+                perc_dist_success = str(100*acc_nb_correct_dist / (NB_PROBES*NB_REPET))
 
-                        data = [NB_REPET, SIZE_GALLERY, NB_PROBES, NB_IM_PER_PERS, db_source]
-                        algo = [model.split("models/")[1], TOLERANCE, DIST_METRIC, NB_INST_PROBES, WITH_SYNTHETIC_DATA]
-                        result = [perc_vote_success, perc_dist_success, eer, total_time]
-                        fr_in_csv(data, algo, result)
+                data = [NB_REPET, SIZE_GALLERY, NB_PROBES, NB_IM_PER_PERS, db_source]
+                algo = [model.split("models/")[1], TOLERANCE, DIST_METRIC, NB_INST_PROBES, WITH_SYNTHETIC_DATA]
+                result = [perc_vote_success, perc_dist_success, eer, total_time]
+                fr_in_csv(data, algo, result)

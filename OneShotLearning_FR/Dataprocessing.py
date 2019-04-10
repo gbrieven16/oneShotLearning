@@ -21,7 +21,7 @@ matplotlib.use("TkAgg")  # ('Agg')
 import matplotlib.pyplot as plt
 
 if platform.system() != "Darwin": torch.cuda.set_device(0)
-from StyleEncoder import data_augmentation, get_encoding
+from StyleEncoder import data_augmentation, get_encoding, generate_synth_face
 
 from Face_alignment import align_faces, ALIGNED_IMAGES_DIR
 
@@ -59,7 +59,8 @@ TRANS = transforms.Compose([transforms.CenterCrop(CENTER_CROP), transforms.ToTen
                             transforms.Normalize((0.5, 0.5, 0.5), (1.0, 1.0, 1.0))])
 
 Q_DATA_AUGM = 6
-DIST_METRIC = "Manhattan"  # "Cosine_Sym"
+BATCH_SIZE_DA = 15 # Batch size of data augmentation (so that images are registered)
+DIST_METRIC = "MeanSquare"  # "Cosine_Sym"
 
 
 # ================================================================
@@ -344,6 +345,7 @@ class Fileset:
 
                 # zipf.write(data.file.filename)
                 zipf.write(path, new_name)
+                print("A new file was written in " + str(db_destination) + ": " + new_name)
                 os.remove(path)
             except TypeError:  # ".png.json" extension
                 pass
@@ -403,7 +405,7 @@ class FaceImage():
     def get_latent_repr(self):
         if self.latent_repres is not None:
             return self.latent_repres
-        dlatent_name = "/data/latent_repres/" + self.file_path.split(".")[0] + ".npy"
+        dlatent_name = self.file_path.split(".")[0] + ".npy"
         try:
             self.latent_repres = np.load(dlatent_name)
             return self.latent_repres
@@ -878,31 +880,41 @@ def generate_synthetic_im(db, nb_additional_images=Q_DATA_AUGM):
                 continue
 
         pict = FaceImage(fn, None, db_path=db, i=index)
-        print("fn is " + str(fn))
+        #print("fn is " + str(fn))
         face_dic[current_person] = [pict]
 
-    # ----------------------------------------------------------------------
-    # 3. Generate synthetic images and add them in the dictionary
-    # ----------------------------------------------------------------------
-    print("\nIn data Augmentation...\n")
-    data_augmentation(face_dic, nb_add_instances=nb_additional_images)  # , save=True)
+    batch_id = 0
 
-    # -----------------------------------------------------------------
-    # 4. Register the synthetic images in the db
-    # -----------------------------------------------------------------
-    fset = Fileset()
+    while BATCH_SIZE_DA < len(face_dic):
+        batch_id += 1
+        face_dic_curr = dict(list(face_dic.items())[:BATCH_SIZE_DA])
+        face_dic = {item[0]: item[1] for i, item in enumerate(list(face_dic.items())[BATCH_SIZE_DA:])}
 
-    for person, pictures_list in face_dic.items():
-        for i, picture in enumerate(pictures_list[1:]):
-            # fname = db__person__indexReal_indexSynth.jpg
-            db_name = db.split("/")[-1].split(".zip")[0].split("_")[0]
-            index = str(pictures_list[0].index) + "_" + str(1 + i)
-            fname = db_name + SEPARATOR + person + SEPARATOR + index + ".jpg"
-            data = Data(fname, db, to_process=True, picture=picture)
-            fset.add_data(data)
+        # ----------------------------------------------------------------------
+        # 3. Generate synthetic images and add them in the dictionary
+        # ----------------------------------------------------------------------
+        print("\nIn data Augmentation with batch " + str(batch_id) + "...\n")
+        data_augmentation(face_dic_curr, nb_add_instances=nb_additional_images, save_dlatent=True)#, save_generated_im=True)
 
-    # fset.ds_to_zip(db_destination=db + "_synthIm", file_is_pil=True) New db: Case of synthetic People
-    fset.ds_to_zip(db_destination=db, file_is_pil=True)
+        # -----------------------------------------------------------------
+        # 4. Register the synthetic images in the db
+        # -----------------------------------------------------------------
+        fset = Fileset()
+
+        for person, pictures_list in face_dic_curr.items():
+            for i, picture in enumerate(pictures_list[1:]):
+                # fname = db__person__indexReal_indexSynth.jpg
+                try:
+                    db_name = db.split("/")[-1].split(".zip")[0].split("_")[0]
+                except IndexError:
+                    db_name = db.split("/")[-1].split(".zip")[0]
+                index = str(pictures_list[0].index) + "_" + str(1 + i)
+                fname = db_name + SEPARATOR + person + SEPARATOR + index + ".jpg"
+                data = Data(fname, db, to_process=True, picture=picture)
+                fset.add_data(data)
+
+        # fset.ds_to_zip(db_destination=db + "_synthIm", file_is_pil=True) New db: Case of synthetic People
+        fset.ds_to_zip(db_destination=db, file_is_pil=True)
 
 
 """
@@ -953,7 +965,7 @@ def register_aligned(db):
 
 if __name__ == "__main__":
 
-    test_id = 3
+    test_id = 2
     # ----------------- Galleries Generation and saving ----------------
     if test_id == 1:
         db_list = ["cfp_humFiltered", "lfw_filtered", "gbrieven_filtered", "faceScrub_humanFiltered"]
@@ -964,12 +976,30 @@ if __name__ == "__main__":
 
     # ----------------- Synthetic Images Generation and saving ----------------
     if test_id == 2:
-        db_list = ["lfw_filtered.zip", "cfp_filtered.zip", "gbrieven_filtered.zip", "faceScrub_filtered.zip",
+        db_list = ["cfp_filtered.zip", "gbrieven_filtered.zip", "lfw_filtered.zip", "faceScrub_filtered.zip",
                    "testdb_filtered.zip"]
 
         for i, db in enumerate(db_list):
             print("Current db is " + str(FOLDER_DB + db) + "...\n")
             generate_synthetic_im(FOLDER_DB + db)
 
+    # ----------------- Synthetic Person Generation and saving ----------------
     if test_id == 3:
-        pass
+        generate_synth_face(nb_people=100)
+
+    # ----------------- Register encoding ----------------
+    if test_id == 4:
+        db_source = "cfp_humFiltered"
+        people = ["205", "250", "433", "436","452"] # To fill
+        filenames = []
+        indexes = ["01", "02", "03", "04", "05", "06", "07", "08", "09", "10"]
+
+        # Build filenames
+        for j, person in enumerate(people):
+            for k, index in enumerate(indexes):
+                filenames.append(db_source.split("_")[0] + SEPARATOR + person + SEPARATOR + index + ".jpg")
+
+        # Register encoding
+        for i, filename in enumerate(filenames):
+            dlatent_name = filename.split(".")[0] + ".npy"
+            get_encoding(db_source, filename, dlatent_name=dlatent_name, with_save=True)

@@ -68,7 +68,7 @@ def define_datasets(with_test_set=False):
         # 1. Load all the dictionaries
         # ------------------------------
         face_dic = {}
-        db_list = ["cfp_humFiltered", "gbrieven_filtered", "lfw_filtered2", "lfw_filtered1", "faceScrub_humanFiltered"]
+        db_list = ["cfp_humFiltered", "gbrieven_filtered", "lfw_filtered", "faceScrub_humanFiltered"]
 
         for i, db in enumerate(db_list):
             face_dic.update(pickle.load(open(FOLDER_DB + "faceDic_" + db + ".pkl", "rb")))
@@ -116,7 +116,6 @@ def define_datasets(with_test_set=False):
         # 5. Take the rest of data to build the validation set
         # ---------------------------------------------------------
         face_dic = dict(list(face_dic.items())[:SIZE_VALIDATION_SET])
-        print("The size of the validation set is " + str(len(face_dic)))
         face_DS_valid = Face_DS(faces_dic=face_dic, nb_triplet=1)
 
         # ----- Save Dataloader --------
@@ -150,7 +149,22 @@ if __name__ == "__main__":
     db_name_train = [FOLDER_DB + "gbrieven.zip", FOLDER_DB + "cfp.zip", FOLDER_DB + "lfw.zip",
                      FOLDER_DB + "faceScrub.zip"]
 
-    for i in range(len(PICTURES_NB)):
-        print("========================== Training on set " + str(i) + "... ====================================== ")
-        sets_list = [datasets[0][i], datasets[1], datasets[2]]
+    test_id = 1
+
+    if test_id == 1:
+        # ------------------------- Tests Architectures and Losses -------------------------
+        # 1. VGG16 & Triplet Loss
+        # 2. VGG16 & Cross Entropy
+        # 3. Basic Arch & Triplet Loss
+        # 4. Basic Arch & Cross Entropy
+        # 5. Basic Arch & Cross Entropy
+        # => Choose best ------------------------------------------------------------------
+        sets_list = [datasets[0][3], datasets[1], datasets[2]]
         _, model_name = main_train(sets_list, db_name_train, name_model=model_name)
+
+    if test_id == 2:
+        # ---------------- With best Test Data Quantity -------------------------
+        for i in range(len(PICTURES_NB)):
+            print("======================== Training on set " + str(i) + "... ====================================== ")
+            sets_list = [datasets[0][i], datasets[1], datasets[2]]
+            _, model_name = main_train(sets_list, db_name_train, name_model=model_name)

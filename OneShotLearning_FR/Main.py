@@ -20,13 +20,13 @@ NUM_EPOCH = 8 if platform.system() == "Darwin" else 100
 BATCH_SIZE = 32
 
 LEARNING_RATE = 0.001
-WITH_LR_SCHEDULER = "StepLR"  # "StepLR"  #"ExponentialLR"  # "StepLR"
+WITH_LR_SCHEDULER = "StepLR"  # "ExponentialLR" None
 WEIGHT_DECAY = 0.001  # To control regularization
 OPTIMIZER = "Adam"  # Adagrad "SGD"
 
 WEIGHTED_CLASS = False
 WITH_EPOCH_OPT = False
-LOSS = "triplet_loss"  # "triplet_loss"   "ce_classif"   "constrastive_loss"
+LOSS = "triplet_loss"  # "cross_entropy" "ce_classif"   "constrastive_loss"
 
 MODE = "learn"  # "classifier training"
 PRETRAINING = "autoencoder"  # ""autoencoder"  # "autoencoder_only" "none"
@@ -152,9 +152,9 @@ def get_db_name(fname, db_train):
     return db_name, "_".join(db_train) if db_train is not None else db_name
 
 
-"""
+""" ------------------------------- main_train --------------------------------------
 IN: sets_list: list of 3 Datasets (training, validation and testing)
-"""
+------------------------------------------------------------------------------------- """
 
 
 def main_train(sets_list, fname, db_train=None,  name_model=None):
@@ -307,7 +307,7 @@ if __name__ == '__main__':
     if test == 7 or test is None:
         MODE = "learn"
         LOSS = "cross_entropy"
-        name_model = "models/dsgbrievencfplfwfaceScrub_diff_100_32_triplet_loss_pretrainautoencoder.pt"
+        name_model = "models/..."
         db_name_train = [FOLDER_DB + "cfp.zip"]  # , FOLDER_DB + "cfp.zip", FOLDER_DB + "lfw.zip",
         # FOLDER_DB + "faceScrub.zip"]
         main(name_model=name_model, fname=db_name_train)
