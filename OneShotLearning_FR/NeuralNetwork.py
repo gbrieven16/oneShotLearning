@@ -22,7 +22,7 @@ TYPE_ARCH (related to the embedding Network)
 4: AlexNet architecture 
 """
 
-TYPE_ARCH = "4AlexNet"  # "resnet152"  #"1default" "VGG16" #  "2def_drop" "3def_bathNorm"
+TYPE_ARCH = "VGG16"  # "resnet152"  #"1default" "VGG16" #  "2def_drop" "3def_bathNorm"
 DIM_LAST_LAYER = 1024 if TYPE_ARCH in ["VGG16", "4AlexNet"] else 512
 
 DIST_THRESHOLD = 0.02
@@ -164,8 +164,8 @@ class DistanceBased_Net(nn.Module):
 
 
 class Tripletnet(DistanceBased_Net):
-    def __init__(self):
-        super(Tripletnet, self).__init__()
+    def __init__(self, embedding_net):
+        super(Tripletnet, self).__init__(embedding_net)
         self.margin = MARGIN
 
     '''------------------ get_loss ------------------------ '''
@@ -481,11 +481,14 @@ class DecoderNet(nn.Module):
         super(DecoderNet, self).__init__()
         self.nb_channels = 4
         self.out_nb_channels = 3
-        self.dim1 = 140
-        self.dim2 = self.dim1 + (CENTER_CROP[1] - CENTER_CROP[0]) # = 190
+        self.dim1 = 100
+        self.dim2 = self.dim1 + (CENTER_CROP[1] - CENTER_CROP[0]) # = 150
 
         self.linear1 = nn.Linear(DIM_LAST_LAYER, self.nb_channels * self.dim1 * self.dim2)
         self.conv3 = nn.ConvTranspose2d(self.nb_channels, self.out_nb_channels, CENTER_CROP[0] - (self.dim1 - 1))
+        #self.conv4 = nn.ConvTranspose2d(self.out_nb_channels, self.out_nb_channels, 5)#, stride=2) #, padding=1)
+        #self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
+        self.relu = nn.ReLU(True)
 
         self.sig = nn.Sigmoid()  # compress to a range (0, 1)
         self.to(DEVICE)
@@ -494,18 +497,21 @@ class DecoderNet(nn.Module):
         x = self.linear1(data)
         x = x.view(x.size(0), self.nb_channels, self.dim1, self.dim2)
         x = self.conv3(x)
+        x = self.relu(x)
         x = self.sig(x)
 
-        x = x.view(x.size(0), self.out_nb_channels, CENTER_CROP[0], CENTER_CROP[1])
+        x = x.view(x.size(0), self.out_nb_channels, CENTER_CROP[0], CENTER_CROP[1]) # 3 * 200 * 150 = 90 000  * 32 = 2 880 000
 
         return x
 
 
 # ================================================================
 #                    CLASS: AutoEncoder_Net
-# before reshape: x3*(x4 + 3)*(x4+1) = 90 000 (x4 + 3)*(x4+1) = 60
-# x2 + 4x - 89 996/x3 = 0 => 16 + 360 000/x3 => (-4 + 16) / 2 = 6
-# x3 = 1500
+# 4, 4, stride=2, padding=1) => 15 360 000
+# 4, 4, stride=2, padding=1) => 11 520 000
+#                            => 2 981 664
+# 4: torch.Size([32, 3, 203, 153])
+
 # ================================================================
 class AutoEncoder_Net(nn.Module):
     def __init__(self, embeddingNet):

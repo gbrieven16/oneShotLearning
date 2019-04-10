@@ -4,8 +4,13 @@ import pickle
 import platform
 import zipfile
 import random
-from StyleEncoder import data_augmentation
+import numpy as np
+from scipy.spatial import distance
+
+import torch
 import torch.utils.data
+from torch import nn
+import torchvision.transforms as transforms
 
 from PIL import Image
 from io import BytesIO
@@ -15,11 +20,9 @@ import matplotlib
 matplotlib.use("TkAgg")  # ('Agg')
 import matplotlib.pyplot as plt
 
-import torch
-
 if platform.system() != "Darwin": torch.cuda.set_device(0)
-import torchvision.transforms as transforms
-from torch import nn
+from StyleEncoder import data_augmentation, get_encoding
+
 from Face_alignment import align_faces, ALIGNED_IMAGES_DIR
 
 import warnings
@@ -359,7 +362,8 @@ class FaceImage():
         self.db_path = db_path  # Complete path of the db (zip file)
         self.trans_img = trans_image
         self.dist = {}  # key1 person, val1: dic2 ; key2: index, val2: val2
-        self.feature_repres = None
+        self.feature_repres = None # From the Model
+        self.latent_repres = None # From the generator
         self.person = pers
         self.index = i
         self.is_synth = 1 < len(self.index.split("_"))
@@ -376,7 +380,6 @@ class FaceImage():
             image = Image.open(BytesIO(archive.read(self.file_path))).convert("RGB")
             image.save(path_dest, "jpeg")
 
-
     def display_im(self, to_print="A face is displayed"):
         print(to_print)
         with zipfile.ZipFile(self.db_path, 'r') as archive:
@@ -387,6 +390,9 @@ class FaceImage():
             image.close()
 
     def get_feature_repres(self, model):
+        if model is None:
+            return
+
         if self.feature_repres is not None:
             return self.feature_repres
         else:
@@ -394,25 +400,59 @@ class FaceImage():
             self.feature_repres = model.embedding_net(data)
             return self.feature_repres
 
-    def get_dist(self, person, index, picture, siamese_model):
+    def get_latent_repr(self):
+        if self.latent_repres is not None:
+            return self.latent_repres
+        dlatent_name = "/data/latent_repres/" + self.file_path.split(".")[0] + ".npy"
+        try:
+            self.latent_repres = np.load(dlatent_name)
+            return self.latent_repres
+        except FileNotFoundError:
+            print(dlatent_name + " couldn't be loaded ...\n")
+            self.latent_repres = get_encoding(self.db_path, self.file_path, dlatent_name=dlatent_name)
+            return self.latent_repres
+
+    """
+    IN: picture: faceImage object corresponding to the current probe 
+    """
+    def get_dist(self, person, index, picture, fr):
         try:
             return self.dist[person][index]
         except KeyError:
-            feature_repr2 = picture.get_feature_repres(siamese_model)
-            if DIST_METRIC == "Manhattan":
-                difference_sum = torch.sum(torch.abs(feature_repr2 - self.feature_repres))
-                dist = float(difference_sum / len(self.feature_repres[0]))
+            # ----------------------------------------------------
+            # CASE 1: Feature representation from pytorch model
+            # ----------------------------------------------------
+            if fr is not None:
+                if DIST_METRIC == "Manhattan":
+                    difference_sum = torch.sum(torch.abs(fr - self.feature_repres))
+                    dist = float(difference_sum / len(self.feature_repres[0]))
 
-            elif DIST_METRIC == "MeanSquare":
-                difference_sum = torch.sum((self.feature_repres - feature_repr2) ** 2)
-                dist = float(difference_sum / len(self.feature_repres[0]))
+                elif DIST_METRIC == "MeanSquare":
+                    difference_sum = torch.sum((self.feature_repres - fr) ** 2)
+                    dist = float(difference_sum / len(self.feature_repres[0]))
 
-            elif DIST_METRIC == "Cosine_Sym":
-                cos = nn.CosineSimilarity(dim=1, eps=1e-6)
-                dist = float(cos(self.feature_repres, feature_repr2))
+                elif DIST_METRIC == "Cosine_Sym":
+                    cos = nn.CosineSimilarity(dim=1, eps=1e-6)
+                    dist = float(cos(self.feature_repres, fr))
+                else:
+                    print("ERR: Invalid Distance Metric")
+                    raise IOError
+            # ----------------------------------------------------
+            # CASE 2: Feature representation from generator
+            # ----------------------------------------------------
             else:
-                print("ERR: Invalid Distance Metric")
-                raise IOError
+                lr1 = picture.get_latent_repr()
+                lr2 = self.get_latent_repr()
+
+                if DIST_METRIC == "Manhattan":
+                    dist = distance.cityblock(lr1, lr2)
+                elif DIST_METRIC == "MeanSquare":
+                    dist = distance.euclidean(lr1, lr2)
+                elif DIST_METRIC == "Cosine_Sym":
+                    dist = distance.cosine(lr1, lr2)
+                else:
+                    print("ERR: Invalid Distance Metric")
+                    raise IOError
 
             try:
                 picture.dist[self.person][self.index] = dist
@@ -430,13 +470,14 @@ class FaceImage():
 
 class Face_DS(torch.utils.data.Dataset):
     def __init__(self, fileset=None, face_set=None, transform=TRANS, to_print=False, device="cpu",
-                 triplet_version=True, save=None):
+                 triplet_version=True, save=None, faces_dic=None, nb_triplet=NB_TRIPLET_PER_PICT):
 
         self.to_print = to_print
         self.transform = transforms.ToTensor() if transform is None else transform
         self.train_data = []
         self.train_labels = []
         self.nb_classes = 0
+        self.nb_triplets = nb_triplet
 
         # -------------------------------------------------------------------------------
         # CASE 1: Build a non-triplet version dataset from a triplet version dataset
@@ -449,13 +490,15 @@ class Face_DS(torch.utils.data.Dataset):
             self.train_labels = torch.tensor(self.train_labels)
             return
 
-        self.all_db = fileset.all_db
+        self.all_db = fileset.all_db if fileset is not None else [""]
 
-        t = time.time()
-        faces_dic = fileset.order_per_personName(self.transform)
-        print("Pictures have been processed and ordered after " + str(time.time() - t))
+        # ---------------- Build Dictionary where pictures are ordered per person --------------------
+        if faces_dic is None:
+            t = time.time()
+            faces_dic = fileset.order_per_personName(self.transform)
+            print("Pictures have been processed and ordered after " + str(time.time() - t))
 
-        # data_augmentation(face_dic, Q_DATA_AUGM)
+        # data_augmentation(faces_dic, Q_DATA_AUGM)
 
         # ------------------------------------------------------------------------
         # CASE 2: Build triplet supporting the dataset (ensures balanced classes)
@@ -533,7 +576,7 @@ class Face_DS(torch.utils.data.Dataset):
                 nb_same_db = 0
 
                 # ================= Consider several times the ref picture =================
-                for j in range(NB_TRIPLET_PER_PICT):  # !! TO CHECK with very small db
+                for j in range(self.nb_triplets):  # !! TO CHECK with very small db
 
                     # -------------- Positive Picture definition --------------
                     try:
@@ -557,7 +600,7 @@ class Face_DS(torch.utils.data.Dataset):
                     label_neg = all_labels[curr_index_neg]
                     picture_negative = random.choice(faces_dic[label_neg])
 
-                    if nb_same_db < NB_TRIPLET_PER_PICT / 2:  # Half of the negative must belong to the same db
+                    if nb_same_db < self.nb_triplets / 2:  # Half of the negative must belong to the same db
                         nb_same_db += 1
                         try:
                             while 1 < len(self.all_db) and picture_negative.db_path != picture_ref.db_path:
@@ -621,7 +664,7 @@ class Face_DS(torch.utils.data.Dataset):
     def print_data_report(self, faces_dic=None, triplet=True):
 
         if faces_dic is None:
-            print("\nThe total quantity of data is: " + str(2 * len(self.train_labels)))
+            print("\nThe total quantity of triplets is: " + str(self.nb_triplets * len(self.train_labels)))
             return
 
         # Report about the quantity of data
@@ -647,6 +690,31 @@ class Face_DS(torch.utils.data.Dataset):
 # ================================================================
 
 
+'''-------- extract_randomly_elem ------------------------------ 
+This function extract randomly nb_elem from list_elem and put
+them in a list that is returned 
+-------------------------------------------------------------- '''
+
+
+def extract_randomly_elem(nb_elem, list_elem):
+    random_elem_list = []
+    taken_indexes = []
+
+    # ---------- Pick one random picture ------------
+    all_indexes = [j for j in range(len(list_elem))]
+    for l in range(nb_elem):
+        try:
+            j = random.choice(all_indexes)
+            random_elem_list.append(list_elem[j])
+            all_indexes.remove(j)
+            taken_indexes.append(j)
+        except IndexError:
+            print("Impossible to add new probe picture\n")
+            pass
+
+    return random_elem_list, taken_indexes
+
+
 '''---------------- load_sets -------------------------------- 
 This function load the training and the testing sets derived
 from the specified db, if there's any 
@@ -659,18 +727,27 @@ def load_sets(db_name, dev, nb_classes, sets_list):
     type_ds = "triplet_" if nb_classes == 0 else "class" + str(nb_classes) + "_"
     result_sets_list = []
     save_names_list = ["trainset_ali_", "validationset_ali", "testset_ali"]
+
+    # ------------------------------------------
+    # Go through each of the 3 sets
+    # ------------------------------------------
     for i, set in enumerate(sets_list):
         name_file = FOLDER_DB + save_names_list[i] + type_ds + db_name + ".pkl"
+        # ------------------------------------------
+        # Load the FACE_DS Object (if there's any)
+        # ------------------------------------------
         try:
             with open(name_file, "rb") as f:
                 loaded_set = torch.load(f)
                 loaded_set.print_data_report(triplet=(nb_classes == 0))
                 result_sets_list.append(loaded_set)
                 print('Set Loading Success!\n')
+
+        # ------------------------------------------------------------------------
+        # Compute and Store the FACE_DS Object (if it doesn't already exist)
+        # ------------------------------------------------------------------------
         except (ValueError, IOError) as e:  # EOFError  IOError FileNotFoundError
-            print("\nThe set " + name_file + " couldn't be loaded...")
-            print("Building Process ...")
-            # print("sset" + str(set.data_list))
+            print("\nThe set " + name_file + " couldn't be loaded...\n" + "Building Process ...")
             result_sets_list.append(Face_DS(fileset=set, device=dev, triplet_version=(nb_classes == 0), save=name_file))
 
         # ------- Classification Case: no testset -------
@@ -808,7 +885,7 @@ def generate_synthetic_im(db, nb_additional_images=Q_DATA_AUGM):
     # 3. Generate synthetic images and add them in the dictionary
     # ----------------------------------------------------------------------
     print("\nIn data Augmentation...\n")
-    data_augmentation(face_dic, nb_add_instances=nb_additional_images) #, save=True)
+    data_augmentation(face_dic, nb_add_instances=nb_additional_images)  # , save=True)
 
     # -----------------------------------------------------------------
     # 4. Register the synthetic images in the db
@@ -876,10 +953,10 @@ def register_aligned(db):
 
 if __name__ == "__main__":
 
-    test_id = 2
+    test_id = 3
     # ----------------- Galleries Generation and saving ----------------
     if test_id == 1:
-        db_list = ["gbrieven", "cfp", "faceScrub", "lfw"]
+        db_list = ["cfp_humFiltered", "lfw_filtered", "gbrieven_filtered", "faceScrub_humanFiltered"]
 
         for i, db in enumerate(db_list):
             fileset = from_zip_to_data(False, fname=FOLDER_DB + db + ".zip")
@@ -887,8 +964,12 @@ if __name__ == "__main__":
 
     # ----------------- Synthetic Images Generation and saving ----------------
     if test_id == 2:
-        db_list = ["lfw_filtered.zip", "cfp_filtered.zip", "gbrieven_filtered.zip", "faceScrub_filtered.zip", "testdb_filtered.zip"]
+        db_list = ["lfw_filtered.zip", "cfp_filtered.zip", "gbrieven_filtered.zip", "faceScrub_filtered.zip",
+                   "testdb_filtered.zip"]
 
         for i, db in enumerate(db_list):
             print("Current db is " + str(FOLDER_DB + db) + "...\n")
             generate_synthetic_im(FOLDER_DB + db)
+
+    if test_id == 3:
+        pass

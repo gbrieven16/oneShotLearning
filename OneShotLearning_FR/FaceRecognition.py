@@ -1,14 +1,14 @@
 import matplotlib
-
 matplotlib.use('TkAgg')
 import matplotlib.pyplot as plt
 
 import random
 import time
 import pickle
-from random import shuffle, randint, Random
+from random import shuffle, Random
 import numpy as np
-from Dataprocessing import from_zip_to_data, TRANS, FOLDER_DB, FaceImage, DIST_METRIC
+
+from Dataprocessing import from_zip_to_data, extract_randomly_elem, TRANS, FOLDER_DB, FaceImage, DIST_METRIC
 from Visualization import multi_line_graph, fr_in_csv
 from Main import WITH_PROFILE, load_model
 
@@ -18,7 +18,7 @@ from Main import WITH_PROFILE, load_model
 #                      (BUT not in the gallery)
 # =====================================================================================================================
 
-NB_PROBES = 30
+NB_PROBES = 20
 SIZE_GALLERY = 80  # Nb of people to consider
 TOLERANCE = 10  # 3 Max nb of times the model can make mistake in comparing p_test and the pictures of 1 person
 NB_REPET = 6  # Nb of times test is repeated (over different probes)
@@ -29,18 +29,18 @@ WITH_SYNTHETIC_DATA = False
 NB_INST_PROBES = 2
 
 if WITH_SYNTHETIC_DATA:
-    NB_IM_PER_PERS = None  # No restriction
+    NB_IM_PER_PERS = None  # No restriction, otherwise you may not get the synth images in face_dic
 
 
 # ======================================================================
-#                    CLASS: FaceRecognition
+#                    CLASS: Probe
 # ======================================================================
 
 class Probe:
     def __init__(self, person, pictures, index_pict):
         self.person = person
-        self.pictures = pictures
-        self.index = index_pict # list of indice(s)
+        self.pictures = pictures  # list of pictures (basic + synthetic / basic + extra)
+        self.index = index_pict  # list of indice(s)
 
         self.dist_pers = {}  # dic where the key is the person's name and the value is the list of distances from probe
         self.dist_avg_pers = {}
@@ -103,13 +103,14 @@ class FaceRecognition:
     def __init__(self, model_path, db_source="testdb"):
         self.k_considered = []
         self.distances = {}
+
         # -------- Model Loading ----------------
-        model = load_model(model_path)
-        self.siamese_model = model
+        if model_path is not None:
+            model = load_model(model_path)
+            self.siamese_model = model
 
         # ------- Get data (from MAIN_ZIP) --------------
-        self.probes = []  # list of 10 lists of lists (person, picture, index_pict)
-        self.not_probes = []  # list of of 10 lists of people not in probe (so that one of their picture is missed)
+        self.probes = []  # list of NB_REPET lists of lists (person, picture, index_pict)
 
         # ------- Gallery Definition --------------
         self.gallery = get_gallery(SIZE_GALLERY, db_source)
@@ -126,39 +127,19 @@ class FaceRecognition:
 
             probes_k = []
             for pers_i, person in enumerate(people_gallery[:NB_PROBES]):
-                probe_pict = []
-                indexes_probe = []
 
-                # ---------- Pick one random picture ------------
+                # ---------- Pick NB_INST_PROBES random picture(s) ------------
                 if not WITH_SYNTHETIC_DATA:
-                    indexes_pict_pers = [j for j in range(len(self.gallery[person]))]
-                    for l in range(NB_INST_PROBES):
-                        try:
-                            j = random.choice(indexes_pict_pers)
-                            probe_pict.append(self.gallery[person][j])
-                            indexes_pict_pers.remove(j)
-                            indexes_probe.append(j)
-                        except IndexError:
-                            print("Impossible to add new probe picture\n")
-                            pass
+                    probe_pict, indexes_probe = extract_randomly_elem(NB_INST_PROBES, self.gallery[person])
 
                 # ---------- Pick one picture having stored synthetised version ------------
                 else:
-                    j, index_str = get_index_synth_pers(self.gallery[person])
-                    indexes_probe.append(j)
-                    probe_pict.append(self.gallery[person][j])
-                    probe_pict.extend(get_synth_pict(self.gallery[person], index_str))
+                    probe_pict, indexes_probe = get_synth_pict(self.gallery[person])
+
                 probes_k.append(Probe(person, probe_pict, indexes_probe))
 
             self.probes.append(probes_k)
 
-            # To ensure having the same nb of pictures per person (used later)
-            not_probes_k = []
-            for pers_j, person in enumerate(people_gallery[NB_PROBES:]):
-                not_probes_k.append(person)
-            self.not_probes.append(not_probes_k)
-
-            # print("self.probes is " + str(self.probes))
         remove_synth_data(self.gallery)
 
     '''---------------- recognition ---------------------------
@@ -181,16 +162,7 @@ class FaceRecognition:
                 nb_pred_diff = 0  # Nb times the person is predicted as diffent from the current probe
 
                 # -------- Ensure balance in the gallery ------------
-                if person == probe.person:
-                    indexes = list(probe.index)
-                else:
-                    indexes = [j for j in range(len(self.gallery[person]))]
-                    random.shuffle(indexes)
-                    indexes = indexes[:NB_INST_PROBES]
-                indexes.sort(reverse=True)
-
-                for i in range(NB_INST_PROBES):
-                    pictures_gallery = pictures[:indexes[i]] + pictures[indexes[i] + 1:]
+                pictures_gallery = get_balance_list(person, pictures, probe)
 
                 # print("\nSize pictures_gallery: " + str(len(pictures_gallery)) + " for person " + str(person))
 
@@ -206,7 +178,7 @@ class FaceRecognition:
                         if DETAILED_PRINT: pict_probe.display_im(to_print="The face to identify is: ")
 
                         # --- Distance reasoning for prediction ----
-                        dist = picture.get_dist(probe.person, probe.index[j], pict_probe, self.siamese_model)
+                        dist = picture.get_dist(probe.person, probe.index[j], pict_probe, fr_1)
                         # dist = get_distance(fr_1, fr_2)
                         if DETAILED_PRINT:
                             picture.display_im(to_print="The compared face is printed and the dist is: " + str(dist))
@@ -216,24 +188,26 @@ class FaceRecognition:
                         probe.dist_pers[person].append(dist)
 
                         # --- Classification reasoning for prediction ----
-                        same = self.siamese_model.output_from_embedding(fr_1, fr_2)
+                        if self.siamese_model is not None:
+                            same = self.siamese_model.output_from_embedding(fr_1, fr_2)
 
-                        # Check if "useful" to carry on
-                        if same == 1:
-                            if DETAILED_PRINT: print("Predicted as different")
-                            nb_pred_diff += 1
-                            if TOLERANCE < nb_pred_diff:
-                                break
-                        else:
-                            probe.vote_pers[person] = 1 if person not in probe.vote_pers else probe.vote_pers[
-                                                                                                  person] + 1
+                            # Check if "useful" to carry on
+                            if same == 1:
+                                if DETAILED_PRINT: print("Predicted as different")
+                                nb_pred_diff += 1
+                                if TOLERANCE < nb_pred_diff:
+                                    break
+                            else:
+                                probe.vote_pers[person] = 1 if person not in probe.vote_pers else probe.vote_pers[
+                                                                                                      person] + 1
 
                 # --- Distance reasoning for prediction ----
                 # probe.avg_dist(person, len(pictures))
                 probe.median_dist(person, len(pictures))
 
             # Predicted Person with class prediction reasoning
-            probe.pred_from_vote(DETAILED_PRINT, res_vote)
+            if self.siamese_model is not None:
+                probe.pred_from_vote(DETAILED_PRINT, res_vote)
 
             # Predicted Person with distance reasoning
             probe.predict_from_dist(res_dist)
@@ -242,8 +216,9 @@ class FaceRecognition:
             probe.compute_false()
 
         print("\n------------------------------------------------------------------")
-        print("Report: " + str(res_vote["nb_correct"]) + " correct, " + str(res_vote["nb_mistakes"]) + " wrong, " + str(
-            res_vote["nb_not_recognized"]) + " undefined recognitions")
+        if self.siamese_model is not None:
+            print("Report: " + str(res_vote["nb_correct"]) + " correct, " + str(res_vote["nb_mistakes"]) + " wrong, "
+                  + str(res_vote["nb_not_recognized"]) + " undefined recognitions")
 
         print("Report with Distance: " + str(res_dist["nb_correct_dist"]) + " correct and " +
               str(res_dist["nb_mistakes_dist"]) + " wrong")
@@ -279,7 +254,7 @@ class FaceRecognition:
         dic = {"far": far, "frr": frr}
         title = "FAR and FRR according to the threshold"
         multi_line_graph(dic, THRESHOLDS_LIST, title, x_label="threshold", y_label="Rate Value")
-        print_err(far, frr)
+        return print_eer(far, frr)
 
 
 # ================================================================
@@ -293,13 +268,14 @@ The function computes and prints the equal error rate
 ----------------------------------------------------------- '''
 
 
-def print_err(far, frr):
+def print_eer(far, frr):
     i = 0
     while far[i] < frr[i]:
         i += 1
 
     eer = far[i] + far[i + 1] / 2
     print("The equal error rate is: " + str(eer))
+    return eer
 
 
 '''------------------- get_gallery --------------------------
@@ -313,8 +289,9 @@ is a list of FaceImage objects
 def get_gallery(size_gallery, db_source):
     try:
         face_dic = pickle.load(open(FOLDER_DB + "faceDic_" + db_source + ".pkl", "rb"))
-        # face_dic = {label: pictures for label, pictures in face_dic.items() if NB_IM_PER_PERS <= len(pictures)}
-        # face_dic = {label: pictures[:NB_IM_PER_PERS] for label, pictures in face_dic.items()}
+        if NB_IM_PER_PERS is not None:
+            face_dic = {label: pictures for label, pictures in face_dic.items() if NB_IM_PER_PERS <= len(pictures)}
+            face_dic = {label: pictures[:NB_IM_PER_PERS] for label, pictures in face_dic.items()}
     except FileNotFoundError:
         print("The file " + FOLDER_DB + db_source + ".zip coundn't be found ... \n")
         fileset = from_zip_to_data(WITH_PROFILE, fname=FOLDER_DB + db_source + ".zip")
@@ -326,6 +303,32 @@ def get_gallery(size_gallery, db_source):
     people = list(face_dic)
     Random().shuffle(people)
     return {k: v for k, v in face_dic.items() if k in people[:size_gallery]}
+
+
+'''---------------------------- get_balance_list ------------------------------------------------------
+This function removes from the current pictures list related 
+to the current person in the gallery:
+    - all the pictures attached to the current probe if the current gallery person is the current probe
+    - random pictures from the pictures_gall so that it contains the same number of pictures
+--------------------------------------------------------------------------------------------------------- '''
+
+
+def get_balance_list(person_gall, pictures_gall, probe):
+    # -------- Ensure balance in the gallery ------------
+    if person_gall == probe.person:
+        indexes = list(probe.index)
+    else:
+        indexes = [j for j in range(len(pictures_gall))]
+        random.shuffle(indexes)
+        indexes = indexes[:NB_INST_PROBES]
+    indexes.sort(reverse=True)
+
+    pictures_gallery = pictures_gall
+
+    for i in range(NB_INST_PROBES):
+        pictures_gallery = pictures_gallery[:indexes[i]] + pictures_gallery[indexes[i] + 1:]
+
+    return pictures_gallery
 
 
 '''-------------- get_index_synth_pers --------------------------
@@ -347,13 +350,21 @@ def get_index_synth_pers(faceIm_list):
             return i, index_str
 
 
-'''-------------- get_synth_pict --------------------------
-This function returns the list of the synthetic pictures that 
-were generated from the image with index j
---------------------------------------------------------------- '''
+'''------------------------- get_synth_pict --------------------------------
+This function returns the list of real + corresponding synthetic pictures 
+and a list of one element corresponding to the index of the real selected picture
+--------------------------------------------------------------------------- '''
 
 
-def get_synth_pict(faceIm_list, j):
+def get_synth_pict(faceIm_list):
+    try:
+        j, index_str = get_index_synth_pers(faceIm_list)
+    except TypeError:
+        print("ERR: No synthetic data could be found...\n")
+
+    indexes_probe = [j]
+    probe_pict = [faceIm_list[j]]
+
     synt_pic_list = []
 
     for i, faceIm in enumerate(faceIm_list):
@@ -361,7 +372,9 @@ def get_synth_pict(faceIm_list, j):
         if faceIm.is_synth and faceIm.index.split("_")[0] == j:
             synt_pic_list.append(faceIm)
 
-    return synt_pic_list
+    probe_pict.extend(synt_pic_list)
+
+    return probe_pict, indexes_probe
 
 
 '''-------------- remove_synth_data ------------------------------
@@ -382,8 +395,37 @@ def remove_synth_data(gallery):
 
 if __name__ == '__main__':
 
-    test_id = 1
+    test_id = 2
 
+    # --------------------
+    #       Test 3
+    # --------------------
+    if test_id == 3:
+        db_source = "cfp3"
+        model = None
+        fr = FaceRecognition(model, db_source=db_source)
+        # ------- Accumulators Definition --------------
+        acc_nb_correct_dist = 0
+        acc_nb_mistakes_dist = 0
+
+        # ------- Build NB_REPET probes --------------
+        for rep_index in range(NB_REPET):
+            res_vote, res_dist = fr.recognition(rep_index)
+
+            acc_nb_correct_dist += res_dist["nb_correct_dist"]
+            acc_nb_mistakes_dist += res_dist["nb_mistakes_dist"]
+
+        # ------ Print the average over all the different tests -------
+        print("\n ------------------------------ Global Report ---------------------------------")
+        print("Report with Distance: " + str(acc_nb_correct_dist / NB_REPET) + " correct, "
+              + str(acc_nb_mistakes_dist / NB_REPET) + " wrong recognitions")
+        print(" -------------------------------------------------------------------------------\n")
+
+        fr.compute_far_frr()
+
+    # --------------------
+    #       Test 1
+    # --------------------
     if test_id == 1:
         db_source = "cfp3"
         model = "models/dsgbrievencfplfwfaceScrub_diff_100_32_triplet_loss_pretrainautoencoder.pt"
@@ -415,54 +457,63 @@ if __name__ == '__main__':
 
         fr.compute_far_frr()
 
+    # --------------------
+    #       Test 2
+    # --------------------
     if test_id == 2:
 
-        nb_probes = [5, 10, 20, 30]
-        size_gallery = [20, 50, 70, 100, 200, 400]  # Nb of people to consider
-        tolerance = [10, 8, 6, 4, 3]
-        nb_im_per_pers = [3, 4, 5, 6, 7, 8, 9, 10]
-        db_source_list = ["cfp", "gbrieven", "faceScrub", "lfw", "testdb"]
+        size_gallery = [20, 50, 100, 200, 400]  # Nb of people to consider
+        tolerance = [8, 5, 3]
+        nb_im_per_pers = [None, 4, 8]
+        db_source_list = ["cfp_humFiltered", "lfw_filtered", "gbrieven_filtered", "testdb_filtered", "faceScrub_filtered"]
         model = "models/dsgbrievencfplfwfaceScrub_diff_100_32_triplet_loss_pretrainautoencoder.pt"
 
-        for i, SIZE_GALLERY in enumerate(size_gallery):
-            for m, NB_PROBES in enumerate(nb_probes):
+        for k, db_source in enumerate(db_source_list):
+            for i, SIZE_GALLERY in enumerate(size_gallery):
                 for j, NB_IM_PER_PERS in enumerate(nb_im_per_pers):
-                    for k, db_source in enumerate(db_source_list):
-                        for l, TOLERANCE in enumerate(tolerance):
+                    for l, TOLERANCE in enumerate(tolerance):
 
-                            fr = FaceRecognition(model, db_source=db_source)
+                        print("Db source is: " + str(db_source))
+                        print("The size of the gallery is " + str(SIZE_GALLERY))
+                        print("The nb of images per person is " + str(NB_IM_PER_PERS))
+                        print("The Tolerance is: " + str(TOLERANCE))
 
-                            # ------- Accumulators Definition --------------
-                            acc_nb_correct = 0
-                            acc_nb_mistakes = 0
-                            acc_nb_correct_dist = 0
-                            acc_nb_mistakes_dist = 0
-                            t_init = time.time()
+                        fr = FaceRecognition(model, db_source=db_source)
 
-                            # ------- Build NB_REPET probes --------------
-                            for rep_index in range(NB_REPET):
-                                res_vote, res_dist = fr.recognition(rep_index)
+                        # ------- Accumulators Definition --------------
+                        acc_nb_correct = 0
+                        acc_nb_mistakes = 0
+                        acc_nb_correct_dist = 0
+                        acc_nb_mistakes_dist = 0
+                        t_init = time.time()
 
-                                acc_nb_correct += res_vote["nb_correct"]
-                                acc_nb_mistakes += res_vote["nb_mistakes"]
-                                acc_nb_correct_dist += res_dist["nb_correct_dist"]
-                                acc_nb_mistakes_dist += res_dist["nb_mistakes_dist"]
+                        # ------- Build NB_REPET probes --------------
+                        for rep_index in range(NB_REPET):
+                            res_vote, res_dist = fr.recognition(rep_index)
 
-                            # ------ Print the average over all the different tests -------
-                            print("\n ------------------------------ Global Report ---------------------------------")
-                            print("Report: " + str(acc_nb_correct / NB_REPET) + " correct, " + str(
-                                acc_nb_mistakes / NB_REPET)
-                                  + " wrong recognitions")
+                            acc_nb_correct += res_vote["nb_correct"]
+                            acc_nb_mistakes += res_vote["nb_mistakes"]
+                            acc_nb_correct_dist += res_dist["nb_correct_dist"]
+                            acc_nb_mistakes_dist += res_dist["nb_mistakes_dist"]
 
-                            print("Report with Distance: " + str(acc_nb_correct_dist / NB_REPET) + " correct, "
-                                  + str(acc_nb_mistakes_dist / NB_REPET) + " wrong recognitions")
-                            print(" -------------------------------------------------------------------------------\n")
-                            total_time = str(time.time() - t_init)
-                            print("The time for the recognition of " + str(
-                                NB_PROBES * NB_REPET) + " people is " + total_time)
+                        # ------ Print the average over all the different tests -------
+                        print("\n ------------------------------ Global Report ---------------------------------")
+                        print("Report: " + str(acc_nb_correct / NB_REPET) + " correct, " + str(
+                            acc_nb_mistakes / NB_REPET)
+                              + " wrong recognitions")
 
-                            fr.compute_far_frr()
-                            data = [NB_REPET, SIZE_GALLERY, NB_PROBES, NB_IM_PER_PERS, db_source]
-                            algo = [model.split("models/")[1], TOLERANCE, DIST_METRIC]
-                            result = [str(acc_nb_correct / NB_REPET), str(acc_nb_correct_dist / NB_REPET), total_time]
-                            fr_in_csv(data, algo, result)
+                        print("Report with Distance: " + str(acc_nb_correct_dist / NB_REPET) + " correct, "
+                              + str(acc_nb_mistakes_dist / NB_REPET) + " wrong recognitions")
+                        print(" -------------------------------------------------------------------------------\n")
+                        total_time = str(time.time() - t_init)
+                        print("The time for the recognition of " + str(
+                            NB_PROBES * NB_REPET) + " people is " + total_time)
+
+                        eer = fr.compute_far_frr()
+                        perc_vote_success = str(acc_nb_correct / (NB_PROBES*NB_REPET))
+                        perc_dist_success = str(acc_nb_correct_dist / (NB_PROBES*NB_REPET))
+
+                        data = [NB_REPET, SIZE_GALLERY, NB_PROBES, NB_IM_PER_PERS, db_source]
+                        algo = [model.split("models/")[1], TOLERANCE, DIST_METRIC, NB_INST_PROBES, WITH_SYNTHETIC_DATA]
+                        result = [perc_vote_success, perc_dist_success, eer, total_time]
+                        fr_in_csv(data, algo, result)

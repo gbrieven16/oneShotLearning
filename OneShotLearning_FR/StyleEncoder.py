@@ -46,12 +46,15 @@ RANDOMIZE_NOISE = False
 
 CHANGES = ["smile", "age", "gender"]
 COEF = {"smile": [-1, 0, 1], "age": [-1, 0], "gender": [-1, 0]}
-#COEF = [-1, 0, 1]  # Coefficient measuring the intensity of change
+# COEF = [-1, 0, 1]  # Coefficient measuring the intensity of change
 
 if platform.system() != "Darwin":
     tflib.init_tf()  # Initialization of TensorFlow session
     _, _, GS_NETWORK = pickle.load(open(STYLE_GAN, "rb"))  # generator_network, discriminator_network
     GENERATOR = Generator(GS_NETWORK, BATCH_SIZE, randomize_noise=RANDOMIZE_NOISE)
+
+    PERCEPTUAL_MODEL = PerceptualModel(IMAGE_SIZE, layer=9, batch_size=BATCH_SIZE)
+    PERCEPTUAL_MODEL.build_perceptual_model(GENERATOR.generated_image)
 
 
 #########################################
@@ -150,14 +153,14 @@ OUT: list of the dlatent representation of the pictures contained in src dir
 --------------------------------------------------------------------------------------------------------- """
 
 
-def get_encoding(db_source, filename, perceptual_model, generated_images_dir=None, dlatent_dir=None, with_save=False):
+def get_encoding(db_source, filename, generated_images_dir=None, dlatent_name=None, with_save=False):
     print("Optimize (only) dlatents by minimizing perceptual loss between reference and generated images in "
           "feature space... \n")
 
     for images_batch in tqdm(split_to_batches([filename], BATCH_SIZE), total=1 // BATCH_SIZE):
 
-        perceptual_model.set_reference_images(images_batch, zip_file=db_source)
-        op = perceptual_model.optimize(GENERATOR.dlatent_variable, iterations=NB_ITERATIONS, learning_rate=LR)
+        PERCEPTUAL_MODEL.set_reference_images(images_batch, zip_file=db_source)
+        op = PERCEPTUAL_MODEL.optimize(GENERATOR.dlatent_variable, iterations=NB_ITERATIONS, learning_rate=LR)
         pbar = tqdm(op, leave=False, total=NB_ITERATIONS)
         for loss in pbar:
             pbar.set_description(' '.join([filename]) + ' Loss: %.2f' % loss)
@@ -167,10 +170,17 @@ def get_encoding(db_source, filename, perceptual_model, generated_images_dir=Non
         generated_images = GENERATOR.generate_images()
         generated_dlatents = GENERATOR.get_dlatents()  # of type'numpy.ndarray' 1x18x512 (= 9216 elements)
 
+        # ----------------------
+        #       Saving
+        # ----------------------
+
         if with_save:
             img = PIL.Image.fromarray(generated_images, 'RGB')
-            img.save(os.path.join(generated_images_dir, f'{filename}.jpeg'), 'jpeg')
-            np.save(os.path.join(dlatent_dir, f'{filename}.npy'), generated_dlatents)
+            if generated_images_dir is not None:
+                img.save(os.path.join(generated_images_dir, f'{filename}.jpeg'), 'jpeg')
+            if dlatent_name is not None:
+                np.save(dlatent_name, generated_dlatents)
+                print(dlatent_name + " has been saved!")
 
         GENERATOR.reset_dlatents()
 
@@ -201,15 +211,12 @@ def data_augmentation(face_dic=None, nb_add_instances=3, save=False):
     if nb_add_instances == 0:
         return
 
-    # print_network_architecture(GS_NETWORK)
-    perceptual_model = PerceptualModel(IMAGE_SIZE, layer=9, batch_size=BATCH_SIZE)
-    perceptual_model.build_perceptual_model(GENERATOR.generated_image)
-
     for person, images in face_dic.items():
-        # Get latent representation of the person
         if save:
             images[0].save_im(GENERATED_IMAGES_DIR + person + ".jpg")
-        latent_repres = get_encoding(images[0].db_path, images[0].file_path, perceptual_model)
+
+        # Get latent representation of the person
+        latent_repres = get_encoding(images[0].db_path, images[0].file_path)
         nb_additional_pict = 0
 
         for i, change in enumerate(CHANGES):
@@ -220,7 +227,7 @@ def data_augmentation(face_dic=None, nb_add_instances=3, save=False):
                 else:
                     break
 
-                new_image = apply_latent_direction(latent_repres, direction=change, coef=coef) #save_result=...
+                new_image = apply_latent_direction(latent_repres, direction=change, coef=coef)  # save_result=...
                 print("New image is " + str(new_image) + ' and the type is ' + str(type(new_image)))
 
                 # Add the new image in the dictionary
@@ -230,6 +237,7 @@ def data_augmentation(face_dic=None, nb_add_instances=3, save=False):
                     name = GENERATED_IMAGES_DIR + person + "__" + str(i) + str(j) + ".jpg"
                     new_image.save(name, "jpeg")
                     print("Synthetic image saved as " + name + "\n")
+
 
 if __name__ == "__main__":
     pass

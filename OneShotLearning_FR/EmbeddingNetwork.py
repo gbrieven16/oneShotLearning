@@ -20,7 +20,7 @@ TYPE_ARCH (related to the embedding Network)
 P_DROPOUT = 0.2  # Probability of each element to be dropped (default value is 0.5)
 WITH_NORM_BATCH = False
 BATCH_SIZE = 32
-LAST_DIM = 512
+#LAST_DIM = 512
 
 # For ResNet:
 LAYERS_RES = {"resnet18": [2, 2, 2, 2], "resnet34": [3, 4, 6, 3], "resnet50": [3, 4, 6, 3],
