@@ -123,6 +123,7 @@ class AlexNet(nn.Module):
         # self.final_layer = nn.Linear(dim_last_layer, num_classes)
 
     def forward(self, data):
+        #x = self.features(data)
         x = self.features(data.to(DEVICE))
         if WITH_GNAP: x = self.gnap(x)
         x = x.view(x.size(0), 512) #16384 /32 = 512.0

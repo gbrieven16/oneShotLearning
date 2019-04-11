@@ -19,12 +19,12 @@ from Main import WITH_PROFILE, load_model
 # =====================================================================================================================
 
 NB_PROBES = 20
-SIZE_GALLERY = 80  # Nb of people to consider
+SIZE_GALLERY = 20  # Nb of people to consider
 TOLERANCE = 5  # 3 Max nb of times the model can make mistake in comparing p_test and the pictures of 1 person
 NB_REPET = 6  # Nb of times test is repeated (over different probes)
-THRESHOLDS_LIST = list(np.arange(0, 5, 0.05))  # For MeanSquare
+THRESHOLDS_LIST = list(np.arange(0, 3, 0.03))  # For MeanSquare
 DETAILED_PRINT = False
-NB_IM_PER_PERS = None
+NB_IM_PER_PERS = 8
 WITH_SYNTHETIC_DATA = False
 NB_INST_PROBES = 2
 
@@ -55,8 +55,11 @@ class Probe:
 
     def median_dist(self, person, nb_pictures):
         if 1 < nb_pictures:
-            self.dist_avg_pers[person] = np.median(self.dist_pers[person])
-            # print("median: " + str(self.dist_avg_pers[person]))
+            try: # TOCHECK: error occurred with 'lfwAllison_Janney'
+                self.dist_avg_pers[person] = np.median(self.dist_pers[person])
+                # print("median: " + str(self.dist_avg_pers[person]))
+            except KeyError:
+                print("KEYERR in median dist: " + person + " not found as key in " + str(self.dist_pers) + "\n")
 
     def predict_from_dist(self, res_acc_dist):
         pred_pers_dist = sorted(self.dist_avg_pers.items(), key=lambda x: x[1])[0][0]
@@ -281,36 +284,33 @@ def print_eer(far, frr):
 '''------------------- get_gallery --------------------------
 The function returns a gallery with size_gallery people from
 the database 
+IN: db_source_list: list of db 
 OUT: dic where the key is the name of a person and the value
 is a list of FaceImage objects
 ----------------------------------------------------------- '''
 
 
-def get_gallery(size_gallery, db_source):
-    try:
-        if isinstance(db_source, list):
-            face_dic = {}
-            for i, db in enumerate(db_source):
-                face_dic.update(pickle.load(open(FOLDER_DB + "faceDic_" + db + ".pkl", "rb")))
-        else:
-            face_dic = pickle.load(open(FOLDER_DB + "faceDic_" + db_source + ".pkl", "rb"))
+def get_gallery(size_gallery, db_source_list):
 
-        if NB_IM_PER_PERS is not None:
-            face_dic = {label: pictures for label, pictures in face_dic.items() if NB_IM_PER_PERS <= len(pictures)}
-            face_dic = {label: pictures[:NB_IM_PER_PERS] for label, pictures in face_dic.items()}
+    face_dic = {}
+    for i, db in enumerate(db_source_list):
+        try:
+            face_dic.update(pickle.load(open(FOLDER_DB + "faceDic_" + db + ".pkl", "rb")))
+        except FileNotFoundError:
+            print("The file " + FOLDER_DB + db + ".zip coundn't be found ... \n")
+            fileset = from_zip_to_data(WITH_PROFILE, fname=FOLDER_DB + db + ".zip")
+            face_dic = fileset.order_per_personName(TRANS, save=db, max_nb_pict=NB_IM_PER_PERS,
+                                                    min_nb_pict=NB_IM_PER_PERS,
+                                                    with_synth=WITH_SYNTHETIC_DATA)
 
-    except FileNotFoundError:
-        print("The file " + FOLDER_DB + db_source + ".zip coundn't be found ... \n")
-        fileset = from_zip_to_data(WITH_PROFILE, fname=FOLDER_DB + db_source + ".zip")
-        face_dic = fileset.order_per_personName(TRANS, save=db_source, max_nb_pict=NB_IM_PER_PERS,
-                                                min_nb_pict=NB_IM_PER_PERS,
-                                                with_synth=WITH_SYNTHETIC_DATA)
+    if NB_IM_PER_PERS is not None:
+        face_dic = {label: pictures for label, pictures in face_dic.items() if NB_IM_PER_PERS <= len(pictures)}
+        face_dic = {label: pictures[:NB_IM_PER_PERS] for label, pictures in face_dic.items()}
 
     # Return "size_gallery" people
     people = list(face_dic)
     Random().shuffle(people)
     return {k: v for k, v in face_dic.items() if k in people[:size_gallery]}
-
 
 
 '''---------------------------- get_balance_list ------------------------------------------------------
@@ -403,41 +403,15 @@ def remove_synth_data(gallery):
 
 if __name__ == '__main__':
 
-    test_id = 2
-
-    # ----------------------------------------------------------------
-    #       Test 3: Use of the encoding derived from the generator
-    # ----------------------------------------------------------------
-    if test_id == 3:
-        db_source = "cfp3"
-        model = None
-        fr = FaceRecognition(model, db_source=db_source)
-        # ------- Accumulators Definition --------------
-        acc_nb_correct_dist = 0
-        acc_nb_mistakes_dist = 0
-
-        # ------- Build NB_REPET probes --------------
-        for rep_index in range(NB_REPET):
-            res_vote, res_dist = fr.recognition(rep_index)
-
-            acc_nb_correct_dist += res_dist["nb_correct_dist"]
-            acc_nb_mistakes_dist += res_dist["nb_mistakes_dist"]
-
-        # ------ Print the average over all the different tests -------
-        print("\n ------------------------------ Global Report ---------------------------------")
-        print("Report with Distance: " + str(acc_nb_correct_dist / NB_REPET) + " correct, "
-              + str(acc_nb_mistakes_dist / NB_REPET) + " wrong recognitions")
-        print(" -------------------------------------------------------------------------------\n")
-
-        fr.compute_far_frr()
+    test_id = 1
 
     # ------------------------------------------------
     #       Test 1: Set with_synt to true
     # ------------------------------------------------
     if test_id == 1:
-        db_source = "cfp3"
+        db_source = "testdb"
         model = "models/dsgbrievencfplfwfaceScrub_diff_100_32_triplet_loss_pretrainautoencoder.pt"
-        fr = FaceRecognition(model, db_source=db_source)
+        fr = FaceRecognition(model, db_source=[db_source])
 
         # ------- Accumulators Definition --------------
         acc_nb_correct = 0
@@ -471,51 +445,77 @@ if __name__ == '__main__':
     if test_id == 2:
 
         size_gallery = [20, 50, 100, 200, 400]  # Nb of people to consider
-        db_source_list = ["cfp_humFiltered", "lfw_filtered", "gbrieven_filtered", "testdb_filtered", "faceScrub_filtered"]
+        db_source_list = ["cfp_humFiltered", "lfw_filtered1", "lfw_filtered2", "gbrieven_filtered", "testdb_filtered",
+                          "faceScrub_filtered"]
         model = "models/dsgbrievencfplfwfaceScrub_diff_100_32_triplet_loss_pretrainautoencoder.pt"
 
-        for k, db_source in enumerate(db_source_list):
-            for i, SIZE_GALLERY in enumerate(size_gallery):
 
-                print("Db source is: " + str(db_source))
-                print("The size of the gallery is " + str(SIZE_GALLERY))
+        for i, SIZE_GALLERY in enumerate(size_gallery):
 
-                fr = FaceRecognition(model, db_source=db_source)
+            print("The size of the gallery is " + str(SIZE_GALLERY))
 
-                # ------- Accumulators Definition --------------
-                acc_nb_correct = 0
-                acc_nb_mistakes = 0
-                acc_nb_correct_dist = 0
-                acc_nb_mistakes_dist = 0
-                t_init = time.time()
+            fr = FaceRecognition(model, db_source=db_source_list)
 
-                # ------- Build NB_REPET probes --------------
-                for rep_index in range(NB_REPET):
-                    res_vote, res_dist = fr.recognition(rep_index)
+            # ------- Accumulators Definition --------------
+            acc_nb_correct = 0
+            acc_nb_mistakes = 0
+            acc_nb_correct_dist = 0
+            acc_nb_mistakes_dist = 0
+            t_init = time.time()
 
-                    acc_nb_correct += res_vote["nb_correct"]
-                    acc_nb_mistakes += res_vote["nb_mistakes"]
-                    acc_nb_correct_dist += res_dist["nb_correct_dist"]
-                    acc_nb_mistakes_dist += res_dist["nb_mistakes_dist"]
+            # ------- Build NB_REPET probes --------------
+            for rep_index in range(NB_REPET):
+                res_vote, res_dist = fr.recognition(rep_index)
 
-                # ------ Print the average over all the different tests -------
-                print("\n ------------------------------ Global Report ---------------------------------")
-                print("Report: " + str(acc_nb_correct / NB_REPET) + " correct, " + str(
-                    acc_nb_mistakes / NB_REPET)
-                      + " wrong recognitions")
+                acc_nb_correct += res_vote["nb_correct"]
+                acc_nb_mistakes += res_vote["nb_mistakes"]
+                acc_nb_correct_dist += res_dist["nb_correct_dist"]
+                acc_nb_mistakes_dist += res_dist["nb_mistakes_dist"]
 
-                print("Report with Distance: " + str(acc_nb_correct_dist / NB_REPET) + " correct, "
-                      + str(acc_nb_mistakes_dist / NB_REPET) + " wrong recognitions")
-                print(" -------------------------------------------------------------------------------\n")
-                total_time = str(time.time() - t_init)
-                print("The time for the recognition of " + str(
-                    NB_PROBES * NB_REPET) + " people is " + total_time)
+            # ------ Print the average over all the different tests -------
+            print("\n ------------------------------ Global Report ---------------------------------")
+            print("Report: " + str(acc_nb_correct / NB_REPET) + " correct, " + str(
+                acc_nb_mistakes / NB_REPET)
+                  + " wrong recognitions")
 
-                eer = fr.compute_far_frr()
-                perc_vote_success = str(100*acc_nb_correct / (NB_PROBES*NB_REPET))
-                perc_dist_success = str(100*acc_nb_correct_dist / (NB_PROBES*NB_REPET))
+            print("Report with Distance: " + str(acc_nb_correct_dist / NB_REPET) + " correct, "
+                  + str(acc_nb_mistakes_dist / NB_REPET) + " wrong recognitions")
+            print(" -------------------------------------------------------------------------------\n")
+            total_time = str(time.time() - t_init)
+            print("The time for the recognition of " + str(
+                NB_PROBES * NB_REPET) + " people is " + total_time)
 
-                data = [NB_REPET, SIZE_GALLERY, NB_PROBES, NB_IM_PER_PERS, db_source]
-                algo = [model.split("models/")[1], TOLERANCE, DIST_METRIC, NB_INST_PROBES, WITH_SYNTHETIC_DATA]
-                result = [perc_vote_success, perc_dist_success, eer, total_time]
-                fr_in_csv(data, algo, result)
+            eer = fr.compute_far_frr()
+            perc_vote_success = str(100*acc_nb_correct / (NB_PROBES*NB_REPET))
+            perc_dist_success = str(100*acc_nb_correct_dist / (NB_PROBES*NB_REPET))
+
+            data = [NB_REPET, SIZE_GALLERY, NB_PROBES, NB_IM_PER_PERS, str(db_source_list)]
+            algo = [model.split("models/")[1], TOLERANCE, DIST_METRIC, NB_INST_PROBES, WITH_SYNTHETIC_DATA]
+            result = [perc_vote_success, perc_dist_success, eer, total_time]
+            fr_in_csv(data, algo, result)
+
+    # ----------------------------------------------------------------
+    #       Test 3: Use of the encoding derived from the generator
+    # ----------------------------------------------------------------
+    if test_id == 3:
+        db_source = "cfp3"
+        model = None
+        fr = FaceRecognition(model, db_source=db_source)
+        # ------- Accumulators Definition --------------
+        acc_nb_correct_dist = 0
+        acc_nb_mistakes_dist = 0
+
+        # ------- Build NB_REPET probes --------------
+        for rep_index in range(NB_REPET):
+            res_vote, res_dist = fr.recognition(rep_index)
+
+            acc_nb_correct_dist += res_dist["nb_correct_dist"]
+            acc_nb_mistakes_dist += res_dist["nb_mistakes_dist"]
+
+        # ------ Print the average over all the different tests -------
+        print("\n ------------------------------ Global Report ---------------------------------")
+        print("Report with Distance: " + str(acc_nb_correct_dist / NB_REPET) + " correct, "
+              + str(acc_nb_mistakes_dist / NB_REPET) + " wrong recognitions")
+        print(" -------------------------------------------------------------------------------\n")
+
+        fr.compute_far_frr()

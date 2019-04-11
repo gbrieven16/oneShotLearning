@@ -481,7 +481,7 @@ class DecoderNet(nn.Module):
         super(DecoderNet, self).__init__()
         self.nb_channels = 4
         self.out_nb_channels = 3
-        self.dim1 = 100
+        self.dim1 = 140
         self.dim2 = self.dim1 + (CENTER_CROP[1] - CENTER_CROP[0]) # = 150
 
         self.linear1 = nn.Linear(DIM_LAST_LAYER, self.nb_channels * self.dim1 * self.dim2)

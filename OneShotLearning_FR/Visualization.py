@@ -169,14 +169,14 @@ def autolabel(rects, ax):
                 ha='center', va='bottom')
 
 
-''' -------------------- store_in_csv ----------------------------
+''' ------------------------- store_in_csv -------------------------------------------
 This function extends the csv file containing all the current 
 results related to the different scenarios that were experimented 
 IN: List of information to record about:
     data = [used_db, DIFF_FACES, WITH_PROFILE, DB_TRAIN]
     training = [pretrain_loss, nb_ep, bs, wd, lr, arch, opt, loss_type, margin]
-    result = [losses_validation, f1_validation]
--------------------------------------------------------------------'''
+    result = [losses_validation, f1_validation, f1_valid_posAndNeg, f1_test_posAndNeg]
+---------------------------------------------------------------------------------------'''
 
 
 def store_in_csv(data, training, result, train_time):
@@ -200,8 +200,11 @@ def store_in_csv(data, training, result, train_time):
         writer = csv.writer(f, delimiter=";")
         # writer.writerow(titles)
         writer.writerow(
-            curr_parameters + curr_evaluation + [str(best_f1)] + [str(best_epoch)] + [result[2]] + [str(train_time)]
-            + str(result[0]) + str(result[1]))
+            curr_parameters + curr_evaluation + [str(best_f1)] + [str(best_epoch)] + [result[2:]]
+            + [str(train_time)] + ["/"] + ["/"])
+        writer.writerow(
+            curr_parameters + curr_evaluation + [str(best_f1)] + [str(best_epoch)] + [result[2:]]
+            + [str(train_time)] + [str(result[0])] + [str(result[1])])
 
     return best_f1
 

@@ -1,3 +1,4 @@
+import time
 import os
 import pickle
 import platform
@@ -45,7 +46,9 @@ NB_ITERATIONS = 1000  # !!! the higher it is, the more similar to the given inpu
 RANDOMIZE_NOISE = False
 
 CHANGES = ["smile", "age", "gender"]
-COEF = {"smile": [-1, 0, 1], "age": [-1, 0], "gender": [-1, 0]}
+#COEF = {"smile": [-1, 0], "age": [-1, 0], "gender": [-1, 0]}
+COEF = {"smile": [-1.5, 0, 1.5], "age": [-1.5, 0], "gender": [-1, 0]}
+
 # COEF = [-1, 0, 1]  # Coefficient measuring the intensity of change
 
 if platform.system() != "Darwin":
@@ -55,6 +58,8 @@ if platform.system() != "Darwin":
 
     PERCEPTUAL_MODEL = PerceptualModel(IMAGE_SIZE, layer=9, batch_size=BATCH_SIZE)
     PERCEPTUAL_MODEL.build_perceptual_model(GENERATOR.generated_image)
+else:
+    GS_NETWORK = None
 
 
 #########################################
@@ -158,10 +163,10 @@ OUT: list of the dlatent representation of the pictures contained in src dir
 
 
 def get_encoding(db_source, filename, generated_images_dir=None, dlatent_name=None, with_save=False):
-
     try:
         return np.load(DLATENT_DIR + dlatent_name)
     except FileNotFoundError:
+        time_init = time.time()
         print("\nOptimize (only) dlatents by minimizing perceptual loss between reference and generated images in "
               "feature space... ")
 
@@ -192,6 +197,7 @@ def get_encoding(db_source, filename, generated_images_dir=None, dlatent_name=No
 
             GENERATOR.reset_dlatents()
 
+        print("Time for encoding is " + str(time.time() - time_init) + "\n")
         return generated_dlatents
 
 
@@ -226,12 +232,13 @@ def data_augmentation(face_dic=None, nb_add_instances=3, save_generated_im=False
         if save_dlatent:
             dlatent_name = images[0].file_path.split(".")[0] + ".npy"
         else:
-            dlatent_name=None
+            dlatent_name = None
 
         # Get latent representation of the person
         latent_repres = get_encoding(images[0].db_path, images[0].file_path, dlatent_name=dlatent_name, with_save=True)
         nb_additional_pict = 0
 
+        time_in = time.time()
         for i, change in enumerate(CHANGES):
             for j, coef in enumerate(COEF[change]):
 
@@ -249,6 +256,8 @@ def data_augmentation(face_dic=None, nb_add_instances=3, save_generated_im=False
                     name = GENERATED_IMAGES_DIR + person + "__" + str(i) + str(j) + ".jpg"
                     new_image.save(name, "jpeg")
                     print("Synthetic image saved as " + name + "\n")
+
+        print("Time to generate " + str(nb_add_instances) + " pictures is " + str(time.time() - time_in) + "\n")
 
 
 if __name__ == "__main__":

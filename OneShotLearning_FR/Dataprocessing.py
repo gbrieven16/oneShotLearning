@@ -21,7 +21,7 @@ matplotlib.use("TkAgg")  # ('Agg')
 import matplotlib.pyplot as plt
 
 if platform.system() != "Darwin": torch.cuda.set_device(0)
-from StyleEncoder import data_augmentation, get_encoding, generate_synth_face
+from StyleEncoder import data_augmentation, get_encoding, generate_synth_face, DLATENT_DIR
 
 from Face_alignment import align_faces, ALIGNED_IMAGES_DIR
 
@@ -50,17 +50,18 @@ MAX_NB_ENTRY = 500000
 MIN_NB_IM_PER_PERSON = 2
 MAX_NB_IM_PER_PERSON = 20
 MIN_NB_PICT_CLASSIF = 4  # s.t. 25% is used for testing
-NB_TRIPLET_PER_PICT = 2
+NB_TRIPLET_PER_PICT = 1
 WITH_AL = False
+WITH_SYNTH = False
 
 RATIO_HORIZ_CROP = 0.15
 CENTER_CROP = (200, 150)
 TRANS = transforms.Compose([transforms.CenterCrop(CENTER_CROP), transforms.ToTensor(),
                             transforms.Normalize((0.5, 0.5, 0.5), (1.0, 1.0, 1.0))])
 
-Q_DATA_AUGM = 6
-BATCH_SIZE_DA = 15 # Batch size of data augmentation (so that images are registered)
-DIST_METRIC = "MeanSquare"  # "Cosine_Sym"
+Q_DATA_AUGM = 5
+BATCH_SIZE_DA = 15  # Batch size of data augmentation (so that images are registered)
+DIST_METRIC = "Manhattan"  # "Cosine_Sym"
 
 
 # ================================================================
@@ -113,7 +114,7 @@ class Data:
         new_name = self.db_source + SEPARATOR + self.name_person + SEPARATOR + self.index + ".jpg"
 
         if file_is_pil:
-            self.file.save(FOLDER_DB + new_name)
+            self.file.save(FOLDER_DB + new_name, "jpeg")
             return FOLDER_DB + new_name, new_name
 
         elif self.extension == "jpg":
@@ -254,7 +255,7 @@ class Fileset:
      ----------------------------------------------------------------------- '''
 
     def order_per_personName(self, transform, nb_people=None, max_nb_pict=MAX_NB_IM_PER_PERSON,
-                             min_nb_pict=MIN_NB_IM_PER_PERSON, save=None, with_synth=True):
+                             min_nb_pict=MIN_NB_IM_PER_PERSON, save=None, with_synth=WITH_SYNTH):
 
         if min_nb_pict is None:
             min_nb_pict = MIN_NB_IM_PER_PERSON
@@ -364,8 +365,8 @@ class FaceImage():
         self.db_path = db_path  # Complete path of the db (zip file)
         self.trans_img = trans_image
         self.dist = {}  # key1 person, val1: dic2 ; key2: index, val2: val2
-        self.feature_repres = None # From the Model
-        self.latent_repres = None # From the generator
+        self.feature_repres = None  # From the Model
+        self.latent_repres = None  # From the generator
         self.person = pers
         self.index = i
         self.is_synth = 1 < len(self.index.split("_"))
@@ -417,6 +418,7 @@ class FaceImage():
     """
     IN: picture: faceImage object corresponding to the current probe 
     """
+
     def get_dist(self, person, index, picture, fr):
         try:
             return self.dist[person][index]
@@ -551,6 +553,12 @@ class Face_DS(torch.utils.data.Dataset):
         Total number of samples in the dataset
         ----------------------------------------------- """
         return len(self.train_data)
+
+    def merge_ds(self, ds_list):
+        self.transform = ds_list[0].transform
+        for i, ds in enumerate(ds_list):
+            self.train_data.extend(ds.train_data)
+            self.train_labels.extend(ds.train_labels)
 
     def build_triplet(self, faces_dic, device):
         """ ---------------------------------------------------
@@ -734,7 +742,8 @@ def load_sets(db_name, dev, nb_classes, sets_list):
     # Go through each of the 3 sets
     # ------------------------------------------
     for i, set in enumerate(sets_list):
-        name_file = FOLDER_DB + save_names_list[i] + type_ds + db_name + ".pkl"
+        name_file = FOLDER_DB + save_names_list[i]
+        name_file = name_file + ".pkl" if i == 2 else name_file + type_ds + db_name + ".pkl"
         # ------------------------------------------
         # Load the FACE_DS Object (if there's any)
         # ------------------------------------------
@@ -844,6 +853,23 @@ def from_zip_to_data(with_profile, fname=MAIN_ZIP, dataset=None):
 
 
 """
+This function returns true if the current file is a synthetic image or supported the
+synthesis of an image and false otherwise 
+IN: fn is like db__person__index.jpg
+"""
+
+
+def is_already_synt(already_synt, fn):
+    # --------- Check if synthetic image ---------
+    index = fn.split(SEPARATOR)[2].split(".")[0]
+    if 1 < len(index.split("_")):
+        return True
+    else:
+        # --------- Check if already synthetized ---------
+        return fn.split(".")[0] in already_synt
+
+
+"""
 This function generates synthetic images of each person contained in the given database
 and add them in the database under the name "db__personName__indexReal_indexSynth.jpg"
 IN: zip_db: Zip file containing the pictures the db is made up of  
@@ -851,6 +877,13 @@ IN: zip_db: Zip file containing the pictures the db is made up of
 
 
 def generate_synthetic_im(db, nb_additional_images=Q_DATA_AUGM):
+    # ---------------------------------------------------
+    # 0. Extract the list of already synthetized pictures
+    # ---------------------------------------------------
+
+    already_synt = os.listdir(DLATENT_DIR)
+    already_synt = [file.split(".npy")[0] for i, file in enumerate(already_synt)]
+
     # -------------------------------
     # 1. Open the DB
     # -------------------------------
@@ -876,16 +909,15 @@ def generate_synthetic_im(db, nb_additional_images=Q_DATA_AUGM):
         else:
             current_person = fn.split(SEPARATOR)[1]
             index = fn.split(SEPARATOR)[2].split(".")[0]
-            if current_person in face_dic:
+            if is_already_synt(already_synt, fn) or current_person in face_dic:
                 continue
 
         pict = FaceImage(fn, None, db_path=db, i=index)
-        #print("fn is " + str(fn))
         face_dic[current_person] = [pict]
 
     batch_id = 0
 
-    while BATCH_SIZE_DA < len(face_dic):
+    while BATCH_SIZE_DA <= len(face_dic):
         batch_id += 1
         face_dic_curr = dict(list(face_dic.items())[:BATCH_SIZE_DA])
         face_dic = {item[0]: item[1] for i, item in enumerate(list(face_dic.items())[BATCH_SIZE_DA:])}
@@ -894,7 +926,7 @@ def generate_synthetic_im(db, nb_additional_images=Q_DATA_AUGM):
         # 3. Generate synthetic images and add them in the dictionary
         # ----------------------------------------------------------------------
         print("\nIn data Augmentation with batch " + str(batch_id) + "...\n")
-        data_augmentation(face_dic_curr, nb_add_instances=nb_additional_images, save_dlatent=True)#, save_generated_im=True)
+        data_augmentation(face_dic_curr, nb_add_instances=nb_additional_images, save_dlatent=True)
 
         # -----------------------------------------------------------------
         # 4. Register the synthetic images in the db
@@ -917,9 +949,9 @@ def generate_synthetic_im(db, nb_additional_images=Q_DATA_AUGM):
         fset.ds_to_zip(db_destination=db, file_is_pil=True)
 
 
-"""
+""" --------------------- register_aligned ---------------------------------
 This function crops and aligns the images in db and registers them in 
-"""
+---------------------------------------------------------------------------- """
 
 
 def register_aligned(db):
@@ -976,30 +1008,14 @@ if __name__ == "__main__":
 
     # ----------------- Synthetic Images Generation and saving ----------------
     if test_id == 2:
-        db_list = ["cfp_filtered.zip", "gbrieven_filtered.zip", "lfw_filtered.zip", "faceScrub_filtered.zip",
+        db_list = ["cfp_humFiltered.zip", "gbrieven_filtered.zip", "lfw_filtered.zip", "faceScrub_filtered.zip",
                    "testdb_filtered.zip"]
 
         for i, db in enumerate(db_list):
             print("Current db is " + str(FOLDER_DB + db) + "...\n")
-            generate_synthetic_im(FOLDER_DB + db)
+            generate_synthetic_im(db=FOLDER_DB + db)
 
     # ----------------- Synthetic Person Generation and saving ----------------
     if test_id == 3:
         generate_synth_face(nb_people=100)
 
-    # ----------------- Register encoding ----------------
-    if test_id == 4:
-        db_source = "cfp_humFiltered"
-        people = ["205", "250", "433", "436","452"] # To fill
-        filenames = []
-        indexes = ["01", "02", "03", "04", "05", "06", "07", "08", "09", "10"]
-
-        # Build filenames
-        for j, person in enumerate(people):
-            for k, index in enumerate(indexes):
-                filenames.append(db_source.split("_")[0] + SEPARATOR + person + SEPARATOR + index + ".jpg")
-
-        # Register encoding
-        for i, filename in enumerate(filenames):
-            dlatent_name = filename.split(".")[0] + ".npy"
-            get_encoding(db_source, filename, dlatent_name=dlatent_name, with_save=True)

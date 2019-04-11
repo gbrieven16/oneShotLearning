@@ -155,7 +155,7 @@ if __name__ == "__main__":
     test_id = 1
 
     if test_id == 1:
-        shutil.make_archive("data/data_augm", 'zip', "data/gbrieven/data_augm")
+        shutil.make_archive("data/cfp_test", 'zip', "data/gbrieven/cfp_test")
         print("Archive has been made!")
 
     if test_id == 2:
