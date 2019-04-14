@@ -42,16 +42,16 @@ BATCH_SIZE = 1  # If more than 1, then mix of faces
 NB_PICTURES = 3
 IMAGE_SIZE = 256
 LR = 1  # CHANGE Was set to 1
-NB_ITERATIONS = 1000  # !!! the higher it is, the more similar to the given input data the generated image is
+NB_ITERATIONS = 1200  # !!! the higher it is, the more similar to the given input data the generated image is
 RANDOMIZE_NOISE = False
 
 CHANGES = ["smile", "age", "gender"]
 #COEF = {"smile": [-1, 0], "age": [-1, 0], "gender": [-1, 0]}
-COEF = {"smile": [-1.5, 0, 1.5], "age": [-1.5, 0], "gender": [-1, 0]}
+COEF = {"smile": [-1.5, 0, 1.3], "age": [-1.5, 0], "gender": [-1, 0]}
 
 # COEF = [-1, 0, 1]  # Coefficient measuring the intensity of change
 
-if platform.system() != "Darwin":
+if False and platform.system() != "Darwin":
     tflib.init_tf()  # Initialization of TensorFlow session
     _, _, GS_NETWORK = pickle.load(open(STYLE_GAN, "rb"))  # generator_network, discriminator_network
     GENERATOR = Generator(GS_NETWORK, BATCH_SIZE, randomize_noise=RANDOMIZE_NOISE)

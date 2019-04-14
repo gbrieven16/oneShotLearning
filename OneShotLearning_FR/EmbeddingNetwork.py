@@ -160,8 +160,11 @@ class VGG16(nn.Module):
         if init_weights:
             self._initialize_weights()
 
+        self.to(DEVICE) #HASBEEN added
+
     def forward(self, data):
-        x = self.features(data.to(DEVICE))
+        x = self.features(data)
+        #x = self.features(data.to(DEVICE))
         if WITH_GNAP: x = self.gnap(x)
         x = self.avgpool(x)
         x = x.view(x.size(0), -1)
@@ -199,7 +202,7 @@ def make_layers(cfg, batch_norm=False):
 
 
 # ================================================================
-#                    CLASS: VGG16
+#                    CLASS: BasicBlock
 # ================================================================
 
 

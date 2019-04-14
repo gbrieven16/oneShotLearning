@@ -9,13 +9,62 @@ import pandas as pd
 #       FUNCTIONS                       #
 #########################################
 
+""" ------------------------ to_dic -------------------------------------
+This function build a dictionary from the content of the csv_name
+where the keys are the different values for crit_key and the value 
+are the mean over the corresponding values of crit_value
+
+Eg: crit_key ; crit_value
+    1        ; 3
+    1        ; 7
+    3        ; 3
+    1        ; 2
+    => {1: 4, 3: 3}
+
+IN: lower_bound: the minimum value the value of crit_value has to have 
+to be considered 
+------------------------------------------------------------------------ """
+
+
+def to_dic(csv_name, crit_key, crit_value, lower_bound=0):
+    # ------------------------------
+    # Open CSV
+    # ------------------------------
+    df = pd.read_csv(csv_name, delimiter=";")
+
+    dic = {}
+
+    # ------------------------------------------------------------------------
+    # Store all values of crit_value to the corresponding crit_key
+    # ------------------------------------------------------------------------
+    for i, row in df.iterrows():
+        if lower_bound < row[crit_value]:
+            try:
+                dic[crit_key].append(row[crit_value])
+            except KeyError:
+                dic[crit_key] = [row[crit_value]]
+
+    # ---------------------------------------------------------------------------
+    # Compute the avg of all values of crit_value corresponding to each crit_key
+    # ---------------------------------------------------------------------------
+    for key_val, val_list in dic.items():
+        dic[key_val] = sum(val_list)/float(len(val_list))
+
+    return dic
+
+
+""" ------------------------ find_highest ----------------------------------------
+This function returns the criterion in crits having the highest sum of values over
+all the rows 
+------------------------------------------------------------------------------------ """
+
 
 def find_highest(csv_name, crits):
     # ------------------------------
     # Open CSV
     # ------------------------------
     df = pd.read_csv(csv_name, delimiter=";")
-    #print(df.keys())
+    # print(df.keys())
 
     # ------------------------------
     # Compute a score for each line
@@ -31,7 +80,7 @@ def find_highest(csv_name, crits):
     return max(scores, key=scores.get)
 
 
-""" ------------------------ find_optimal_val --------------------------------------------
+""" ------------------------ find_optimal_val ----------------------------------------
 This function returns the value of to_return maximizing the values of the criteria
 in eval_crit 
 
@@ -46,7 +95,7 @@ def find_optimal_val(csv_name, to_return, eval_crit):
     # Open CSV
     # ------------------------------
     df = pd.read_csv(csv_name, delimiter=";")
-    #print(df.keys())
+    # print(df.keys())
 
     # ------------------------------
     # Compute a score for each line
@@ -93,7 +142,6 @@ if __name__ == "__main__":
         eval_crit = ["nb_correct_vote", "nb_correct_dist", "EER"]
         to_return = "thresh"  # "distance metric" #"im_per_pers"   # "thresh"
         print("The optimal value is " + str(find_optimal_val(csv_name, to_return, eval_crit)) + " for " + to_return)
-
 
     if test_id == 2:
         crits = ["nb_correct_vote", "nb_correct_dist"]

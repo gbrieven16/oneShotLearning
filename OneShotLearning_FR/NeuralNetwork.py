@@ -2,6 +2,7 @@ import torch
 from torch import nn
 import torch.nn.functional as f
 import numpy as np
+from PIL import Image
 
 from Dataprocessing import CENTER_CROP
 from EmbeddingNetwork import AlexNet, BasicNet, VGG16, ResNet
@@ -22,7 +23,7 @@ TYPE_ARCH (related to the embedding Network)
 4: AlexNet architecture 
 """
 
-TYPE_ARCH = "VGG16"  # "resnet152"  #"1default" "VGG16" #  "2def_drop" "3def_bathNorm"
+TYPE_ARCH = "1default"  # "resnet152"  #"1default" "VGG16" #  "2def_drop" "3def_bathNorm"
 DIM_LAST_LAYER = 1024 if TYPE_ARCH in ["VGG16", "4AlexNet"] else 512
 
 DIST_THRESHOLD = 0.02
@@ -531,8 +532,23 @@ class AutoEncoder_Net(nn.Module):
 
     def visualize_dec(self):
         for i, decoded in enumerate(self.last_decoded[0].detach()):
-            dec_as_np = decoded.cpu().numpy()
-            plt.imshow(np.transpose(dec_as_np))
-            print("The picture representing the result from the decoder is saved")
-            plt.savefig("Result_autoencoder_" + str(i))
-            plt.show()
+            dec_as_np = decoded.cuda().numpy()
+
+            print("Autoencoder Result is: " + str(dec_as_np))
+
+            im = Image.fromarray(np.transpose(dec_as_np)).convert("L")
+            im.save("result_autoencoder_" + TYPE_ARCH + "_" + str(i) + ".jpg")
+            #plt.imshow(np.transpose(dec_as_np))
+            #print("The picture representing the result from the decoder is saved")
+            #plt.savefig("Result_autoencoder_" + str(i))
+            #plt.show()
+
+# ================================================================
+#                    MAIN
+# ================================================================
+
+if __name__ == '__main__':
+    pass
+
+
+

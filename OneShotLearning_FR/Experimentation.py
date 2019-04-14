@@ -11,7 +11,7 @@ from FaceRecognition import remove_synth_data
 #########################################
 
 PICTURES_NB = [200, 500, 1000, 2000, 4000, 10000, 15000, 20000]
-TRIPLET_NB = [3, 2, 2, 2, 1, 1, 1, 1]
+TRIPLET_NB = [4, 2, 2, 2, 1, 1, 1, 1]
 SIZE_VALIDATION_SET = 1000
 SEED = 9
 
@@ -226,7 +226,7 @@ if __name__ == "__main__":
     db_name_train = [FOLDER_DB + "gbrieven.zip", FOLDER_DB + "cfp.zip", FOLDER_DB + "lfw.zip",
                      FOLDER_DB + "faceScrub.zip"]
 
-    test_id = 4
+    test_id = 2
 
     if test_id == 1:
         # ================================ Tests Architectures and Losses ===============
@@ -245,8 +245,8 @@ if __name__ == "__main__":
         # !!!!! Hardcode nom de l'autoencoder (already trained)
         # ============================================================
         for i in range(len(PICTURES_NB)):
-            print("======================= Training on set " + str(i) + "... ================================= ")
-            sets_list = [datasets[0][i], datasets[1], datasets[2]]
+            print("======================= Training on set " + str(i+1) + "... ================================= ")
+            sets_list = [datasets[0][i+1], datasets[1], datasets[2]]
             _, model_name = main_train(sets_list, db_name_train, name_model=model_name, pret="autoencoder")
 
     if test_id == 3:

@@ -103,7 +103,9 @@ class Probe:
 
 
 class FaceRecognition:
-    def __init__(self, model_path, db_source="testdb"):
+    def __init__(self, model_path, db_source=None):
+
+        db_source = ["testdb"] if db_source is None else db_source
         self.k_considered = []
         self.distances = {}
 
@@ -410,7 +412,7 @@ if __name__ == '__main__':
     # ------------------------------------------------
     if test_id == 1:
         db_source = "testdb"
-        model = "models/dsgbrievencfplfwfaceScrub_diff_100_32_triplet_loss_pretrainautoencoder.pt"
+        model = "models/THEmodel_VGG16_triplet_loss_ep8.pt"
         fr = FaceRecognition(model, db_source=[db_source])
 
         # ------- Accumulators Definition --------------
@@ -447,7 +449,7 @@ if __name__ == '__main__':
         size_gallery = [20, 50, 100, 200, 400]  # Nb of people to consider
         db_source_list = ["cfp_humFiltered", "lfw_filtered1", "lfw_filtered2", "gbrieven_filtered", "testdb_filtered",
                           "faceScrub_filtered"]
-        model = "models/dsgbrievencfplfwfaceScrub_diff_100_32_triplet_loss_pretrainautoencoder.pt"
+        model = "models/THEmodel_VGG16_triplet_loss_ep8.pt"
 
 
         for i, SIZE_GALLERY in enumerate(size_gallery):
@@ -498,8 +500,7 @@ if __name__ == '__main__':
     #       Test 3: Use of the encoding derived from the generator
     # ----------------------------------------------------------------
     if test_id == 3:
-        db_source = "cfp3"
-        model = None
+        db_source = ["cfp3"]
         fr = FaceRecognition(model, db_source=db_source)
         # ------- Accumulators Definition --------------
         acc_nb_correct_dist = 0

@@ -1,5 +1,6 @@
 import os
 import torch
+from functools import partial
 import pickle
 from NeuralNetwork import Tripletnet, ContrastiveLoss, SoftMax_Net, AutoEncoder_Net, TYPE_ARCH, Classif_Net
 from Visualization import visualization_validation, visualization_train
@@ -15,7 +16,8 @@ MOMENTUM = 0.9
 GAMMA = 0.1  # for the lr_scheduler - default value 0.1
 N_TEST_IMG = 5
 PT_BS = 32  # Batch size for pretraining
-PT_NUM_EPOCHS = 200
+PT_NUM_EPOCHS = 200 #200
+EP_SAVE = 30
 ROUND_DEC = 5
 
 STOP_TOLERANCE_EPOCH = 35
@@ -25,8 +27,6 @@ TOLERANCE_MAX_SAME_F1 = 8
 # Specifies where the torch.tensor is allocated
 DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-
-# Loss combination not considered here
 
 
 # ================================================================
@@ -78,9 +78,8 @@ class Model:
             pass
             # self.loss_type = "None"
 
-        self.eval_dic = {"nb_correct": 0, "nb_labels": 0, "recall_pos": 0, "recall_neg": 0, "f1_pos": 0, "f1_neg": 0}
-
         # For Visualization
+        self.eval_dic = {"nb_correct": 0, "nb_labels": 0, "recall_pos": 0, "recall_neg": 0, "f1_pos": 0, "f1_neg": 0}
         self.losses_validation = {"Pretrained Model": [], "Non-pretrained Model": []}
         self.f1_validation = {"Pretrained Model": [], "Non-pretrained Model": [], "On Training Set": []}
         self.losses_train = []
@@ -94,10 +93,27 @@ class Model:
 
     def pretraining(self, Face_DS_train, hyper_par, num_epochs=PT_NUM_EPOCHS, batch_size=PT_BS):
 
-        name_trained_net = "encoder_al_" + TYPE_ARCH + "_" + str(len(Face_DS_train.train_data)) + ".pkl"
+        name_trained_net = "encoder_al_" + TYPE_ARCH + ".pkl"
         try:
             with open(name_trained_net, "rb") as f:
                 self.network.embedding_net = pickle.load(f)
+                if False:
+                    train_data = Face_DS_train.to_single(Face_DS_train) if self.nb_classes is None else Face_DS_train
+                    train_loader = torch.utils.data.DataLoader(train_data, batch_size=batch_size, shuffle=True)
+                    train_param = {"loss_type": None, "hyper_par": hyper_par}
+                    autoencoder = Model(train_param=train_param, embedding_net=self.network.embedding_net,
+                                        train_loader=train_loader)
+                    print(" ------------ Train as Autoencoder ----------------- ")
+                    for epoch in range(2):
+                        autoencoder.train(epoch, autoencoder=True)
+                    autoencoder.network.visualize_dec()
+            print("The autoencoder has been loaded!\n")
+
+        except RuntimeError:
+            pickle.load = partial(pickle.load)
+            pickle.Unpickler = partial(pickle.Unpickler)
+            self.network.embedding_net = torch.load(name_trained_net, map_location=lambda storage, loc: storage,
+                                                    pickle_module=pickle)  # network
             print("The autoencoder has been loaded!\n")
         except FileNotFoundError:
             train_data = Face_DS_train.to_single(Face_DS_train) if self.nb_classes is None else Face_DS_train
@@ -109,6 +125,8 @@ class Model:
             print(" ------------ Train as Autoencoder ----------------- ")
             for epoch in range(num_epochs):
                 autoencoder.train(epoch, autoencoder=True)
+                if epoch != 0 and epoch % EP_SAVE == 0:
+                    torch.save(autoencoder.network.state_dict(), "auto_{0:03d}.pwf".format(epoch))
             autoencoder.network.visualize_dec()
 
             pickle.dump(self.network.embedding_net, open(name_trained_net, "wb"))  # , protocol=2)
@@ -227,7 +245,6 @@ class Model:
 
             for batch_idx, (data, target) in enumerate(data_loader):
                 try:
-                    print("DELETE: len of batch of data is " + str(len(data)))
                     loss = self.network.get_loss(data, target, self.class_weights, train=False)
                     # target = target.type(torch.LongTensor).to(DEVICE)
 
@@ -427,10 +444,10 @@ class Model:
             visualization 
     -------------------------------- '''
 
-    def visualization(self, num_epoch, db, batch_size, opt_type):
+    def visualization(self, num_epoch, db, size_train):
 
-        name_fig = "graphs/ds" + db + "_" + str(num_epoch) + "_" + str(batch_size) \
-                   + "_" + self.loss_type + "_arch" + TYPE_ARCH + "_opti" + opt_type
+        name_fig = "graphs/ds" + db + "_" + str(size_train) + "_" + str(num_epoch) + "_" \
+                   + self.loss_type + "_arch" + TYPE_ARCH
 
         visualization_train(range(0, num_epoch, int(round(num_epoch / 5))), self.losses_train,
                             save_name=name_fig + "_train.png")
@@ -472,6 +489,7 @@ def should_break(f1_list, epoch):
             break
 
     if (STOP_TOLERANCE_EPOCH < epoch and curr_avg_f1 < MIN_AVG_F1) or constant:
+
         print("The f1 measure is bad => Stop Training")
         return True
     else:

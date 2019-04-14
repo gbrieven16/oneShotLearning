@@ -59,7 +59,7 @@ CENTER_CROP = (200, 150)
 TRANS = transforms.Compose([transforms.CenterCrop(CENTER_CROP), transforms.ToTensor(),
                             transforms.Normalize((0.5, 0.5, 0.5), (1.0, 1.0, 1.0))])
 
-Q_DATA_AUGM = 5
+Q_DATA_AUGM = 4
 BATCH_SIZE_DA = 15  # Batch size of data augmentation (so that images are registered)
 DIST_METRIC = "Manhattan"  # "Cosine_Sym"
 
@@ -733,7 +733,7 @@ OUT: list of 3 sets of type FACE_DS
 -------------------------------------------------------------- '''
 
 
-def load_sets(db_name, dev, nb_classes, sets_list):
+def load_sets(db_name, dev, nb_classes, sets_list, save=True):
     type_ds = "triplet_" if nb_classes == 0 else "class" + str(nb_classes) + "_"
     result_sets_list = []
     save_names_list = ["trainset_ali_", "validationset_ali", "testset_ali"]
@@ -742,8 +742,12 @@ def load_sets(db_name, dev, nb_classes, sets_list):
     # Go through each of the 3 sets
     # ------------------------------------------
     for i, set in enumerate(sets_list):
-        name_file = FOLDER_DB + save_names_list[i]
-        name_file = name_file + ".pkl" if i == 2 else name_file + type_ds + db_name + ".pkl"
+        if save:
+            name_file = FOLDER_DB + save_names_list[i]
+            name_file = name_file + ".pkl" if i == 2 else name_file + type_ds + db_name + ".pkl"
+        else:
+            name_file = "None"
+
         # ------------------------------------------
         # Load the FACE_DS Object (if there's any)
         # ------------------------------------------

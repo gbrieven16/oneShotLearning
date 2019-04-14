@@ -1,4 +1,5 @@
 import matplotlib
+
 matplotlib.use('TkAgg')
 import matplotlib.pyplot as plt
 
@@ -222,17 +223,15 @@ IN: List of information to record about:
 
 
 def fr_in_csv(data, algo, result):
-
-    #titles = ["nb_repet", "gallery_size", "nb_probes", "im_per_pers", "db_test", "model name", "thresh",
-             # "distance metric", "nb_correct_vote", "nb_correct_dist"]
+    # titles = ["nb_repet", "gallery_size", "nb_probes", "im_per_pers", "db_test", "model name", "thresh",
+    # "distance metric", "nb_correct_vote", "nb_correct_dist"]
 
     with open(FR_CSV_NAME, 'a') as f:
         writer = csv.writer(f, delimiter=";")
-        #writer.writerow(titles)
+        # writer.writerow(titles)
         writer.writerow(data + algo + result)
 
     print("The results from the FR task have been registered \n")
-
 
 
 '''------------------ visualization_train -------------------------------------------
@@ -246,13 +245,21 @@ def visualization_train(epoch_list, loss_list, save_name=None):
     perc_train = [float(x) / len(loss_list[0]) for x in range(0, len(loss_list[0]))]
     dictionary = {}
     for i, epoch in enumerate(epoch_list):
-        dictionary["epoch " + str(epoch)] = loss_list[epoch]
+        try:
+            dictionary["epoch " + str(epoch)] = loss_list[epoch]
+        except IndexError:
+            print("IN visualization_train: error with " + str(loss_list) + " by accessing element " + str(epoch))
+            print("Epoch list is " + str(epoch_list))
+            return
 
     multi_line_graph(dictionary, perc_train, title, x_label="percentage of data", y_label="Loss", save_name=save_name,
                      loc='upper right')
 
 
-'''------------------ visualization_validation ----------------------------- '''
+'''------------------------------------ visualization_validation -------------------------------------------- 
+IN : self.losses_validation = {"Pretrained Model": [], "Non-pretrained Model": []}
+     self.f1_validation = {"Pretrained Model": [], "Non-pretrained Model": [], "On Training Set": []}
+------------------------------------------------------------------------------------------------------------ '''
 
 
 def visualization_validation(loss, f1, save_name=None):
@@ -282,12 +289,11 @@ def visualization_validation(loss, f1, save_name=None):
 
         try:
             multi_line_graph(dict_f1_valid_train, epoches, title_f1_train_valid, x_label="epoch", y_label="f1",
-                         save_name=save_name + "_f1_train_val.png")
+                             save_name=save_name + "_f1_train_val.png")
         except ValueError:
-            pass # Case where there was no evaluation on the training set while training
+            pass  # Case where there was no evaluation on the training set while training
 
 
 if __name__ == '__main__':
     dic = {'a': 193, 'b': 48, 'c': 933, 'd': 9888}
     random.shuffle()
-
