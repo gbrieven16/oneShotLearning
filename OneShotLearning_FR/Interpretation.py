@@ -1,4 +1,5 @@
 import pandas as pd
+from Visualization import bar_chart
 
 #########################################
 #       GLOBAL VARIABLES                #
@@ -23,10 +24,11 @@ Eg: crit_key ; crit_value
 
 IN: lower_bound: the minimum value the value of crit_value has to have 
 to be considered 
+crit key: (list of 2) crit to discuss
 ------------------------------------------------------------------------ """
 
 
-def to_dic(csv_name, crit_key, crit_value, lower_bound=0):
+def to_dic(csv_name, crit_key_list, crit_value, lower_bound=0):
     # ------------------------------
     # Open CSV
     # ------------------------------
@@ -38,19 +40,55 @@ def to_dic(csv_name, crit_key, crit_value, lower_bound=0):
     # Store all values of crit_value to the corresponding crit_key
     # ------------------------------------------------------------------------
     for i, row in df.iterrows():
+        if i == 0:
+            continue
         if lower_bound < row[crit_value]:
             try:
-                dic[crit_key].append(row[crit_value])
+                if type(crit_key_list) is list:
+                    dic[row[crit_key_list[0]]][row[crit_key_list[1]]].append(row[crit_value])
+                else:
+                    dic[row[crit_key_list]].append(row[crit_value])
+
             except KeyError:
-                dic[crit_key] = [row[crit_value]]
+                if type(crit_key_list) is list:
+                    try:
+                        dic[row[crit_key_list[0]]][row[crit_key_list[1]]] = [row[crit_value]]
+                    except KeyError:
+                        dic[row[crit_key_list[0]]] = {}
+                        dic[row[crit_key_list[0]]][row[crit_key_list[1]]] = [row[crit_value]]
+                else:
+                    dic[row[crit_key_list]] = [row[crit_value]]
 
     # ---------------------------------------------------------------------------
     # Compute the avg of all values of crit_value corresponding to each crit_key
     # ---------------------------------------------------------------------------
     for key_val, val_list in dic.items():
-        dic[key_val] = sum(val_list)/float(len(val_list))
+        if type(val_list) is dict:
+            for key2, values in val_list.items():
+                dic[key_val][key2] = sum(values) / float(len(values))
+        else:
+            dic[key_val] = sum(val_list)/float(len(val_list))
 
     return dic
+
+
+def key_restiction(dic, keys1, keys2=None):
+    filtered_dic = {}
+    for key, value in dic.items():
+        if key in keys1:
+            if keys2 is not None:
+                for key2, value2 in value.items():
+                    if key2 in keys2:
+                        try:
+                            filtered_dic[key][key2] = value2
+                        except KeyError:
+                            filtered_dic[key] = {}
+                            filtered_dic[key][key2] = value2
+
+
+            else:
+                filtered_dic[key] = value
+    return filtered_dic
 
 
 """ ------------------------ find_highest ----------------------------------------
@@ -136,7 +174,7 @@ def find_optimal_val(csv_name, to_return, eval_crit):
 if __name__ == "__main__":
 
     csv_name = "test.csv"
-    test_id = 2
+    test_id = 3
 
     if test_id == 1:
         eval_crit = ["nb_correct_vote", "nb_correct_dist", "EER"]
@@ -146,3 +184,16 @@ if __name__ == "__main__":
     if test_id == 2:
         crits = ["nb_correct_vote", "nb_correct_dist"]
         print("The optimal crit is " + str(find_highest(csv_name, crits)))
+
+    if test_id == 3:
+        csv_name = "model_evaluation_test.csv"
+        title = "Comparison between different archtitures and losses"
+        # Compare architectures
+        di1 = to_dic(csv_name, ["LossType", "Archit"], "best_f1_score", lower_bound=0)
+        filt_di1 = key_restiction(di1, ["triplet_loss", "cross_entropy", "constrastive_loss"],
+                                  keys2=["1default", "4AlexNet", "VGG16"])
+        print(filt_di1)
+        #arch = list(di1.keys())
+        bar_chart(filt_di1["triplet_loss"], filt_di1["cross_entropy"], title, dictionary3=filt_di1["constrastive_loss"],
+                  first_title="triplet_loss", second_title="cross_entropy", third_title="constrastive_loss",
+                  annotated=True, y_title="f1 measure", save_name="arch_loss_comp")

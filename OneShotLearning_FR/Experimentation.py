@@ -3,7 +3,7 @@ import random
 import torch
 
 from Main import main, BATCH_SIZE, load_model, WITH_PROFILE, DIFF_FACES, main_train
-from Dataprocessing import FOLDER_DB, FaceImage, Face_DS, from_zip_to_data, TEST_ZIP, TRANS
+from Dataprocessing import FOLDER_DB, FaceImage, Face_DS, from_zip_to_data, TEST_ZIP, TRANS, FOLDER_DIC
 from FaceRecognition import remove_synth_data
 
 #########################################
@@ -126,7 +126,7 @@ def define_datasets(db_list, with_test_set=False, with_synt_first=False, with_sy
 
         for i, db in enumerate(db_list):
             try:
-                face_dic.update(pickle.load(open(FOLDER_DB + "faceDic_" + db + ".pkl", "rb")))
+                face_dic.update(pickle.load(open(FOLDER_DB + FOLDER_DIC + "faceDic_" + db + ".pkl", "rb")))
             except FileNotFoundError:
                 fileset = from_zip_to_data(False, fname=FOLDER_DB + db + ".zip")
                 face_dic = fileset.order_per_personName(TRANS, save=db)
@@ -155,7 +155,7 @@ def define_datasets(db_list, with_test_set=False, with_synt_first=False, with_sy
         dict_list = []  # List of 8 dictionaries
         total_nb_pict = 0
         for j, nb_pict in enumerate(PICTURES_NB):
-            print("The current nb of pictures is " + str(nb_pict))
+            print("The current nb of pictures we want is " + str(nb_pict))
             print("The remaining nb of people is " + str(len(face_dic)))
             print("The current total nb of pictures is " + str(total_nb_pict) + "\n")
             dict_list.append({})
@@ -218,15 +218,16 @@ def merge_datasets(list_ds):
 
 
 if __name__ == "__main__":
+    test_id = 2
 
-    db_list = ["cfp_humFiltered", "gbrieven_filtered", "lfw_filtered", "faceScrub_humanFiltered"]
+    db_list = ["gbrieven_filtered", "cfp_humFiltered", "lfw_filtered", "faceScrub_humanFiltered"]
     datasets = define_datasets(db_list, with_test_set=True)
 
     model_name = None
-    db_name_train = [FOLDER_DB + "gbrieven.zip", FOLDER_DB + "cfp.zip", FOLDER_DB + "lfw.zip",
-                     FOLDER_DB + "faceScrub.zip"]
-
-    test_id = 2
+    db_name_train = [FOLDER_DB + "gbrieven_filtered.zip",
+                     FOLDER_DB + "cfp_humFiltered.zip",
+                     FOLDER_DB + "lfw_filtered.zip",
+                     FOLDER_DB + "faceScrub_humanFiltered.zip"]
 
     if test_id == 1:
         # ================================ Tests Architectures and Losses ===============
@@ -237,7 +238,7 @@ if __name__ == "__main__":
         # 5. Basic Arch & Cross Entropy
         # => Choose best =================================================================
         sets_list = [datasets[0][3], datasets[1], datasets[2]]
-        _, model_name = main_train(sets_list, db_name_train, name_model=model_name)
+        _, model_name = main_train(sets_list, db_name_train, name_model=model_name, nb_images=PICTURES_NB[3])
 
     if test_id == 2:
         # ============================================================
@@ -245,19 +246,26 @@ if __name__ == "__main__":
         # !!!!! Hardcode nom de l'autoencoder (already trained)
         # ============================================================
         for i in range(len(PICTURES_NB)):
-            print("======================= Training on set " + str(i+1) + "... ================================= ")
-            sets_list = [datasets[0][i+1], datasets[1], datasets[2]]
-            _, model_name = main_train(sets_list, db_name_train, name_model=model_name, pret="autoencoder")
+            print("======================= Training on set " + str(i) + "... ================================= ")
+            #train_ds = merge_datasets(datasets[0][:i]) # Explicit Reuse of previous data
+            sets_list = [datasets[0][i], datasets[1], datasets[2]]
+            _, model_name = main_train(sets_list, db_name_train, name_model=model_name, pret="autoencoder",
+                                       nb_images=PICTURES_NB[i]) # "autoencoder"
 
     if test_id == 3:
         # ============================================================
         #  With different Scheduler
         # ============================================================
         sets_list = [merge_datasets(datasets[0]), datasets[1], datasets[2]]
+        print("len train set is " + str(len(sets_list[0].train_data)))
         schedulers = [None, "StepLR", "ExponentialLR"]
         for i, sched in enumerate(schedulers):
-            print("================ Training with scheduler " + sched + "... ================================= ")
-            _, model_name = main_train(sets_list, db_name_train, name_model=model_name, scheduler=sched)
+            try:
+                print("================ Training with scheduler " + sched + "... ================================= ")
+            except TypeError:
+                print("================ Training without scheduler ... ================================= ")
+
+            main_train(sets_list, db_name_train, scheduler=sched, pret="autoencoder", nb_images=PICTURES_NB[-1])
 
     if test_id == 4:
         # ============================================================
@@ -269,9 +277,16 @@ if __name__ == "__main__":
         valid_ds = build_ds([FOLDER_DB + "gbrieven.zip"], 200, 4)
 
         print("=============== TRAINING ON THE WIDE DS ===================== ")
-        main_train([wide_ds, valid_ds], db, pret="autoencoder")
+        main_train([wide_ds, valid_ds], db, pret="autoencoder", nb_images=5000)
         print("=============== TRAINING ON THE DEEP DS ===================== ")
-        main_train([deep_ds, valid_ds], db, pret="autoencoder")
+        main_train([deep_ds, valid_ds], db, pret="autoencoder", nb_images=5000)
 
+    if test_id == 5:
+        # ============================================================
+        #  Check data quantity content in stored datasets_train.pt
+        # ============================================================
 
-
+        for i in range(len(PICTURES_NB)):
+            print("======================= Check size on set " + str(i) + "... ================================= ")
+            sets_list = [datasets[0][i], datasets[1], datasets[2]]
+            print("Len dataset is " + str(len(sets_list[0].train_data)))

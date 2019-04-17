@@ -1,6 +1,6 @@
 import matplotlib
 
-matplotlib.use('TkAgg')
+matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
 import random
@@ -49,15 +49,23 @@ def multi_line_graph(dictionary, x_elements, title, x_label="x", y_label="Score"
     plt.figure()
     plt.grid(True)
     plt.title(title)
+    plt.grid(True)
     plt.xlabel(x_label)
     plt.ylabel(y_label)
 
     # --- We go through all the line to represent ------
     for line in dictionary.keys():
         # ------ Plot the evolution of the value over x elements --------
-        plt.plot(x_elements, dictionary[line], label=str(line))
+        try:
+            if len(dictionary[line]) < len(x_elements):
+                plt.plot(x_elements[:len(dictionary[line])], dictionary[line], label=str(line))
+            else:
+                plt.plot(x_elements, dictionary[line][:len(x_elements)], label=str(line))
 
-    # --------- Legend -----------------------------
+        except ValueError:
+            print("Different dimensions in visualisation...\n")
+
+   # --------- Legend -----------------------------
 
     legend = plt.legend(loc=loc, shadow=True)
     frame = legend.get_frame()
@@ -88,15 +96,17 @@ def multi_line_graph(dictionary, x_elements, title, x_label="x", y_label="Score"
 # ---------------------------------------------
 
 def bar_chart(dictionary1, dictionary2, title, dictionary3=None, first_title='Average', second_title='Std',
-              annotated=True, y_title="Response time (ms)", save_name=True):
+              third_title="3e title", annotated=True, y_title="Response time (ms)", save_name=None):
     if len(dictionary1) == 0:
         print("INFO: In Visualization: Empty dictionaries")
         return None
 
     fig = plt.figure()
+    #plt.grid(True, linewidth=0.5, color='#DCDCDC', linestyle='-')
+    #plt.rc('axes', axisbelow=True)
     ax = fig.add_subplot(111)
     ind = np.arange(len(dictionary1))  # 2 bars to consider
-    width = 0.4
+    width = 0.2
 
     first_vals = []
     if dictionary2 is not None:
@@ -112,14 +122,14 @@ def bar_chart(dictionary1, dictionary2, title, dictionary3=None, first_title='Av
         if dictionary3 is not None:
             third_vals.append(dictionary3[key])
 
-    rects1 = ax.bar(ind, first_vals, width, color='#FF8C00')
+    rects1 = ax.bar(ind, first_vals, width, color='#306998')
     if dictionary2 is not None:
-        rects2 = ax.bar(ind + width, second_vals, width, color='#255D79')
+        rects2 = ax.bar(ind + width, second_vals, width, color='#FFD43B')
         ax.legend((rects1[0], rects2[0]), (first_title, second_title))
 
     if dictionary3 is not None:
-        rects3 = ax.bar(ind + 2 * width, third_vals, width, color='#255D79')
-        ax.legend((rects1[0], rects2[0], rects3[0]), (first_title, second_title, "Data Quantity"))
+        rects3 = ax.bar(ind + 2 * width, third_vals, width, color='#646464')
+        ax.legend((rects1[0], rects2[0], rects3[0]), (first_title, second_title, third_title))
 
     if annotated:
         autolabel(rects1, ax)
@@ -133,6 +143,8 @@ def bar_chart(dictionary1, dictionary2, title, dictionary3=None, first_title='Av
     ax.set_xticklabels(format_label_bar(dictionary1.keys()))
 
     plt.title(title)
+    if save_name is not None:
+        plt.savefig(save_name)
     plt.show()
 
 

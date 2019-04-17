@@ -1,12 +1,16 @@
 import torch
 from torch import nn
 import torch.nn.functional as f
+import torchvision.transforms as transforms
+from scipy.misc import toimage
 import numpy as np
+import pickle
 from PIL import Image
 
-from Dataprocessing import CENTER_CROP
+from Dataprocessing import CENTER_CROP, Face_DS, from_zip_to_data
 from EmbeddingNetwork import AlexNet, BasicNet, VGG16, ResNet
 import matplotlib
+
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
@@ -27,7 +31,7 @@ TYPE_ARCH = "1default"  # "resnet152"  #"1default" "VGG16" #  "2def_drop" "3def_
 DIM_LAST_LAYER = 1024 if TYPE_ARCH in ["VGG16", "4AlexNet"] else 512
 
 DIST_THRESHOLD = 0.02
-MARGIN = 0.2
+MARGIN = 0.4
 
 # Specifies where the torch.tensor is allocated
 DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -69,7 +73,6 @@ class DistanceBased_Net(nn.Module):
             raise Exception
 
         self.dist_threshold = DIST_THRESHOLD
-
         self.to(DEVICE)
 
     '''---------------------------- get_distance --------------------------------- 
@@ -89,13 +92,31 @@ class DistanceBased_Net(nn.Module):
             embedded_neg = negative
 
         # --- Computation of the distance between them ---
+        #embedded_anchor = abs(embedded_anchor - embedded_anchor.mean) / embedded_anchor.std
+        #embedded_neg = abs(embedded_neg - embedded_neg.mean) / embedded_neg.std
+
+        #print("TODELETE: embedded_anchor is " + str(embedded_anchor))
+        #print("TODELETE: embedded_neg is " + str(embedded_neg))
+
         distance = f.pairwise_distance(embedded_anchor, embedded_neg, 2)
 
+        #print("TODELETE: distance is " + str(distance))
+
+
         if positive is None:
+            #distance = abs(distance - distance.mean) / distance.std
             return distance, None
         else:
             embedded_pos = self.embedding_net(positive)
+            #embedded_pos = abs(embedded_pos - embedded_pos.mean) / embedded_pos.std
+
+            #print("TODELETE: embedded_pos is " + str(embedded_pos))
+
             disturb = f.pairwise_distance(embedded_anchor, embedded_pos, 2)
+            #distance += f.pairwise_distance(embedded_neg, embedded_pos, 2)
+            #distance = abs(distance - torch.mean(distance)) / torch.std(distance)
+            #disturb = abs(disturb - torch.mean(disturb)) / torch.std(disturb)
+
             return distance, disturb
 
     '''-------------------------- forward --------------------------------- 
@@ -109,10 +130,13 @@ class DistanceBased_Net(nn.Module):
 
     def forward(self, data):
         distance, disturb = self.get_distance(data[0], data[2], data[1])
+        #print("TODELETE: data is " + str(data))
+        #print("TODELETE: distance is " + str(distance))
+        #print("TODELETE: disturb is " + str(disturb))
 
         output_positive = torch.ones([distance.size()[0], 2], dtype=torch.float64).to(DEVICE)
-        output_positive[disturb <= self.dist_threshold, 1] = 0
-        output_positive[disturb > self.dist_threshold, 1] = 2
+        output_positive[disturb < self.dist_threshold, 1] = 0
+        output_positive[disturb >= self.dist_threshold, 1] = 2
 
         output_negative = torch.ones([distance.size()[0], 2], dtype=torch.float64).to(DEVICE)
         output_negative[self.dist_threshold <= distance, 0] = 0
@@ -155,7 +179,7 @@ class DistanceBased_Net(nn.Module):
         med_distb = get_median(distb)
 
         self.dist_threshold = (self.dist_threshold + med_dista + med_distb) / 3
-        #print("New Updated Threshold: " + str(self.dist_threshold))
+        #print("TODELETE New Updated Threshold: " + str(self.dist_threshold))
         return med_dista, med_distb
 
 
@@ -179,7 +203,8 @@ class Tripletnet(DistanceBased_Net):
 
         # 1 means, dista should be greater than distb
         target = torch.FloatTensor(distance.size()).fill_(1).to(DEVICE)
-        return criterion(distance, disturb, target)
+        #diff_dist = torch.nn.L1Loss(distance, disturb)
+        return criterion(distance, disturb, target)# - diff_dist
 
 
 # ================================================================
@@ -193,8 +218,8 @@ class ContrastiveLoss(DistanceBased_Net):
     Takes embeddings of two samples and a target label == 0 if samples are from the same class and label == 1 otherwise
     """
 
-    def __init__(self):
-        super(ContrastiveLoss, self).__init__()
+    def __init__(self, embeddingNet):
+        super(ContrastiveLoss, self).__init__(embeddingNet)
         self.eps = 1e-9
 
     '''------------------ get_loss ------------------------ '''
@@ -373,7 +398,7 @@ class SoftMax_Net(nn.Module):
 
         if embeddingNet is not None:
             self.embedding_net = embeddingNet
-            #DIM_LAST_LAYER = 1024 if embeddingNet.name_arch in ["VGG16", "4AlexNet", "resnet"] else 512
+            # DIM_LAST_LAYER = 1024 if embeddingNet.name_arch in ["VGG16", "4AlexNet", "resnet"] else 512
         elif TYPE_ARCH == "1default":
             self.embedding_net = BasicNet(DIM_LAST_LAYER)
         elif TYPE_ARCH == "4AlexNet":
@@ -483,12 +508,12 @@ class DecoderNet(nn.Module):
         self.nb_channels = 4
         self.out_nb_channels = 3
         self.dim1 = 140
-        self.dim2 = self.dim1 + (CENTER_CROP[1] - CENTER_CROP[0]) # = 150
+        self.dim2 = self.dim1 + (CENTER_CROP[1] - CENTER_CROP[0])  # = 150
 
         self.linear1 = nn.Linear(DIM_LAST_LAYER, self.nb_channels * self.dim1 * self.dim2)
         self.conv3 = nn.ConvTranspose2d(self.nb_channels, self.out_nb_channels, CENTER_CROP[0] - (self.dim1 - 1))
-        #self.conv4 = nn.ConvTranspose2d(self.out_nb_channels, self.out_nb_channels, 5)#, stride=2) #, padding=1)
-        #self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
+        # self.conv4 = nn.ConvTranspose2d(self.out_nb_channels, self.out_nb_channels, 5)#, stride=2) #, padding=1)
+        # self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
         self.relu = nn.ReLU(True)
 
         self.sig = nn.Sigmoid()  # compress to a range (0, 1)
@@ -498,10 +523,11 @@ class DecoderNet(nn.Module):
         x = self.linear1(data)
         x = x.view(x.size(0), self.nb_channels, self.dim1, self.dim2)
         x = self.conv3(x)
-        x = self.relu(x)
+        # x = self.relu(x)
         x = self.sig(x)
 
-        x = x.view(x.size(0), self.out_nb_channels, CENTER_CROP[0], CENTER_CROP[1]) # 3 * 200 * 150 = 90 000  * 32 = 2 880 000
+        x = x.view(x.size(0), self.out_nb_channels, CENTER_CROP[0],
+                   CENTER_CROP[1])  # 3 * 200 * 150 = 90 000  * 32 = 2 880 000
 
         return x
 
@@ -531,24 +557,50 @@ class AutoEncoder_Net(nn.Module):
         return encoded, decoded
 
     def visualize_dec(self):
-        for i, decoded in enumerate(self.last_decoded[0].detach()):
-            dec_as_np = decoded.cuda().numpy()
+        dec_as_np = self.last_decoded[0].detach().cpu().numpy()
+        print("Autoencoder Result is: " + str(dec_as_np))
+        #dec_as_np = self.last_decoded[0].detach().cpu().numpy()
+        #im = Image.fromarray(dec_as_np, "RGB") # donne ligne bizarre
+        #im = Image.fromarray(dec_as_np).convert("RGB")
 
-            print("Autoencoder Result is: " + str(dec_as_np))
+        #im.save("result_autoencoder_" + TYPE_ARCH + "_THEIMG" + ".png")
+        toimage(dec_as_np).save("resAutNew_" + TYPE_ARCH + ".png", "png")
+        print("Autoencoder Result is: " + str(np.reshape(dec_as_np, [200, 150, 3]))) # .squeeze()
+        plt.imshow(np.reshape(dec_as_np, [200, 150, 3]))
+        print("The picture representing the result from the decoder is saved")
+        plt.savefig("resAut_" + TYPE_ARCH) #.squeeze()
+        plt.show()
 
-            im = Image.fromarray(np.transpose(dec_as_np)).convert("L")
-            im.save("result_autoencoder_" + TYPE_ARCH + "_" + str(i) + ".jpg")
-            #plt.imshow(np.transpose(dec_as_np))
-            #print("The picture representing the result from the decoder is saved")
-            #plt.savefig("Result_autoencoder_" + str(i))
-            #plt.show()
+
+# ================================================================
+#                    FUNCTIONS
+# ================================================================
+
+def visualize_autoencoder_res(name_autoencoder, db_source):
+
+    # ----------- Load autoencoder --------------------
+    if name_autoencoder.split(".")[-1] == "pwf":
+        network = Tripletnet(None)
+        autoencoder = AutoEncoder_Net(network.embedding_net)
+        autoencoder.load_state_dict(torch.load(name_autoencoder))
+    else:
+        print("IN VISUALIZE AUTOENCODER: Wrong format ....")
+        return
+
+    # ----------- Set last_decoded --------------------
+    fileset = from_zip_to_data(False, db_source)
+    ds = Face_DS(fileset=fileset, triplet_version=False)
+    train_loader = torch.utils.data.DataLoader(ds, batch_size=32, shuffle=True)
+    for batch_idx, (data, target) in enumerate(train_loader):
+        autoencoder(data.to(DEVICE))
+    autoencoder.visualize_dec()
+
 
 # ================================================================
 #                    MAIN
 # ================================================================
 
 if __name__ == '__main__':
-    pass
-
-
-
+    name_autoencoder = "encoders/auto_180.pwf"
+    db_source = "/data/gbrieven/cfp_3.zip"
+    visualize_autoencoder_res(name_autoencoder, db_source)

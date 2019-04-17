@@ -1,7 +1,8 @@
 import matplotlib
-matplotlib.use('TkAgg')
+matplotlib.use('Agg') #TkAgg
 import matplotlib.pyplot as plt
 
+import torch
 import random
 import time
 import pickle
@@ -112,7 +113,7 @@ class FaceRecognition:
         # -------- Model Loading ----------------
         if model_path is not None:
             model = load_model(model_path)
-            self.siamese_model = model
+            self.siamese_model = model.cuda() if torch.cuda.is_available() else model
 
         # ------- Get data (from MAIN_ZIP) --------------
         self.probes = []  # list of NB_REPET lists of lists (person, picture, index_pict)
@@ -275,8 +276,11 @@ The function computes and prints the equal error rate
 
 def print_eer(far, frr):
     i = 0
-    while far[i] < frr[i]:
-        i += 1
+    try:
+        while far[i] < frr[i]:
+            i += 1
+    except IndexError:
+        print("The range of threshold is too small: No intersection between far and frr!\n")
 
     eer = far[i] + far[i + 1] / 2
     print("The equal error rate is: " + str(eer))
@@ -412,7 +416,7 @@ if __name__ == '__main__':
     # ------------------------------------------------
     if test_id == 1:
         db_source = "testdb"
-        model = "models/THEmodel_VGG16_triplet_loss_ep8.pt"
+        model = "models/dsgbrieven_filteredlfw_filtered_7944_1default_1_triplet_loss_pretautoencoder.pt"
         fr = FaceRecognition(model, db_source=[db_source])
 
         # ------- Accumulators Definition --------------
@@ -449,7 +453,7 @@ if __name__ == '__main__':
         size_gallery = [20, 50, 100, 200, 400]  # Nb of people to consider
         db_source_list = ["cfp_humFiltered", "lfw_filtered1", "lfw_filtered2", "gbrieven_filtered", "testdb_filtered",
                           "faceScrub_filtered"]
-        model = "models/THEmodel_VGG16_triplet_loss_ep8.pt"
+        model = "models/dsgbrieven_filteredlfw_filtered_7944_1default_1_triplet_loss_pretautoencoder.pt"
 
 
         for i, SIZE_GALLERY in enumerate(size_gallery):

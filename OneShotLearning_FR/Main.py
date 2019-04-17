@@ -16,17 +16,18 @@ from Visualization import store_in_csv, line_graph
 #########################################
 
 
-NUM_EPOCH = 100 #if platform.system() == "Darwin" else 100
+NUM_EPOCH = 1 if platform.system() == "Darwin" else 80
 BATCH_SIZE = 32
 
-LEARNING_RATE = 0.001
+LR_NONPRET = 0.001
+LEARNING_RATE = 0.0001 # SOULD BE CHANGED?
 WITH_LR_SCHEDULER = "StepLR"  # "ExponentialLR" None
 WEIGHT_DECAY = 0.001  # To control regularization
 OPTIMIZER = "Adam"  # Adagrad "SGD"
 
 WEIGHTED_CLASS = False
 WITH_EPOCH_OPT = False
-LOSS = "cross_entropy"  # "cross_entropy" "ce_classif"   "constrastive_loss"
+LOSS = "triplet_loss"  # "cross_entropy" "ce_classif"   "constrastive_loss"
 
 MODE = "learn"  # "classifier training"
 PRETRAINING = "autoencoder"  # ""autoencoder"  # "autoencoder_only" "none"
@@ -76,7 +77,7 @@ def main(db_train=None, fname=None, nb_classes=0, name_model=None, loss=LOSS):
         sets_list = load_sets(db_name, DEVICE, nb_classes, [training_set, validation_set, test_set])
 
         # ------------------- Model Definition and Training  -----------------
-        main_train(sets_list, fname, db_train=db_train, name_model=name_model, loss=loss)
+        main_train(sets_list, fname, db_train=db_train, name_model=name_model, loss=loss, nb_images=len(training_set.data_list))
 
     elif MODE == "prediction":
         # ==============================================
@@ -158,7 +159,8 @@ IN: sets_list: list of 3 Datasets (training, validation and testing)
 ------------------------------------------------------------------------------------- """
 
 
-def main_train(sets_list, fname, db_train=None,  name_model=None, scheduler=WITH_LR_SCHEDULER, pret=PRETRAINING, loss=LOSS):
+def main_train(sets_list, fname, db_train=None,  name_model=None, scheduler=WITH_LR_SCHEDULER, pret=PRETRAINING,
+               loss=LOSS, nb_images=0):
     visualization = True
     num_epoch = NUM_EPOCH
     save_model = True
@@ -169,7 +171,7 @@ def main_train(sets_list, fname, db_train=None,  name_model=None, scheduler=WITH
     # -----------------------------------------
 
     embeddingNet = None if name_model is None else load_model(name_model).embedding_net
-    ds_info = "ds" + db_title + str(len(sets_list[0].train_data)) + "_"
+    ds_info = "ds" + db_title + "_" + str(len(sets_list[0].train_data)) + "_"
     name_model = "models/" + ds_info + TYPE_ARCH + "_" + str(NUM_EPOCH) + "_" + loss + "_pret" + pret + ".pt"
 
     # ----------------- Data Loaders definition ------------------------
@@ -193,59 +195,63 @@ def main_train(sets_list, fname, db_train=None,  name_model=None, scheduler=WITH
     time_init = time.time()
 
     # ------------------- Pretraining -----------------
+    try:
 
-    if pret in ["autoencoder", "autoencoder_only"]:
-        # ---------- Pretraining using an autoencoder or classical model --------------
-        model_learn.pretraining(sets_list[0], hyp_par, num_epochs=NUM_EPOCH, batch_size=BATCH_SIZE)
-        model_learn.train_nonpretrained(NUM_EPOCH, hyp_par)
+        if pret in ["autoencoder", "autoencoder_only"]:
+            # ---------- Pretraining using an autoencoder or classical model --------------
+            model_learn.pretraining(sets_list[0], hyp_par, batch_size=BATCH_SIZE)
+            hyp_par_nonPret = {"opt_type": OPTIMIZER, "lr": LR_NONPRET, "wd": WEIGHT_DECAY,
+                               "lr_scheduler": scheduler, "num_epoch": NUM_EPOCH}
+            model_learn.train_nonpretrained(NUM_EPOCH, hyp_par_nonPret, save=name_model)
 
-    # ------- Model Training ---------
-    f1_valid = None
-    if pret != "autoencoder_only":
-        for epoch in range(NUM_EPOCH):
-            if embeddingNet is None:
-                print("\n------- Training with " + TYPE_ARCH + " architecture ----------")
-            else:
-                print("\n------- Retraining of model ----------")
+        # ------- Model Training ---------
+        f1_valid = None
+        if pret != "autoencoder_only":
+            for epoch in range(NUM_EPOCH):
+                if embeddingNet is None:
+                    print("\n------- Training with " + TYPE_ARCH + " architecture and " + loss + " loss ----------")
+                else:
+                    print("\n------- Retraining of model ----------")
 
-            model_learn.train(epoch, with_epoch_opt=WITH_EPOCH_OPT)
-            f1_valid = model_learn.prediction()
+                model_learn.train(epoch, with_epoch_opt=WITH_EPOCH_OPT)
+                f1_valid = model_learn.prediction()
 
-            # --------- STOP if no relevant learning after some epoch ----------
-            if should_break(model_learn.f1_validation["Pretrained Model"], epoch):
-                visualization = True
-                save_model = True
-                num_epoch = epoch
-                break
+                if epoch != 0 and epoch % EP_SAVE == 0:
+                    torch.save(model_learn.network.state_dict(), name_model + "_{0:03d}.pwf".format(epoch))
 
-            if epoch != 0 and epoch % EP_SAVE == 0:
-                torch.save(model.network.state_dict(), "netw_{0:03d}.pwf".format(epoch))
+                # --------- STOP if no relevant learning after some epoch ----------
+                if should_break(model_learn.f1_validation["Pretrained Model"], epoch):
+                    visualization = True
+                    save_model = True
+                    num_epoch = epoch
+                    break
 
-    # -------- Model Testing ----------------
+        raise KeyboardInterrupt
+    except KeyboardInterrupt:
+        # -------- Model Testing ----------------
 
-    f1_test = model_learn.prediction(validation=False) if loss != "ce_classif" and 2 < len(sets_list) else "None"
+        f1_test = model_learn.prediction(validation=False) if loss != "ce_classif" and 2 < len(sets_list) else "None"
 
-    # ------- Model Saving ---------
-    if save_model:
-        model_learn.save_model(name_model)
+        # ------- Model Saving ---------
+        if save_model:
+            model_learn.save_model(name_model)
 
-    # ------- Visualization: Evolution of the performance ---------
-    if visualization:
+        # ------- Visualization: Evolution of the performance ---------
+        if visualization:
 
-        # ------- Record: Evolution of the performance ---------
-        info_data = [db_name if fname is not None else MAIN_ZIP, len(fileset.data_list),
-                     len(sets_list[0].train_data),
-                     DIFF_FACES, CENTER_CROP, db_title]
-        info_training = [pret, NUM_EPOCH, BATCH_SIZE, WEIGHT_DECAY, str((LEARNING_RATE, scheduler)),
-                         TYPE_ARCH, OPTIMIZER, loss, WEIGHTED_CLASS]
-        info_result = [model_learn.losses_validation["Pretrained Model"],
-                       model_learn.f1_validation["Pretrained Model"], str(f1_valid), str(f1_test)]
+            # ------- Record: Evolution of the performance ---------
+            info_data = [db_name if fname is not None else MAIN_ZIP, str(nb_images), len(sets_list[0].train_data),
+                         DIFF_FACES, CENTER_CROP, db_title]
+            info_training = [pret, NUM_EPOCH, BATCH_SIZE, WEIGHT_DECAY, str((LEARNING_RATE, scheduler)),
+                             TYPE_ARCH, OPTIMIZER, loss, WEIGHTED_CLASS]
+            info_result = [model_learn.losses_validation["Pretrained Model"],
+                           model_learn.f1_validation["Pretrained Model"], str(f1_valid), str(f1_test)]
 
-        x = store_in_csv(info_data, info_training, info_result, time.time() - time_init), name_model
+            x = store_in_csv(info_data, info_training, info_result, time.time() - time_init)
 
-        model_learn.visualization(num_epoch, db_title, len(sets_list[0].train_data))
+            model_learn.visualization(num_epoch, db_title, len(sets_list[0].train_data))
 
-        return x
+            return x
 
 
 #########################################
@@ -254,7 +260,7 @@ def main_train(sets_list, fname, db_train=None,  name_model=None, scheduler=WITH
 
 if __name__ == '__main__':
     # main()
-    test = 8 if platform.system() == "Darwin" else 4
+    test = 3 if platform.system() == "Darwin" else 3
 
     # -----------------------------------------------------------------------
     # Test 1: Confusion Matrix with different db for training and testing
@@ -289,9 +295,12 @@ if __name__ == '__main__':
     # "Test 3": Train Model from different db
     # -----------------------------------------------------------------------
     if test == 3 or test is None:
-        db_name_train = ["cfp70"]  # "faceScrub", "lfw", "cfp", "gbrieven", "testdb"] #"testCropped"
-        for i, curr_db in enumerate(db_name_train):
-            main(fname=[FOLDER_DB + curr_db + ".zip"])
+        db_name_train = [FOLDER_DB + "gbrieven_filtered.zip", FOLDER_DB + "lfw_filtered.zip"]  # "faceScrub", "lfw", "cfp", "gbrieven", "testdb"] #"testCropped"
+        #db_name_train = [FOLDER_DB + "cfp70.zip"]
+
+        loss_list = ["triplet_loss", "cross_entropy", "constrastive_loss"]
+        for i, loss in enumerate(loss_list):
+            main(fname=db_name_train, loss=loss)
 
     # -----------------------------------------------------------------------
     # "Test 4": Train Model from all db
@@ -302,9 +311,7 @@ if __name__ == '__main__':
                        #  FOLDER_DB + "faceScrub.zip"]
         db_name_train = [FOLDER_DB + "cfp_humFiltered.zip", FOLDER_DB + "gbrieven_filtered.zip",
                         FOLDER_DB + "lfw_filtered.zip", FOLDER_DB + "faceScrub_humanFiltered.zip"]
-        db_name_train = [FOLDER_DB + "cfp_humFiltered.zip", FOLDER_DB + "gbrieven_filtered.zip",
-                        FOLDER_DB + "lfw_filtered.zip", FOLDER_DB + "faceScrub_humanFiltered.zip"]
-        loss_list = ["cross_entropy", "constrastive_loss"] #"triplet_loss",
+        loss_list = ["triplet_loss", "cross_entropy", "constrastive_loss"] #,
         for i, loss in enumerate(loss_list):
             main(fname=db_name_train, loss=loss)
 
@@ -336,34 +343,3 @@ if __name__ == '__main__':
         # FOLDER_DB + "faceScrub.zip"]
         main(name_model=name_model, fname=db_name_train, loss="cross_entropy")
 
-    # -----------------------------------------------------------------------
-    # Test 8: Autoencoder visualization
-    # -----------------------------------------------------------------------
-    if test == 8 or test is None:
-
-        fname = [FOLDER_DB + "cfp70.zip"]
-        fileset = from_zip_to_data(WITH_PROFILE, fname=fname[0])
-        test_set = None
-
-        # ------------------- Data Loading -----------------
-        db_name, db_title = get_db_name(fname, None)
-        sets_list = load_sets(db_name, DEVICE, 8, [fileset], save=False)
-        embeddingNet = None
-
-        # ----------------- Data Loaders definition ------------------------
-        train_loader = torch.utils.data.DataLoader(sets_list[0], batch_size=BATCH_SIZE, shuffle=True)
-        validation_loader = None
-        test_loader = None
-
-        # ------------------- Model Definition -----------------
-        hyp_par = {"opt_type": OPTIMIZER, "lr": LEARNING_RATE, "wd": WEIGHT_DECAY, "lr_scheduler": WITH_LR_SCHEDULER,
-                   "num_epoch": NUM_EPOCH}
-        train_param = {"loss_type": LOSS, "hyper_par": hyp_par, "weighted_class": WEIGHTED_CLASS}
-
-        model_learn = Model(train_param=train_param, train_loader=train_loader, validation_loader=validation_loader,
-                            test_loader=test_loader, nb_classes=sets_list[0].nb_classes, embedding_net=embeddingNet)
-
-        time_init = time.time()
-
-        # ---------- Pretraining using an autoencoder or classical model --------------
-        model_learn.pretraining(sets_list[0], hyp_par, num_epochs=1, batch_size=BATCH_SIZE)

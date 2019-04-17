@@ -1,7 +1,7 @@
 import os
 import torch
-from functools import partial
 import pickle
+import math
 from NeuralNetwork import Tripletnet, ContrastiveLoss, SoftMax_Net, AutoEncoder_Net, TYPE_ARCH, Classif_Net
 from Visualization import visualization_validation, visualization_train
 from torch import nn
@@ -11,12 +11,12 @@ from torch import optim
 #       GLOBAL VARIABLES                #
 #########################################
 
-
+ENCODER_DIR = "encoders/"
 MOMENTUM = 0.9
 GAMMA = 0.1  # for the lr_scheduler - default value 0.1
 N_TEST_IMG = 5
 PT_BS = 32  # Batch size for pretraining
-PT_NUM_EPOCHS = 200 #200
+PT_NUM_EPOCHS = 200  # 200
 EP_SAVE = 30
 ROUND_DEC = 5
 
@@ -26,7 +26,6 @@ TOLERANCE_MAX_SAME_F1 = 8
 
 # Specifies where the torch.tensor is allocated
 DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-
 
 
 # ================================================================
@@ -93,27 +92,10 @@ class Model:
 
     def pretraining(self, Face_DS_train, hyper_par, num_epochs=PT_NUM_EPOCHS, batch_size=PT_BS):
 
-        name_trained_net = "encoder_al_" + TYPE_ARCH + ".pkl"
+        name_trained_net = ENCODER_DIR + "encoder_al_" + TYPE_ARCH + "_ep" + str(num_epochs) + ".pkl"
         try:
             with open(name_trained_net, "rb") as f:
                 self.network.embedding_net = pickle.load(f)
-                if False:
-                    train_data = Face_DS_train.to_single(Face_DS_train) if self.nb_classes is None else Face_DS_train
-                    train_loader = torch.utils.data.DataLoader(train_data, batch_size=batch_size, shuffle=True)
-                    train_param = {"loss_type": None, "hyper_par": hyper_par}
-                    autoencoder = Model(train_param=train_param, embedding_net=self.network.embedding_net,
-                                        train_loader=train_loader)
-                    print(" ------------ Train as Autoencoder ----------------- ")
-                    for epoch in range(2):
-                        autoencoder.train(epoch, autoencoder=True)
-                    autoencoder.network.visualize_dec()
-            print("The autoencoder has been loaded!\n")
-
-        except RuntimeError:
-            pickle.load = partial(pickle.load)
-            pickle.Unpickler = partial(pickle.Unpickler)
-            self.network.embedding_net = torch.load(name_trained_net, map_location=lambda storage, loc: storage,
-                                                    pickle_module=pickle)  # network
             print("The autoencoder has been loaded!\n")
         except FileNotFoundError:
             train_data = Face_DS_train.to_single(Face_DS_train) if self.nb_classes is None else Face_DS_train
@@ -126,18 +108,19 @@ class Model:
             for epoch in range(num_epochs):
                 autoencoder.train(epoch, autoencoder=True)
                 if epoch != 0 and epoch % EP_SAVE == 0:
-                    torch.save(autoencoder.network.state_dict(), "auto_{0:03d}.pwf".format(epoch))
-            autoencoder.network.visualize_dec()
+                    torch.save(autoencoder.network.state_dict(), ENCODER_DIR + "auto_{0:03d}.pwf".format(epoch))
+                    autoencoder.network.visualize_dec()
 
             pickle.dump(self.network.embedding_net, open(name_trained_net, "wb"))  # , protocol=2)
             print("The autoencoder has been saved as " + name_trained_net + "!\n")
+            autoencoder.network.visualize_dec()
 
     '''------------------ train_nonpretrained -------------------------------------
        The function trains a neural network (so that it's performance can be 
        compared to the ones of a NN that was pretrained) 
     -------------------------------------------------------------------------------- '''
 
-    def train_nonpretrained(self, num_epochs, hyp_par, save=False):
+    def train_nonpretrained(self, num_epochs, hyp_par, save=None):
 
         train_param = {"train_loader": self.train_loader, "loss_type": self.loss_type, "hyper_par": hyp_par}
         model_comp = Model(train_param, validation_loader=self.validation_loader, test_loader=self.test_loader,
@@ -155,8 +138,8 @@ class Model:
             if should_break(self.f1_validation["Non-pretrained Model"], epoch):
                 break
 
-        if save:
-            name_model = "models/" + self.loss_type + "_nonpretrained.pt"
+        if save is not None:
+            name_model = save.split("_pre")[0] + "_nonpretrained.pt"
             try:
                 torch.save(model_comp, name_model)
             except IOError:  # FileNotFoundError
@@ -197,7 +180,7 @@ class Model:
             except IOError:  # The batch is "not complete"
                 print("ERR: An IO error occured in train! ")
                 break
-            except IndexError: #RuntimeError:  # The batch is "not complete"
+            except IndexError:  # RuntimeError:  # The batch is "not complete"
                 print("ERR: A runtime error occured in train! ")
                 break
 
@@ -277,10 +260,15 @@ class Model:
                             acc_neg = torch.sum(torch.argmax(out_neg, dim=1) == tar_neg).cpu()  # = 1
 
                         acc_loss += loss
+
+                        # if (acc_pos + acc_neg) == len(tar_pos) + len(tar_neg):
+                        # print("TODELETE:  STRANGE HERE with tp " + str(acc_pos) + " tn " + str(acc_neg))
+                        # print("TODELETE: Outputs are " + str(out_pos) + " and " + str(out_neg))
+
                         self.get_evaluation(acc_pos, acc_neg, len(tar_pos), len(tar_neg))
 
-                except RuntimeError:  # The batch is "not complete"
-                    print("ERR: A runtime error occured in prediction! ")
+                except RuntimeError:  # RuntimeError:  # The batch is "not complete"
+                    print("ERR: A runtime error occured in prediction!")
                     break
 
         # ----------- Evaluation on the validation set (over epochs) ---------------
@@ -328,7 +316,7 @@ class Model:
 
     def print_eval_model(self, loss_eval, loader="Validation"):
         acc = 100. * self.eval_dic["nb_correct"] / self.eval_dic["nb_labels"]
-        nb_eval = len(self.validation_loader)
+        nb_eval = len(self.validation_loader) if loader == "Validation" else len(self.test_loader)
         loss_eval = loss_eval / nb_eval  # avg of the loss
 
         print(" \n----------------------- " + loader + " --------------------------------- ")
@@ -375,7 +363,7 @@ class Model:
                 print("\nOptimizer set: " + str(optim.lr_scheduler.ExponentialLR(optimizer, GAMMA)))
                 return optim.lr_scheduler.ExponentialLR(optimizer, GAMMA), optimizer
             elif hyper_par["lr_scheduler"] == "StepLR":
-                step_size = hyper_par["num_epoch"] / 5
+                step_size = math.ceil(hyper_par["num_epoch"] / 5)
                 scheduler = optim.lr_scheduler.StepLR(optimizer, step_size,
                                                       gamma=GAMMA)  # , last_epoch=hyper_par["num_epoch"])
                 return scheduler, optimizer
@@ -438,7 +426,7 @@ class Model:
 
         # with open(name_model.split(".pt")[0] + '_testdata.pkl', 'wb') as output:
         #   pickle.dump(testing_set, output, pickle.HIGHEST_PROTOCOL)
-        print("Model is saved!")
+        print("Model is saved as " + name_model + "!")
 
     ''' ------------------------------ 
             visualization 
@@ -449,7 +437,8 @@ class Model:
         name_fig = "graphs/ds" + db + "_" + str(size_train) + "_" + str(num_epoch) + "_" \
                    + self.loss_type + "_arch" + TYPE_ARCH
 
-        visualization_train(range(0, num_epoch, int(round(num_epoch / 5))), self.losses_train,
+        # TOCHANGE int(round(num_epoch / 5))
+        visualization_train(range(0, num_epoch, math.ceil(num_epoch / 5)), self.losses_train,
                             save_name=name_fig + "_train.png")
 
         visualization_validation(self.losses_validation, self.f1_validation, save_name=name_fig + "_valid")
@@ -477,7 +466,7 @@ IN: f1_validation
 """
 
 
-def should_break(f1_list, epoch):
+def should_break(f1_list, epoch, loss_list=None):
     curr_avg_f1 = sum(f1_list) / len(f1_list)
 
     constant = True
@@ -488,9 +477,14 @@ def should_break(f1_list, epoch):
             constant = False
             break
 
-    if (STOP_TOLERANCE_EPOCH < epoch and curr_avg_f1 < MIN_AVG_F1) or constant:
+    if loss_list is not None and TOLERANCE_MAX_SAME_F1 < len(loss_list) + 1:
+        avg_last_losses = np.mean(loss_list[len(loss_list) - TOLERANCE_MAX_SAME_F1:])
+    else:
+        avg_last_losses = 1000  # arbitrary choice so that no interruption
 
-        print("The f1 measure is bad => Stop Training")
+    if (STOP_TOLERANCE_EPOCH < epoch and curr_avg_f1 < MIN_AVG_F1) or constant or avg_last_losses < 0.005:
+
+        print("The f1 measure is bad or constant (during " + str(TOLERANCE_MAX_SAME_F1) + " epochs) => Stop Training")
         return True
     else:
         return False

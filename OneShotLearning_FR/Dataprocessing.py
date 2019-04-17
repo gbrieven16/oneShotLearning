@@ -6,6 +6,8 @@ import zipfile
 import random
 import numpy as np
 from scipy.spatial import distance
+import torch.nn.functional as f
+
 
 import torch
 import torch.utils.data
@@ -17,7 +19,7 @@ from io import BytesIO
 
 import matplotlib
 
-matplotlib.use("TkAgg")  # ('Agg')
+matplotlib.use("Agg")  # ('TkAgg')
 import matplotlib.pyplot as plt
 
 if platform.system() != "Darwin": torch.cuda.set_device(0)
@@ -35,6 +37,7 @@ warnings.filterwarnings('ignore')
 
 
 # if the 2th db not used, replace "yalefaces" by ""
+FOLDER_DIC = "face_dic/"
 FOLDER_DB = "data/gbrieven/" if platform.system() == "Darwin" else "/data/gbrieven/"
 MAIN_ZIP = FOLDER_DB + 'cfp.zip'  # cfp.zip "testdb.zip"  CASIA-WebFace.zip'
 TEST_ZIP = FOLDER_DB + 'testdb.zip'
@@ -61,7 +64,7 @@ TRANS = transforms.Compose([transforms.CenterCrop(CENTER_CROP), transforms.ToTen
 
 Q_DATA_AUGM = 4
 BATCH_SIZE_DA = 15  # Batch size of data augmentation (so that images are registered)
-DIST_METRIC = "Manhattan"  # "Cosine_Sym"
+DIST_METRIC = "Torch_dist" #"Manhattan"  # "Cosine_Sym"
 
 
 # ================================================================
@@ -301,14 +304,14 @@ class Fileset:
 
         if save is not None:
             try:
-                pickle.dump(faces_dic, open(FOLDER_DB + "faceDic_" + save + ".pkl", "wb"))
+                pickle.dump(faces_dic, open(FOLDER_DB + FOLDER_DIC + "faceDic_" + save + ".pkl", "wb"))
             except OSError:
                 mid = int(round(len(faces_dic) / 2))
                 faces_dic1 = {k: v for k, v in faces_dic.items() if k in list(faces_dic)[:mid]}
                 faces_dic2 = {k: v for k, v in faces_dic.items() if k in list(faces_dic)[mid:]}
 
-                pickle.dump(faces_dic1, open(FOLDER_DB + "faceDic_" + save + "1.pkl", "wb"))
-                pickle.dump(faces_dic2, open(FOLDER_DB + "faceDic_" + save + "2.pkl", "wb"))
+                pickle.dump(faces_dic1, open(FOLDER_DB + FOLDER_DIC + "faceDic_" + save + "1.pkl", "wb"))
+                pickle.dump(faces_dic2, open(FOLDER_DB + FOLDER_DIC +"faceDic_" + save + "2.pkl", "wb"))
 
         return faces_dic
 
@@ -438,6 +441,8 @@ class FaceImage():
                 elif DIST_METRIC == "Cosine_Sym":
                     cos = nn.CosineSimilarity(dim=1, eps=1e-6)
                     dist = float(cos(self.feature_repres, fr))
+                elif DIST_METRIC == "Torch_dist":
+                    dist = f.pairwise_distance(self.feature_repres, fr, 2)[0].item()
                 else:
                     print("ERR: Invalid Distance Metric")
                     raise IOError
@@ -482,6 +487,9 @@ class Face_DS(torch.utils.data.Dataset):
         self.train_labels = []
         self.nb_classes = 0
         self.nb_triplets = nb_triplet
+
+        if fileset is None and faces_dic is None and face_set is None:
+            return
 
         # -------------------------------------------------------------------------------
         # CASE 1: Build a non-triplet version dataset from a triplet version dataset
@@ -930,27 +938,30 @@ def generate_synthetic_im(db, nb_additional_images=Q_DATA_AUGM):
         # 3. Generate synthetic images and add them in the dictionary
         # ----------------------------------------------------------------------
         print("\nIn data Augmentation with batch " + str(batch_id) + "...\n")
-        data_augmentation(face_dic_curr, nb_add_instances=nb_additional_images, save_dlatent=True)
+        try:
+            data_augmentation(face_dic_curr, nb_add_instances=nb_additional_images, save_dlatent=True)
+            raise KeyboardInterrupt
 
-        # -----------------------------------------------------------------
-        # 4. Register the synthetic images in the db
-        # -----------------------------------------------------------------
-        fset = Fileset()
+        except KeyboardInterrupt:
+            # -----------------------------------------------------------------
+            # 4. Register the synthetic images in the db
+            # -----------------------------------------------------------------
+            fset = Fileset()
 
-        for person, pictures_list in face_dic_curr.items():
-            for i, picture in enumerate(pictures_list[1:]):
-                # fname = db__person__indexReal_indexSynth.jpg
-                try:
-                    db_name = db.split("/")[-1].split(".zip")[0].split("_")[0]
-                except IndexError:
-                    db_name = db.split("/")[-1].split(".zip")[0]
-                index = str(pictures_list[0].index) + "_" + str(1 + i)
-                fname = db_name + SEPARATOR + person + SEPARATOR + index + ".jpg"
-                data = Data(fname, db, to_process=True, picture=picture)
-                fset.add_data(data)
+            for person, pictures_list in face_dic_curr.items():
+                for i, picture in enumerate(pictures_list[1:]):
+                    # fname = db__person__indexReal_indexSynth.jpg
+                    try:
+                        db_name = db.split("/")[-1].split(".zip")[0].split("_")[0]
+                    except IndexError:
+                        db_name = db.split("/")[-1].split(".zip")[0]
+                    index = str(pictures_list[0].index) + "_" + str(1 + i)
+                    fname = db_name + SEPARATOR + person + SEPARATOR + index + ".jpg"
+                    data = Data(fname, db, to_process=True, picture=picture)
+                    fset.add_data(data)
 
-        # fset.ds_to_zip(db_destination=db + "_synthIm", file_is_pil=True) New db: Case of synthetic People
-        fset.ds_to_zip(db_destination=db, file_is_pil=True)
+            # fset.ds_to_zip(db_destination=db + "_synthIm", file_is_pil=True) New db: Case of synthetic People
+            fset.ds_to_zip(db_destination=db, file_is_pil=True)
 
 
 """ --------------------- register_aligned ---------------------------------
