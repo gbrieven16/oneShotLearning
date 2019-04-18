@@ -80,7 +80,12 @@ class BasicNet(nn.Module):
 
         x = x.view(x.shape[0], -1)  # To reshape
         x = self.linear1(x)
-        return f.relu(x)
+        x = f.relu(x)
+        #print("x before normalization " + str(x))
+        #x = (x - torch.mean(x)) / torch.std(x)
+        #print("x after normalization " + str(x))
+        x = f.normalize(x, p=2, dim=1)
+        return x
 
 
 # ================================================================

@@ -64,7 +64,7 @@ TRANS = transforms.Compose([transforms.CenterCrop(CENTER_CROP), transforms.ToTen
 
 Q_DATA_AUGM = 4
 BATCH_SIZE_DA = 15  # Batch size of data augmentation (so that images are registered)
-DIST_METRIC = "Torch_dist" #"Manhattan"  # "Cosine_Sym"
+DIST_METRIC = "Manhattan" #"Manhattan"  # "Cosine_Sym"
 
 
 # ================================================================
@@ -441,8 +441,6 @@ class FaceImage():
                 elif DIST_METRIC == "Cosine_Sym":
                     cos = nn.CosineSimilarity(dim=1, eps=1e-6)
                     dist = float(cos(self.feature_repres, fr))
-                elif DIST_METRIC == "Torch_dist":
-                    dist = f.pairwise_distance(self.feature_repres, fr, 2)[0].item()
                 else:
                     print("ERR: Invalid Distance Metric")
                     raise IOError
@@ -479,7 +477,7 @@ class FaceImage():
 
 class Face_DS(torch.utils.data.Dataset):
     def __init__(self, fileset=None, face_set=None, transform=TRANS, to_print=False, device="cpu",
-                 triplet_version=True, save=None, faces_dic=None, nb_triplet=NB_TRIPLET_PER_PICT):
+                 triplet_version=True, save=None, faces_dic=None, nb_triplet=NB_TRIPLET_PER_PICT, nb_people=None):
 
         self.to_print = to_print
         self.transform = transforms.ToTensor() if transform is None else transform
@@ -507,7 +505,7 @@ class Face_DS(torch.utils.data.Dataset):
         # ---------------- Build Dictionary where pictures are ordered per person --------------------
         if faces_dic is None:
             t = time.time()
-            faces_dic = fileset.order_per_personName(self.transform)
+            faces_dic = fileset.order_per_personName(self.transform, nb_people=nb_people)
             print("Pictures have been processed and ordered after " + str(time.time() - t))
 
         # data_augmentation(faces_dic, Q_DATA_AUGM)
@@ -682,7 +680,7 @@ class Face_DS(torch.utils.data.Dataset):
     def print_data_report(self, faces_dic=None, triplet=True):
 
         if faces_dic is None:
-            print("\nThe total quantity of triplets is: " + str(self.nb_triplets * len(self.train_labels)))
+            print("\nThe total quantity of triplets is: " + str(len(self.train_labels)))
             return
 
         # Report about the quantity of data

@@ -16,12 +16,12 @@ from Visualization import store_in_csv, line_graph
 #########################################
 
 
-NUM_EPOCH = 1 if platform.system() == "Darwin" else 80
-BATCH_SIZE = 32
+NUM_EPOCH = 1 if platform.system() == "Darwin" else 100
+BATCH_SIZE = 32 # TO CHANGE IF BACK TO NORMAL SITUATION
 
 LR_NONPRET = 0.001
 LEARNING_RATE = 0.0001 # SOULD BE CHANGED?
-WITH_LR_SCHEDULER = "StepLR"  # "ExponentialLR" None
+WITH_LR_SCHEDULER = "StepLR" #"StepLR"  #"StepLR"  # "ExponentialLR" None
 WEIGHT_DECAY = 0.001  # To control regularization
 OPTIMIZER = "Adam"  # Adagrad "SGD"
 
@@ -161,9 +161,9 @@ IN: sets_list: list of 3 Datasets (training, validation and testing)
 
 def main_train(sets_list, fname, db_train=None,  name_model=None, scheduler=WITH_LR_SCHEDULER, pret=PRETRAINING,
                loss=LOSS, nb_images=0):
-    visualization = True
+    visualization = False
     num_epoch = NUM_EPOCH
-    save_model = True
+    save_model = False
     db_name, db_title = get_db_name(fname, db_train)
 
     # -----------------------------------------
@@ -196,13 +196,14 @@ def main_train(sets_list, fname, db_train=None,  name_model=None, scheduler=WITH
 
     # ------------------- Pretraining -----------------
     try:
-
+        f1_valid_1 = None
+        f1_test_1 = None
         if pret in ["autoencoder", "autoencoder_only"]:
             # ---------- Pretraining using an autoencoder or classical model --------------
             model_learn.pretraining(sets_list[0], hyp_par, batch_size=BATCH_SIZE)
             hyp_par_nonPret = {"opt_type": OPTIMIZER, "lr": LR_NONPRET, "wd": WEIGHT_DECAY,
                                "lr_scheduler": scheduler, "num_epoch": NUM_EPOCH}
-            model_learn.train_nonpretrained(NUM_EPOCH, hyp_par_nonPret, save=name_model)
+            f1_valid_1, f1_test_1 = model_learn.train_nonpretrained(NUM_EPOCH, hyp_par_nonPret, save=name_model)
 
         # ------- Model Training ---------
         f1_valid = None
@@ -213,14 +214,15 @@ def main_train(sets_list, fname, db_train=None,  name_model=None, scheduler=WITH
                 else:
                     print("\n------- Retraining of model ----------")
 
-                model_learn.train(epoch, with_epoch_opt=WITH_EPOCH_OPT)
-                f1_valid = model_learn.prediction()
+                model_learn.train(epoch)
+                model_learn.prediction()
+                f1_valid = (model_learn.eval_dic["f1_pos"], model_learn.eval_dic["f1_neg"])
 
                 if epoch != 0 and epoch % EP_SAVE == 0:
                     torch.save(model_learn.network.state_dict(), name_model + "_{0:03d}.pwf".format(epoch))
 
                 # --------- STOP if no relevant learning after some epoch ----------
-                if should_break(model_learn.f1_validation["Pretrained Model"], epoch):
+                if should_break(model_learn.f1_validation["Pretrained Model"], epoch) or model_learn.active_learning():
                     visualization = True
                     save_model = True
                     num_epoch = epoch
@@ -229,8 +231,8 @@ def main_train(sets_list, fname, db_train=None,  name_model=None, scheduler=WITH
         raise KeyboardInterrupt
     except KeyboardInterrupt:
         # -------- Model Testing ----------------
-
-        f1_test = model_learn.prediction(validation=False) if loss != "ce_classif" and 2 < len(sets_list) else "None"
+        f1_test, acc_test = model_learn.prediction(validation=False) \
+            if loss != "ce_classif" and 2 < len(sets_list) else "None"
 
         # ------- Model Saving ---------
         if save_model:
@@ -244,14 +246,16 @@ def main_train(sets_list, fname, db_train=None,  name_model=None, scheduler=WITH
                          DIFF_FACES, CENTER_CROP, db_title]
             info_training = [pret, NUM_EPOCH, BATCH_SIZE, WEIGHT_DECAY, str((LEARNING_RATE, scheduler)),
                              TYPE_ARCH, OPTIMIZER, loss, WEIGHTED_CLASS]
-            info_result = [model_learn.losses_validation["Pretrained Model"],
-                           model_learn.f1_validation["Pretrained Model"], str(f1_valid), str(f1_test)]
+            info_result = [model_learn.losses_validation, model_learn.f1_validation, str([f1_valid_1, f1_test_1]),
+                           str([f1_valid, f1_test])]
 
             x = store_in_csv(info_data, info_training, info_result, time.time() - time_init)
 
             model_learn.visualization(num_epoch, db_title, len(sets_list[0].train_data))
 
-            return x
+            return x, name_model
+
+        return None, name_model
 
 
 #########################################
@@ -295,9 +299,9 @@ if __name__ == '__main__':
     # "Test 3": Train Model from different db
     # -----------------------------------------------------------------------
     if test == 3 or test is None:
-        db_name_train = [FOLDER_DB + "gbrieven_filtered.zip", FOLDER_DB + "lfw_filtered.zip"]  # "faceScrub", "lfw", "cfp", "gbrieven", "testdb"] #"testCropped"
+        #db_name_train = [FOLDER_DB + "gbrieven_filtered.zip", FOLDER_DB + "lfw_filtered.zip"]  # "faceScrub", "lfw", "cfp", "gbrieven", "testdb"] #"testCropped"
         #db_name_train = [FOLDER_DB + "cfp70.zip"]
-
+        db_name_train = [FOLDER_DB + "gbrieven_filtered.zip"]
         loss_list = ["triplet_loss", "cross_entropy", "constrastive_loss"]
         for i, loss in enumerate(loss_list):
             main(fname=db_name_train, loss=loss)

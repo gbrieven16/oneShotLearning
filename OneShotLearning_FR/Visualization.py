@@ -189,20 +189,35 @@ IN: List of information to record about:
     data = [used_db, DIFF_FACES, WITH_PROFILE, DB_TRAIN]
     training = [pretrain_loss, nb_ep, bs, wd, lr, arch, opt, loss_type, margin]
     result = [losses_validation, f1_validation, f1_valid_posAndNeg, f1_test_posAndNeg]
+    train_time: time required for training 
 ---------------------------------------------------------------------------------------'''
 
 
 def store_in_csv(data, training, result, train_time):
-    if training[-2] == "triplet_loss":
-        training[-2] = training[-2] + "_" + str(training[-1])
+    two_lines = False
+
+    training[-2] = training[-2] + "_" + str(training[-1])
     training.pop()  # Remove margin information from the list
     curr_parameters = [("ds_" + data[0])] + data[1:] + training
 
-    curr_evaluation = [float(result[0][0]), float(result[0][int(round(len(result[0])) / 2)]), float(result[0][-1]),
-                       float(result[1][0]), float(result[1][int(round(len(result[1]) / 2))]), float(result[1][-1])]
+    res_loss1 = result[0]["Non-pretrained Model"]
+    res_loss2 = result[0]["Pretrained Model"]
 
-    best_f1 = float(max(result[1]))
-    best_epoch = result[1].index(best_f1)
+    res_f1_1 = result[1]["Non-pretrained Model"]
+    res_f1_2 = result[1]["Pretrained Model"]
+
+    if 0 < len(res_loss1):
+        two_lines = True
+        curr_evaluation1 = [float(res_loss1[0]), float(res_loss1[int(round(len(result[0])) / 2)]), float(res_loss1[-1]),
+                            float(res_f1_1[0]), float(res_f1_1[int(round(len(result[1]) / 2))]), float(res_f1_1[-1])]
+        best_f1_1 = float(max(res_f1_1))
+        best_epoch_1 = res_f1_1.index(best_f1_1)
+
+    curr_evaluation = [float(res_loss2[0]), float(res_loss2[int(round(len(result[0])) / 2)]), float(res_loss2[-1]),
+                       float(res_f1_2[0]), float(res_f1_2[int(round(len(result[1]) / 2))]), float(res_f1_2[-1])]
+
+    best_f1 = float(max(res_f1_2))
+    best_epoch = res_f1_2.index(best_f1)
     print("IN STORE IN CSV: best f1 is " + str(best_f1))
 
     # titles = ["Name BD", "IsDiffFaces", "IsWithProfile", "Db_train", With Pretraining,
@@ -212,12 +227,15 @@ def store_in_csv(data, training, result, train_time):
     with open(CSV_NAME, 'a') as f:
         writer = csv.writer(f, delimiter=";")
         # writer.writerow(titles)
+
+        if two_lines:
+            writer.writerow(
+                curr_parameters + curr_evaluation1 + [str(best_f1_1)] + [str(best_epoch_1)] + [result[-2]]
+                + [str(train_time)] + [str(res_loss1)] + [str(res_loss2)])
+
         writer.writerow(
-            curr_parameters + curr_evaluation + [str(best_f1)] + [str(best_epoch)] + [result[2:]]
-            + [str(train_time)] + ["/"] + ["/"])
-        writer.writerow(
-            curr_parameters + curr_evaluation + [str(best_f1)] + [str(best_epoch)] + [result[2:]]
-            + [str(train_time)] + [str(result[0])] + [str(result[1])])
+            curr_parameters + curr_evaluation + [str(best_f1)] + [str(best_epoch)] + [result[-1]]
+            + [str(train_time)] + [str(res_loss2)] + [str(res_f1_2)])
 
     return best_f1
 
@@ -274,9 +292,11 @@ IN : self.losses_validation = {"Pretrained Model": [], "Non-pretrained Model": [
 ------------------------------------------------------------------------------------------------------------ '''
 
 
-def visualization_validation(loss, f1, save_name=None):
+def visualization_validation(loss, f1, acc, save_name=None):
     title_loss = "Comparison of the evolution of the losses"
     title_f1 = "Comparison of the evolution of the f1-measure on the validation set"
+    title_acc = "Comparison of the evolution of the accuracy on the validation set"
+
     title_f1_train_valid = "Comparison of the evolution of the f1-measure for the training and the validation set"
 
     key0 = list(loss.keys())[0]
@@ -288,9 +308,12 @@ def visualization_validation(loss, f1, save_name=None):
                    y_label="Loss", save_name=save_name + "_loss.png")
         line_graph(range(0, len(f1[key0]), 1), f1[key0], "f1-measure according to the epochs", x_label="Epoch",
                    y_label="f1-measure", save_name=save_name + "_f1.png")
+        line_graph(range(0, len(acc[key0]), 1), acc[key0], "Accuracy according to the epochs", x_label="Epoch",
+                   y_label="Accuracy", save_name=save_name + "_acc.png")
     else:
         dictionary_loss = {key0: loss[key0], key1: loss[key1]}
         dictionary_f1_valid = {key0: f1[key0], key1: f1[key1]}
+        dictionary_acc_valid = {key0: acc[key0], key1: acc[key1]}
         dict_f1_valid_train = {key1: f1[key1], key2: f1[key2]}
         epoches = list(range(0, len(loss[key0]), 1))
 
@@ -298,6 +321,8 @@ def visualization_validation(loss, f1, save_name=None):
                          save_name=save_name + "_loss.png", loc='upper right')
         multi_line_graph(dictionary_f1_valid, epoches, title_f1, x_label="epoch", y_label="f1",
                          save_name=save_name + "_f1.png")
+        multi_line_graph(dictionary_acc_valid, epoches, title_acc, x_label="epoch", y_label="acc",
+                         save_name=save_name + "_acc.png")
 
         try:
             multi_line_graph(dict_f1_valid_train, epoches, title_f1_train_valid, x_label="epoch", y_label="f1",

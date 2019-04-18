@@ -2,8 +2,10 @@ import os
 import torch
 import pickle
 import math
+import numpy as np
 from NeuralNetwork import Tripletnet, ContrastiveLoss, SoftMax_Net, AutoEncoder_Net, TYPE_ARCH, Classif_Net
 from Visualization import visualization_validation, visualization_train
+from Dataprocessing import from_zip_to_data, Face_DS
 from torch import nn
 from torch import optim
 
@@ -23,6 +25,8 @@ ROUND_DEC = 5
 STOP_TOLERANCE_EPOCH = 35
 MIN_AVG_F1 = 65
 TOLERANCE_MAX_SAME_F1 = 8
+TOL_OVERFITTING = 15  # 10% of difference
+MAX_NB_BATCH_PRED = 100
 
 # Specifies where the torch.tensor is allocated
 DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -46,7 +50,7 @@ class Model:
         self.nb_classes = nb_classes if nb_classes is None or 2 < nb_classes else None  # If None => no classification
 
         self.class_weights = [1, 1]
-        self.weighted_classes = False
+        self.weighted_classes = train_param["weighted_class"]
 
         if train_param is not None:
             # ----------------- Network Definition -------------
@@ -81,7 +85,11 @@ class Model:
         self.eval_dic = {"nb_correct": 0, "nb_labels": 0, "recall_pos": 0, "recall_neg": 0, "f1_pos": 0, "f1_neg": 0}
         self.losses_validation = {"Pretrained Model": [], "Non-pretrained Model": []}
         self.f1_validation = {"Pretrained Model": [], "Non-pretrained Model": [], "On Training Set": []}
+        self.acc_validation = {"Pretrained Model": [], "Non-pretrained Model": [], "On Training Set": []}
+
         self.losses_train = []
+        self.train_f1 = 0
+        self.do_act_learning = True
 
     '''------------------------ pretraining ----------------------------------------------
        The function trains an autoencoder based on given training data 
@@ -100,7 +108,7 @@ class Model:
         except FileNotFoundError:
             train_data = Face_DS_train.to_single(Face_DS_train) if self.nb_classes is None else Face_DS_train
             train_loader = torch.utils.data.DataLoader(train_data, batch_size=batch_size, shuffle=True)
-            train_param = {"loss_type": None, "hyper_par": hyper_par}
+            train_param = {"loss_type": None, "hyper_par": hyper_par, "weighted_class": False}
             autoencoder = Model(train_param=train_param, embedding_net=self.network.embedding_net,
                                 train_loader=train_loader)
 
@@ -120,9 +128,10 @@ class Model:
        compared to the ones of a NN that was pretrained) 
     -------------------------------------------------------------------------------- '''
 
-    def train_nonpretrained(self, num_epochs, hyp_par, save=None):
+    def train_nonpretrained(self, num_epochs, hyp_par, save=None, extra_source=None):
 
-        train_param = {"train_loader": self.train_loader, "loss_type": self.loss_type, "hyper_par": hyp_par}
+        train_param = {"train_loader": self.train_loader, "loss_type": self.loss_type, "hyper_par": hyp_par,
+                       "weighted_class": self.weighted_classes}
         model_comp = Model(train_param, validation_loader=self.validation_loader, test_loader=self.test_loader,
                            train_loader=self.train_loader)
 
@@ -130,12 +139,16 @@ class Model:
             print("-------------- Model that was not pretrained ------------------")
 
             model_comp.train(epoch)
-            loss_notPret, f1_notPret = model_comp.prediction()
+            loss_notPret, f1_notPret, accuracy = model_comp.prediction()
 
             self.losses_validation["Non-pretrained Model"].append(loss_notPret)
             self.f1_validation["Non-pretrained Model"].append(f1_notPret)
+            self.acc_validation["Non-pretrained Model"].append(accuracy)
 
-            if should_break(self.f1_validation["Non-pretrained Model"], epoch):
+            model_comp.f1_validation["Non-pretrained Model"].append(f1_notPret)
+            model_comp.active_learning(more_data_name=extra_source, mode="Non-pretrained Model")
+
+            if should_break(self.acc_validation["Non-pretrained Model"], epoch):
                 break
 
         if save is not None:
@@ -147,15 +160,15 @@ class Model:
                 torch.save(model_comp, name_model)
             print("Model not pretrained is saved!")
 
+        f1_test_1 = self.prediction(validation=False) if self.loss_type != "ce_classif" else "None"
+
+        return (self.eval_dic["f1_pos"], self.eval_dic["f1_neg"]), f1_test_1
+
     '''---------------------------- train --------------------------------
      This function trains the network attached to the model  
      -----------------------------------------------------------------------'''
 
-    def train(self, epoch, autoencoder=False, with_epoch_opt=False):
-
-        # "Active Learning": Overfitting Detection
-        if with_epoch_opt and self.is_overfitting():
-            return
+    def train(self, epoch, autoencoder=False):
 
         self.network.train()
         loss_list = []
@@ -179,9 +192,6 @@ class Model:
 
             except IOError:  # The batch is "not complete"
                 print("ERR: An IO error occured in train! ")
-                break
-            except IndexError:  # RuntimeError:  # The batch is "not complete"
-                print("ERR: A runtime error occured in train! ")
                 break
 
             loss.backward()  # backpropagation, compute gradients
@@ -227,6 +237,8 @@ class Model:
                 data_loader = self.test_loader
 
             for batch_idx, (data, target) in enumerate(data_loader):
+                if MAX_NB_BATCH_PRED < batch_idx:
+                    break
                 try:
                     loss = self.network.get_loss(data, target, self.class_weights, train=False)
                     # target = target.type(torch.LongTensor).to(DEVICE)
@@ -273,10 +285,12 @@ class Model:
 
         # ----------- Evaluation on the validation set (over epochs) ---------------
         if not on_train and validation:
-            eval_measure = self.print_eval_model(acc_loss)
+            eval_measure, accuracy = self.print_eval_model(acc_loss)
             self.losses_validation["Pretrained Model"].append(round(float(acc_loss), ROUND_DEC))
             self.f1_validation["Pretrained Model"].append(eval_measure)
-            return round(float(acc_loss), ROUND_DEC), eval_measure
+            self.acc_validation["Pretrained Model"].append(accuracy)
+
+            return round(float(acc_loss), ROUND_DEC), eval_measure, accuracy
 
         # ----------- Evaluation on the test set ---------------
         elif not on_train:
@@ -295,6 +309,7 @@ class Model:
 
     def update_weights(self):
         f1_pos_avg, f1_neg_avg = self.prediction(on_train=True)  # To get f1_measures
+        self.train_f1 = (f1_pos_avg + f1_neg_avg) / 2
         print("f1 score of train: " + str(f1_pos_avg) + " and " + str(f1_neg_avg))
 
         diff = abs(f1_neg_avg - f1_pos_avg)
@@ -308,10 +323,44 @@ class Model:
 
         print("Weights are " + str(self.class_weights[0]) + " and " + str(self.class_weights[1]))
 
+    '''---------------------------------- active_learning ----------------------------------------------
+     This function detects overfitting and potentially sets the train_loader 
+     to new training data if there's any that is available
+     IN: more_data: name of zip file where to take new data 
+     OUT: False if the training should stop because of overfitting and lack of new training data 
+     ---------------------------------------------------------------------------------------------------'''
+
+    def active_learning(self, more_data_name=None, mode="Pretrained Model", batch_size=32, nb_people=200):
+
+        if not self.do_act_learning:
+            return
+        # -------- Compute the f1 measure from the training data --------------------------
+        if not self.weighted_classes:
+            f1_pos_avg, f1_neg_avg = self.prediction(on_train=True)  # To get f1_measures
+            self.train_f1 = (f1_pos_avg + f1_neg_avg) / 2
+
+        # --------------- Check if overfitting --------------------------
+
+        if self.f1_validation[mode][-1] < self.train_f1 - TOL_OVERFITTING:
+            if more_data_name is None:
+                self.do_act_learning = False
+                print("Detected overfitting!\n")
+                return True
+            else:
+                fileset = from_zip_to_data(False, fname=more_data_name)
+                dataset = Face_DS(fileset=fileset, nb_people=nb_people)
+                self.train_loader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, shuffle=False)
+                print("The new source of data has been used!\n")
+                self.do_act_learning = False
+                return False
+        else:
+            return False
+
     '''---------------------- print_eval_model ----------------------------------
      This function prints the different current values of the accuracy, the r
      recalls (related to both pos and neg classes), the f1-measure and the loss
      OUT: the avg of the f1 measures related to each classes 
+          the accuracy 
      ---------------------------------------------------------------------------'''
 
     def print_eval_model(self, loss_eval, loader="Validation"):
@@ -332,7 +381,7 @@ class Model:
             print("f1 Pos is: " + str(100. * self.eval_dic["f1_pos"] / nb_eval) +
                   "          f1 Neg is: " + str(round(100. * self.eval_dic["f1_neg"] / nb_eval, ROUND_DEC)))
             print(" ------------------------------------------------------------------\n ")
-            return round(100. * 0.5 * (self.eval_dic["f1_neg"] + self.eval_dic["f1_pos"]) / nb_eval, ROUND_DEC)
+            return round(100. * 0.5 * (self.eval_dic["f1_neg"] + self.eval_dic["f1_pos"]) / nb_eval, ROUND_DEC), acc
 
     '''------------------------- get_optimizer -------------------------------- '''
 
@@ -441,19 +490,12 @@ class Model:
         visualization_train(range(0, num_epoch, math.ceil(num_epoch / 5)), self.losses_train,
                             save_name=name_fig + "_train.png")
 
-        visualization_validation(self.losses_validation, self.f1_validation, save_name=name_fig + "_valid")
+        visualization_validation(self.losses_validation, self.f1_validation,
+                                 self.acc_validation, save_name=name_fig + "_valid")
 
         if self.loss_type[:len("cross_entropy")] == "cross_entropy":
             self.network.visualize_last_output(next(iter(self.validation_loader))[0], name_fig + "outputVis")
 
-    ''' ------------------------- is_overfitting ---------------------------------- 
-    This function detects overfitting from:
-        - the evolution of the loss over time.
-        - the difference in f1 measure on the training and the validation sets        
-    ----------------------------------------------------------------------------- '''
-
-    def is_overfitting(self):
-        return False
 
 
 #########################################

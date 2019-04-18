@@ -28,10 +28,12 @@ TYPE_ARCH (related to the embedding Network)
 """
 
 TYPE_ARCH = "1default"  # "resnet152"  #"1default" "VGG16" #  "2def_drop" "3def_bathNorm"
-DIM_LAST_LAYER = 1024 if TYPE_ARCH in ["VGG16", "4AlexNet"] else 512
+DIM_LAST_LAYER = 2048 if TYPE_ARCH in ["VGG16", "4AlexNet"] else 512 # TO CHANGE?
 
 DIST_THRESHOLD = 0.02
-MARGIN = 0.4
+MARGIN = 0.2
+METRIC = "Euclid" # "Cosine" #
+NORMALIZE_DIST = False
 
 # Specifies where the torch.tensor is allocated
 DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -95,16 +97,17 @@ class DistanceBased_Net(nn.Module):
         #embedded_anchor = abs(embedded_anchor - embedded_anchor.mean) / embedded_anchor.std
         #embedded_neg = abs(embedded_neg - embedded_neg.mean) / embedded_neg.std
 
-        #print("TODELETE: embedded_anchor is " + str(embedded_anchor))
+        #print("\nTODELETE: embedded_anchor is " + str(embedded_anchor))
         #print("TODELETE: embedded_neg is " + str(embedded_neg))
 
-        distance = f.pairwise_distance(embedded_anchor, embedded_neg, 2)
+        distance = f.pairwise_distance(embedded_anchor, embedded_neg, 2) if METRIC == "Euclid" \
+              else f.cosine_similarity(embedded_anchor, embedded_neg)
 
         #print("TODELETE: distance is " + str(distance))
 
-
         if positive is None:
-            #distance = abs(distance - distance.mean) / distance.std
+            if NORMALIZE_DIST:
+                distance = abs(distance - distance.mean) / distance.std
             return distance, None
         else:
             embedded_pos = self.embedding_net(positive)
@@ -112,10 +115,13 @@ class DistanceBased_Net(nn.Module):
 
             #print("TODELETE: embedded_pos is " + str(embedded_pos))
 
-            disturb = f.pairwise_distance(embedded_anchor, embedded_pos, 2)
+            disturb = f.pairwise_distance(embedded_anchor, embedded_pos, 2) if METRIC == "Euclid" \
+                 else f.cosine_similarity(embedded_anchor, embedded_pos)
             #distance += f.pairwise_distance(embedded_neg, embedded_pos, 2)
-            #distance = abs(distance - torch.mean(distance)) / torch.std(distance)
-            #disturb = abs(disturb - torch.mean(disturb)) / torch.std(disturb)
+
+            if NORMALIZE_DIST:
+                distance = abs(distance - torch.mean(distance)) / torch.std(distance)
+                disturb = abs(disturb - torch.mean(disturb)) / torch.std(disturb)
 
             return distance, disturb
 
@@ -129,10 +135,10 @@ class DistanceBased_Net(nn.Module):
     ---------------------------------------------------------------------'''
 
     def forward(self, data):
-        distance, disturb = self.get_distance(data[0], data[2], data[1])
         #print("TODELETE: data is " + str(data))
+        distance, disturb = self.get_distance(data[0], data[2], data[1])
         #print("TODELETE: distance is " + str(distance))
-        #print("TODELETE: disturb is " + str(disturb))
+        #print("TODELETE: disturb is " + str(disturb) + "\n")
 
         output_positive = torch.ones([distance.size()[0], 2], dtype=torch.float64).to(DEVICE)
         output_positive[disturb < self.dist_threshold, 1] = 0
@@ -196,15 +202,31 @@ class Tripletnet(DistanceBased_Net):
     '''------------------ get_loss ------------------------ '''
 
     def get_loss(self, data, target, class_weights, train=True):
-        criterion = torch.nn.MarginRankingLoss(margin=self.margin)
+        criterion = torch.nn.MarginRankingLoss(margin=self.margin) #CosineEmbeddingLoss
+
         distance, disturb = self.get_distance(data[0], data[2], data[1])
         if train:
             med_distance, med_disturb = self.update_dist_threshold(distance, disturb)
 
         # 1 means, dista should be greater than distb
         target = torch.FloatTensor(distance.size()).fill_(1).to(DEVICE)
-        #diff_dist = torch.nn.L1Loss(distance, disturb)
-        return criterion(distance, disturb, target)# - diff_dist
+
+        # Explicit prevention from having same distance and disturbance leading to a constant loss (= margin)
+        diff_dist_loss_obj = torch.nn.L1Loss()
+        diff_dist_loss = diff_dist_loss_obj(distance, disturb)
+
+        #target = target.type(torch.LongTensor).to(DEVICE)
+        #target_positive = torch.squeeze(target[:, 0])  # = Only 0 here
+        #target_negative = torch.squeeze(target[:, 1])  # = Only 1 here
+
+        #output_positive, output_negative = self.forward(data)
+        # print("output_pos is " + str(output_positive))
+        # print("target_pos is " + str(target_positive))
+        #loss_positive = f.cross_entropy(output_positive, target_positive)
+        #loss_negative = f.cross_entropy(output_negative, target_negative)
+
+
+        return 0.8 * criterion((1/class_weights[1])*distance, class_weights[0] * disturb, target) - 0.2 * diff_dist_loss
 
 
 # ================================================================

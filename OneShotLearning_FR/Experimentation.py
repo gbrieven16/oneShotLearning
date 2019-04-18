@@ -11,7 +11,7 @@ from FaceRecognition import remove_synth_data
 #########################################
 
 PICTURES_NB = [200, 500, 1000, 2000, 4000, 10000, 15000, 20000]
-TRIPLET_NB = [4, 2, 2, 2, 1, 1, 1, 1]
+TRIPLET_NB = [5, 3, 2, 2, 2, 1, 1, 1]
 SIZE_VALIDATION_SET = 1000
 SEED = 9
 
@@ -245,12 +245,12 @@ if __name__ == "__main__":
         #  With test Data Quantity (incremental approach)
         # !!!!! Hardcode nom de l'autoencoder (already trained)
         # ============================================================
-        for i in range(len(PICTURES_NB)):
+        for i, nb_pict in enumerate(PICTURES_NB):
             print("======================= Training on set " + str(i) + "... ================================= ")
             #train_ds = merge_datasets(datasets[0][:i]) # Explicit Reuse of previous data
             sets_list = [datasets[0][i], datasets[1], datasets[2]]
             _, model_name = main_train(sets_list, db_name_train, name_model=model_name, pret="autoencoder",
-                                       nb_images=PICTURES_NB[i]) # "autoencoder"
+                                       nb_images=nb_pict) # "autoencoder"
 
     if test_id == 3:
         # ============================================================
