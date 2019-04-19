@@ -27,7 +27,7 @@ OPTIMIZER = "Adam"  # Adagrad "SGD"
 
 WEIGHTED_CLASS = False
 WITH_EPOCH_OPT = False
-LOSS = "triplet_loss"  # "cross_entropy" "ce_classif"   "constrastive_loss"
+LOSS = "triplet_loss"  # "cross_entropy" "ce_classif"   "constrastive_loss" triplet_and_ce
 
 MODE = "learn"  # "classifier training"
 PRETRAINING = "autoencoder"  # ""autoencoder"  # "autoencoder_only" "none"
@@ -46,7 +46,6 @@ NB_PREDICTIONS = 1
 
 def main(db_train=None, fname=None, nb_classes=0, name_model=None, loss=LOSS):
 
-    print("Mode is " + MODE)
     # -----------------------------------------
     # Train and Validation Sets Definition
     # -----------------------------------------
@@ -225,7 +224,7 @@ def main_train(sets_list, fname, db_train=None,  name_model=None, scheduler=WITH
                 if should_break(model_learn.f1_validation["Pretrained Model"], epoch) or model_learn.active_learning():
                     visualization = True
                     save_model = True
-                    num_epoch = epoch
+                    #num_epoch = epoch # not ok if not pretrained is better because the graph is cut ...
                     break
 
         raise KeyboardInterrupt
@@ -299,10 +298,10 @@ if __name__ == '__main__':
     # "Test 3": Train Model from different db
     # -----------------------------------------------------------------------
     if test == 3 or test is None:
-        #db_name_train = [FOLDER_DB + "gbrieven_filtered.zip", FOLDER_DB + "lfw_filtered.zip"]  # "faceScrub", "lfw", "cfp", "gbrieven", "testdb"] #"testCropped"
+        db_name_train = [FOLDER_DB + "gbrieven_filtered.zip", FOLDER_DB + "lfw_filtered.zip"]  # "faceScrub", "lfw", "cfp", "gbrieven", "testdb"] #"testCropped"
         #db_name_train = [FOLDER_DB + "cfp70.zip"]
-        db_name_train = [FOLDER_DB + "gbrieven_filtered.zip"]
-        loss_list = ["triplet_loss", "cross_entropy", "constrastive_loss"]
+        #db_name_train = [FOLDER_DB + "gbrieven_filtered.zip"]
+        loss_list = ["triplet_distdif_loss", "triplet_and_ce", "triplet_loss", "cross_entropy", "constrastive_loss"]
         for i, loss in enumerate(loss_list):
             main(fname=db_name_train, loss=loss)
 
@@ -315,7 +314,7 @@ if __name__ == '__main__':
                        #  FOLDER_DB + "faceScrub.zip"]
         db_name_train = [FOLDER_DB + "cfp_humFiltered.zip", FOLDER_DB + "gbrieven_filtered.zip",
                         FOLDER_DB + "lfw_filtered.zip", FOLDER_DB + "faceScrub_humanFiltered.zip"]
-        loss_list = ["triplet_loss", "cross_entropy", "constrastive_loss"] #,
+        loss_list = ["triplet_loss", "triplet_distdif_loss", "triplet_and_ce", "cross_entropy", "constrastive_loss"]
         for i, loss in enumerate(loss_list):
             main(fname=db_name_train, loss=loss)
 

@@ -3,6 +3,7 @@ import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
+import math
 import random
 import os
 import csv
@@ -55,18 +56,17 @@ def multi_line_graph(dictionary, x_elements, title, x_label="x", y_label="Score"
 
     # --- We go through all the line to represent ------
     for line in dictionary.keys():
+
         # ------ Plot the evolution of the value over x elements --------
         try:
             if len(dictionary[line]) < len(x_elements):
                 plt.plot(x_elements[:len(dictionary[line])], dictionary[line], label=str(line))
             else:
                 plt.plot(x_elements, dictionary[line][:len(x_elements)], label=str(line))
-
         except ValueError:
             print("Different dimensions in visualisation...\n")
 
    # --------- Legend -----------------------------
-
     legend = plt.legend(loc=loc, shadow=True)
     frame = legend.get_frame()
     frame.set_facecolor('0.90')
@@ -270,20 +270,57 @@ IN: epoch_list: list of specific epochs
 --------------------------------------------------------------------------------------'''
 
 
-def visualization_train(epoch_list, loss_list, save_name=None):
-    title = "Evolution of the loss for different epoches"
-    perc_train = [float(x) / len(loss_list[0]) for x in range(0, len(loss_list[0]))]
-    dictionary = {}
-    for i, epoch in enumerate(epoch_list):
-        try:
-            dictionary["epoch " + str(epoch)] = loss_list[epoch]
-        except IndexError:
-            print("IN visualization_train: error with " + str(loss_list) + " by accessing element " + str(epoch))
-            print("Epoch list is " + str(epoch_list))
-            return
+def visualization_train(num_epoch, losses_dic, save_name=None):
 
-    multi_line_graph(dictionary, perc_train, title, x_label="percentage of data", y_label="Loss", save_name=save_name,
-                     loc='upper right')
+    key0 = list(losses_dic.keys())[0] # pretrained
+    key1 = list(losses_dic.keys())[1] # non-pretrained
+    print("Lossedic is " + str(losses_dic))
+    print("Key1 is " + str(key1))
+
+    # --------------------------------------------------------------------
+    # Visualization of losses over iterations for different epochs
+    # --------------------------------------------------------------------
+
+    title = "Evolution of the loss for different epoches"
+    try:
+        epoch_list = range(0, num_epoch, math.ceil(num_epoch / 5))
+        perc_train = [float(x) / len(losses_dic[key1][0]) for x in range(0, len(losses_dic[key1][0]))]
+        dictionary = {}
+        for i, epoch in enumerate(epoch_list):
+                dictionary["epoch " + str(epoch)] = losses_dic[key1][epoch]
+    except IndexError:
+        print("The size of loss list is " + str(len(losses_dic[key1])))
+        print("Epoch list is " + str(epoch_list))
+        print("IN visualization_train: error with " + str(losses_dic[key1]) + " by accessing element " + str(epoch))
+
+
+    multi_line_graph(dictionary, perc_train, title, x_label="percentage of data", y_label="Loss",
+                     save_name=save_name + ".png", loc='upper right')
+
+    # --------------------------------------------------------------------
+    # Visualization of losses over epochs
+    # --------------------------------------------------------------------
+    title_loss = "Comparison of the evolution of the losses on training data"
+    epoches = list(range(0, num_epoch, 1))
+
+    # Compute the avg of each list in value
+    for mode, list_losses in losses_dic.items():
+        for i, losses_list in enumerate(losses_dic[mode]):
+            losses_dic[mode][i] = np.mean(losses_list)
+
+    # ------------- CASE 1: only pretrained scenario to expose --------------------
+    if len(losses_dic[key1]) == 0:
+        line_graph(range(0, len(losses_dic[key0]), 1), losses_dic[key0], "Loss according to the epochs",
+                   x_label="Epoch",
+                   y_label="Loss", save_name=save_name + "_loss.png")
+
+    # ------------- CASE 2: both non-pretrained and pretrained scenario to expose --------------------
+    else:
+        print("losses_dic[pretrained]: " + str(losses_dic[key0]))
+        print("\nlosses_dic[nonpretrained]: " + str(losses_dic[key1]))
+
+        multi_line_graph(losses_dic, epoches, title_loss, x_label="epoch", y_label="Loss",
+                         save_name=save_name + "_loss.png", loc='upper right')
 
 
 '''------------------------------------ visualization_validation -------------------------------------------- 
@@ -292,7 +329,7 @@ IN : self.losses_validation = {"Pretrained Model": [], "Non-pretrained Model": [
 ------------------------------------------------------------------------------------------------------------ '''
 
 
-def visualization_validation(loss, f1, acc, save_name=None):
+def visualization_validation(loss, f1, acc, num_ep, save_name=None):
     title_loss = "Comparison of the evolution of the losses"
     title_f1 = "Comparison of the evolution of the f1-measure on the validation set"
     title_acc = "Comparison of the evolution of the accuracy on the validation set"
@@ -315,7 +352,7 @@ def visualization_validation(loss, f1, acc, save_name=None):
         dictionary_f1_valid = {key0: f1[key0], key1: f1[key1]}
         dictionary_acc_valid = {key0: acc[key0], key1: acc[key1]}
         dict_f1_valid_train = {key1: f1[key1], key2: f1[key2]}
-        epoches = list(range(0, len(loss[key0]), 1))
+        epoches = list(range(0, num_ep, 1))
 
         multi_line_graph(dictionary_loss, epoches, title_loss, x_label="epoch", y_label="Loss",
                          save_name=save_name + "_loss.png", loc='upper right')

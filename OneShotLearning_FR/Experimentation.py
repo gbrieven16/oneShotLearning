@@ -2,7 +2,7 @@ import pickle
 import random
 import torch
 
-from Main import main, BATCH_SIZE, load_model, WITH_PROFILE, DIFF_FACES, main_train
+from Main import load_model, WITH_PROFILE, DIFF_FACES, main_train
 from Dataprocessing import FOLDER_DB, FaceImage, Face_DS, from_zip_to_data, TEST_ZIP, TRANS, FOLDER_DIC
 from FaceRecognition import remove_synth_data
 
@@ -155,9 +155,6 @@ def define_datasets(db_list, with_test_set=False, with_synt_first=False, with_sy
         dict_list = []  # List of 8 dictionaries
         total_nb_pict = 0
         for j, nb_pict in enumerate(PICTURES_NB):
-            print("The current nb of pictures we want is " + str(nb_pict))
-            print("The remaining nb of people is " + str(len(face_dic)))
-            print("The current total nb of pictures is " + str(total_nb_pict) + "\n")
             dict_list.append({})
             while total_nb_pict < nb_pict:
                 try:

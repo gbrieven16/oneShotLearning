@@ -403,7 +403,7 @@ class FaceImage():
             return self.feature_repres
         else:
             data = torch.unsqueeze(self.trans_img, 0)
-            self.feature_repres = model.embedding_net(data)
+            self.feature_repres = f.normalize(model.embedding_net(data), p=2, dim=1)
             return self.feature_repres
 
     def get_latent_repr(self):

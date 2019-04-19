@@ -27,8 +27,8 @@ TYPE_ARCH (related to the embedding Network)
 4: AlexNet architecture 
 """
 
-TYPE_ARCH = "1default"  # "resnet152"  #"1default" "VGG16" #  "2def_drop" "3def_bathNorm"
-DIM_LAST_LAYER = 2048 if TYPE_ARCH in ["VGG16", "4AlexNet"] else 512 # TO CHANGE?
+TYPE_ARCH = "VGG16"  # "resnet152"  #"1default" "VGG16" #  "2def_drop" "3def_bathNorm"
+DIM_LAST_LAYER = 1024 if TYPE_ARCH in ["VGG16", "4AlexNet"] else 512 # TO CHANGE?
 
 DIST_THRESHOLD = 0.02
 MARGIN = 0.2
@@ -57,14 +57,14 @@ def get_median(tensor):
 #                   CLASS: DistanceBased_Net
 # ================================================================
 class DistanceBased_Net(nn.Module):
-    def __init__(self, embeddingNet):
+    def __init__(self, embeddingNet, metric):
         super(DistanceBased_Net, self).__init__()
 
         if embeddingNet is not None:
             self.embedding_net = embeddingNet
         elif TYPE_ARCH == "1default":
             self.embedding_net = BasicNet(DIM_LAST_LAYER)
-        elif TYPE_ARCH == "4AlexNet":
+        elif TYPE_ARCH == "4AlexNet" or TYPE_ARCH == "4AlexNet2048":
             self.embedding_net = AlexNet(DIM_LAST_LAYER)
         elif TYPE_ARCH == "VGG16":
             self.embedding_net = VGG16(DIM_LAST_LAYER)
@@ -75,6 +75,7 @@ class DistanceBased_Net(nn.Module):
             raise Exception
 
         self.dist_threshold = DIST_THRESHOLD
+        self.metric = metric
         self.to(DEVICE)
 
     '''---------------------------- get_distance --------------------------------- 
@@ -87,20 +88,16 @@ class DistanceBased_Net(nn.Module):
     def get_distance(self, anchor, negative, positive=None, as_embedding=False):
         # --- Derivation of the feature representation ---
         if not as_embedding:
-            embedded_anchor = self.embedding_net(anchor)
-            embedded_neg = self.embedding_net(negative)
+            embedded_anchor = f.normalize(self.embedding_net(anchor), p=2, dim=1)
+            embedded_neg = f.normalize(self.embedding_net(negative), p=2, dim=1)
         else:
             embedded_anchor = anchor
             embedded_neg = negative
 
         # --- Computation of the distance between them ---
-        #embedded_anchor = abs(embedded_anchor - embedded_anchor.mean) / embedded_anchor.std
-        #embedded_neg = abs(embedded_neg - embedded_neg.mean) / embedded_neg.std
-
         #print("\nTODELETE: embedded_anchor is " + str(embedded_anchor))
-        #print("TODELETE: embedded_neg is " + str(embedded_neg))
 
-        distance = f.pairwise_distance(embedded_anchor, embedded_neg, 2) if METRIC == "Euclid" \
+        distance = f.pairwise_distance(embedded_anchor, embedded_neg, 2) if self.metric == "Euclid" \
               else f.cosine_similarity(embedded_anchor, embedded_neg)
 
         #print("TODELETE: distance is " + str(distance))
@@ -110,12 +107,9 @@ class DistanceBased_Net(nn.Module):
                 distance = abs(distance - distance.mean) / distance.std
             return distance, None
         else:
-            embedded_pos = self.embedding_net(positive)
-            #embedded_pos = abs(embedded_pos - embedded_pos.mean) / embedded_pos.std
+            embedded_pos = f.normalize(self.embedding_net(positive), p=2, dim=1)
 
-            #print("TODELETE: embedded_pos is " + str(embedded_pos))
-
-            disturb = f.pairwise_distance(embedded_anchor, embedded_pos, 2) if METRIC == "Euclid" \
+            disturb = f.pairwise_distance(embedded_anchor, embedded_pos, 2) if self.metric == "Euclid" \
                  else f.cosine_similarity(embedded_anchor, embedded_pos)
             #distance += f.pairwise_distance(embedded_neg, embedded_pos, 2)
 
@@ -135,10 +129,7 @@ class DistanceBased_Net(nn.Module):
     ---------------------------------------------------------------------'''
 
     def forward(self, data):
-        #print("TODELETE: data is " + str(data))
         distance, disturb = self.get_distance(data[0], data[2], data[1])
-        #print("TODELETE: distance is " + str(distance))
-        #print("TODELETE: disturb is " + str(disturb) + "\n")
 
         output_positive = torch.ones([distance.size()[0], 2], dtype=torch.float64).to(DEVICE)
         output_positive[disturb < self.dist_threshold, 1] = 0
@@ -153,8 +144,8 @@ class DistanceBased_Net(nn.Module):
     '''-------------------------- predict --------------------------------- '''
 
     def predict(self, data):
-        embedded1 = self.embedding_net(data[0])
-        embedded2 = self.embedding_net(data[1])
+        embedded1 = f.normalize(self.embedding_net(data[0]), p=2, dim=1)
+        embedded2 = f.normalize(self.embedding_net(data[1]), p=2, dim=1)
         return self.output_from_embedding(embedded1, embedded2)
 
     '''----------------- output_from_embedding -------------------------------- '''
@@ -178,56 +169,83 @@ class DistanceBased_Net(nn.Module):
     -----------------------------------------------------------------'''
 
     def update_dist_threshold(self, dista, distb):
-        # avg_dista = float(sum(dista)) / dista.size()[0]
-        # avg_distb = float(sum(distb)) / dista.size()[0]
 
-        med_dista = get_median(dista)
-        med_distb = get_median(distb)
+        med_dista = get_median(dista) # avg_dista = float(sum(dista)) / dista.size()[0]
+        med_distb = get_median(distb) # avg_distb = float(sum(distb)) / dista.size()[0]
 
         self.dist_threshold = (self.dist_threshold + med_dista + med_distb) / 3
         #print("TODELETE New Updated Threshold: " + str(self.dist_threshold))
         return med_dista, med_distb
 
-
 # ================================================================
-#                    CLASS: Tripletnet
+#                    CLASS: Triplet_Net
 # ================================================================
 
 
-class Tripletnet(DistanceBased_Net):
-    def __init__(self, embedding_net):
-        super(Tripletnet, self).__init__(embedding_net)
+class Triplet_Net(DistanceBased_Net):
+    def __init__(self, embedding_net, with_dist_loss=False, with_ce_loss=False, metric=METRIC):
+        super(Triplet_Net, self).__init__(embedding_net, metric)
         self.margin = MARGIN
+        self.with_dist_loss = with_dist_loss
+        self.with_ce_loss = with_ce_loss
 
     '''------------------ get_loss ------------------------ '''
 
     def get_loss(self, data, target, class_weights, train=True):
-        criterion = torch.nn.MarginRankingLoss(margin=self.margin) #CosineEmbeddingLoss
+
+        # ----------------------------------
+        # Triplet Loss Definition
+        # Aim = Minimize (disturb - distance) (and try it to be less than the margin)
+        # Risk = Dist close to distance => interest of Dist Loss
+        # ----------------------------------
+
+        criterion = torch.nn.MarginRankingLoss(margin=self.margin)  # CosineEmbeddingLoss
 
         distance, disturb = self.get_distance(data[0], data[2], data[1])
         if train:
             med_distance, med_disturb = self.update_dist_threshold(distance, disturb)
+        else:
+            med_distance = get_median(distance)
+            med_disturb = get_median(disturb)
+
+            if abs(med_distance - med_disturb) < self.margin:
+                pass # Way to adapt loss according to the current state
 
         # 1 means, dista should be greater than distb
-        target = torch.FloatTensor(distance.size()).fill_(1).to(DEVICE)
+        target_triplet = torch.FloatTensor(distance.size()).fill_(1).to(DEVICE)
+        loss = criterion((1 / class_weights[1]) * distance, class_weights[0] * disturb, target_triplet)
+        #print("triplet " + str(loss.item()))
 
+        # ----------------------------------
+        # "Dist Loss" Definition
         # Explicit prevention from having same distance and disturbance leading to a constant loss (= margin)
-        diff_dist_loss_obj = torch.nn.L1Loss()
-        diff_dist_loss = diff_dist_loss_obj(distance, disturb)
+        # AIM = Maximize gap between the distance and the disturbance
+        # ----------------------------------
+        if self.with_dist_loss:
+            #
+            diff_dist_loss_obj = torch.nn.L1Loss()
+            diff_dist_loss = diff_dist_loss_obj(distance, disturb)
+            #print("diff_dist_loss " + str(diff_dist_loss.item()))
 
-        #target = target.type(torch.LongTensor).to(DEVICE)
-        #target_positive = torch.squeeze(target[:, 0])  # = Only 0 here
-        #target_negative = torch.squeeze(target[:, 1])  # = Only 1 here
+            # Distance = Disturbance Case Detection
+            if diff_dist_loss.item() < 0.01:
+                loss = (min(1/med_distance, 100) + med_disturb)/2 - diff_dist_loss
+            else:
+                loss = 0.6 * loss - 0.4 * diff_dist_loss
+        # ----------------------------------
+        # Cross Entropy Loss Definition
+        # ----------------------------------
+        elif self.with_ce_loss:
+            target = target.type(torch.LongTensor).to(DEVICE)
+            target_positive = torch.squeeze(target[:, 0])  # = Only 0 here
+            target_negative = torch.squeeze(target[:, 1])  # = Only 1 here
 
-        #output_positive, output_negative = self.forward(data)
-        # print("output_pos is " + str(output_positive))
-        # print("target_pos is " + str(target_positive))
-        #loss_positive = f.cross_entropy(output_positive, target_positive)
-        #loss_negative = f.cross_entropy(output_negative, target_negative)
+            output_positive, output_negative = self.forward(data)
+            loss_positive = f.cross_entropy(output_positive, target_positive).float().cuda()
+            loss_negative = f.cross_entropy(output_negative, target_negative).float().cuda()
+            loss += loss_positive + loss_negative
 
-
-        return 0.8 * criterion((1/class_weights[1])*distance, class_weights[0] * disturb, target) - 0.2 * diff_dist_loss
-
+        return loss
 
 # ================================================================
 #                    CLASS: ContrastiveLoss
@@ -370,7 +388,7 @@ class Classif_Net(nn.Module):
             self.embedding_net = embeddingNet
         elif TYPE_ARCH == "1default":
             self.embedding_net = BasicNet(DIM_LAST_LAYER)
-        elif TYPE_ARCH == "4AlexNet":
+        elif TYPE_ARCH == "4AlexNet" or TYPE_ARCH == "4AlexNet2048":
             self.embedding_net = AlexNet(DIM_LAST_LAYER)
         elif TYPE_ARCH == "VGG16":
             self.embedding_net = VGG16(DIM_LAST_LAYER)
@@ -386,7 +404,7 @@ class Classif_Net(nn.Module):
         self.to(DEVICE)
 
     def forward(self, data, label):
-        embedded_data = self.embedding_net(data)
+        embedded_data = f.normalize(self.embedding_net(data), p=2, dim=1)
         # ---------- Center Loss Consideration ----------------
         if self.center_loss is not None:
             self.loss_cur = self.center_loss(embedded_data, label)
@@ -394,7 +412,7 @@ class Classif_Net(nn.Module):
         return self.final_layer(embedded_data)
 
     def predict(self, data):
-        feature_repr = self.embedding_net(data)
+        feature_repr = f.normalize(self.embedding_net(data), p=2, dim=1)
         return self.output_from_embedding(feature_repr)
 
     def output_from_embedding(self, embedding):
@@ -423,7 +441,7 @@ class SoftMax_Net(nn.Module):
             # DIM_LAST_LAYER = 1024 if embeddingNet.name_arch in ["VGG16", "4AlexNet", "resnet"] else 512
         elif TYPE_ARCH == "1default":
             self.embedding_net = BasicNet(DIM_LAST_LAYER)
-        elif TYPE_ARCH == "4AlexNet":
+        elif TYPE_ARCH == "4AlexNet" or TYPE_ARCH == "4AlexNet2048":
             self.embedding_net = AlexNet(DIM_LAST_LAYER)
         elif TYPE_ARCH == "VGG16":
             self.embedding_net = VGG16(DIM_LAST_LAYER)
@@ -441,9 +459,9 @@ class SoftMax_Net(nn.Module):
 
     def forward(self, data):
         # Computation of the difference of the 2 feature representations
-        feature_repr_anch = self.embedding_net(data[0])
-        feature_repr_pos = self.embedding_net(data[1])
-        feature_repr_neg = self.embedding_net(data[2])
+        feature_repr_anch = f.normalize(self.embedding_net(data[0]), p=2, dim=1)
+        feature_repr_pos = f.normalize(self.embedding_net(data[1]), p=2, dim=1)
+        feature_repr_neg = f.normalize(self.embedding_net(data[2]), p=2, dim=1)
         disturb = torch.abs(feature_repr_pos - feature_repr_anch)
         distance = torch.abs(feature_repr_neg - feature_repr_anch)
 
@@ -462,8 +480,8 @@ class SoftMax_Net(nn.Module):
         # return self.avg_val_tensor(difference).requires_grad_(True) #
 
     def predict(self, data):
-        feature_repr1 = self.embedding_net(data[0])
-        feature_repr2 = self.embedding_net(data[1])
+        feature_repr1 = f.normalize(self.embedding_net(data[0]), p=2, dim=1)
+        feature_repr2 = f.normalize(self.embedding_net(data[1]), p=2, dim=1)
         return self.output_from_embedding(feature_repr1, feature_repr2)
 
     def output_from_embedding(self, embedding1, embedding2):
@@ -602,7 +620,7 @@ def visualize_autoencoder_res(name_autoencoder, db_source):
 
     # ----------- Load autoencoder --------------------
     if name_autoencoder.split(".")[-1] == "pwf":
-        network = Tripletnet(None)
+        network = Triplet_Net(None)
         autoencoder = AutoEncoder_Net(network.embedding_net)
         autoencoder.load_state_dict(torch.load(name_autoencoder))
     else:

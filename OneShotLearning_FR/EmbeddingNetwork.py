@@ -81,11 +81,8 @@ class BasicNet(nn.Module):
         x = x.view(x.shape[0], -1)  # To reshape
         x = self.linear1(x)
         x = f.relu(x)
-        #print("x before normalization " + str(x))
-        #x = (x - torch.mean(x)) / torch.std(x)
-        #print("x after normalization " + str(x))
-        x = f.normalize(x, p=2, dim=1)
-        return x
+
+        return x # f.normalize(x, p=2, dim=1)
 
 
 # ================================================================
@@ -128,12 +125,12 @@ class AlexNet(nn.Module):
         # self.final_layer = nn.Linear(dim_last_layer, num_classes)
 
     def forward(self, data):
-        #x = self.features(data)
         x = self.features(data.to(DEVICE))
         if WITH_GNAP: x = self.gnap(x)
         x = x.view(x.size(0), 512) #16384 /32 = 512.0
+        x = self.linearization(x)
 
-        return self.linearization(x)
+        return x #f.normalize(x, p=2, dim=1)
 
 
 # ================================================================
@@ -173,7 +170,7 @@ class VGG16(nn.Module):
         x = self.avgpool(x)
         x = x.view(x.size(0), -1)
         x = self.linearization(x)
-        return x
+        return x #f.normalize(x, p=2, dim=1)
 
     def _initialize_weights(self):
         for m in self.modules():
@@ -249,7 +246,7 @@ class BasicBlock(nn.Module):
 
         out += identity
         out = self.relu(out)
-        return out
+        return x #f.normalize(out, p=2, dim=1)
 
 # ================================================================
 #                    CLASS: ResNet
@@ -291,7 +288,7 @@ class Bottleneck(nn.Module):
         out += identity
         out = self.relu(out)
 
-        return out
+        return x #f.normalize(out, p=2, dim=1)
 
 
 class ResNet(nn.Module):
@@ -366,7 +363,7 @@ class ResNet(nn.Module):
         x = x.view(x.size(0), -1)
         x = self.fc(x)
 
-        return x
+        return x #f.normalize(x, p=2, dim=1)
 
 
 # ================================================================

@@ -3,7 +3,7 @@ import torch
 import pickle
 import math
 import numpy as np
-from NeuralNetwork import Tripletnet, ContrastiveLoss, SoftMax_Net, AutoEncoder_Net, TYPE_ARCH, Classif_Net
+from NeuralNetwork import Triplet_Net, ContrastiveLoss, SoftMax_Net, AutoEncoder_Net, TYPE_ARCH, Classif_Net
 from Visualization import visualization_validation, visualization_train
 from Dataprocessing import from_zip_to_data, Face_DS
 from torch import nn
@@ -24,7 +24,7 @@ ROUND_DEC = 5
 
 STOP_TOLERANCE_EPOCH = 35
 MIN_AVG_F1 = 65
-TOLERANCE_MAX_SAME_F1 = 8
+TOLERANCE_MAX_SAME_F1 = 15
 TOL_OVERFITTING = 15  # 10% of difference
 MAX_NB_BATCH_PRED = 100
 
@@ -53,9 +53,19 @@ class Model:
         self.weighted_classes = train_param["weighted_class"]
 
         if train_param is not None:
-            # ----------------- Network Definition -------------
+            # ----------------- Network Definition (depending on the loss) -------------
             if train_param["loss_type"] == "triplet_loss":
-                self.network = Tripletnet(embedding_net)
+                self.network = Triplet_Net(embedding_net)
+            elif train_param["loss_type"] == "triplet_loss_cos":
+                self.network = Triplet_Net(embedding_net, metric="Cosine")
+            elif train_param["loss_type"] == "triplet_distdif_loss":
+                self.network = Triplet_Net(embedding_net, with_dist_loss=True)
+            elif train_param["loss_type"] == "triplet_distdif_loss_cos":
+                self.network = Triplet_Net(embedding_net, with_dist_loss=True, metric="Cosine")
+            elif train_param["loss_type"] == "triplet_and_ce":
+                self.network = Triplet_Net(embedding_net, with_ce_loss=True)
+            elif train_param["loss_type"] == "triplet_distdif_ce_loss":
+                self.network = Triplet_Net(embedding_net, with_dist_loss=True, with_ce_loss=True)
             elif train_param["loss_type"] == "constrastive_loss":
                 self.network = ContrastiveLoss(embedding_net)
             elif train_param["loss_type"] is None:
@@ -83,11 +93,11 @@ class Model:
 
         # For Visualization
         self.eval_dic = {"nb_correct": 0, "nb_labels": 0, "recall_pos": 0, "recall_neg": 0, "f1_pos": 0, "f1_neg": 0}
+        self.losses_train = {"Pretrained Model": [], "Non-pretrained Model": []}
         self.losses_validation = {"Pretrained Model": [], "Non-pretrained Model": []}
         self.f1_validation = {"Pretrained Model": [], "Non-pretrained Model": [], "On Training Set": []}
         self.acc_validation = {"Pretrained Model": [], "Non-pretrained Model": [], "On Training Set": []}
 
-        self.losses_train = []
         self.train_f1 = 0
         self.do_act_learning = True
 
@@ -111,6 +121,8 @@ class Model:
             train_param = {"loss_type": None, "hyper_par": hyper_par, "weighted_class": False}
             autoencoder = Model(train_param=train_param, embedding_net=self.network.embedding_net,
                                 train_loader=train_loader)
+
+            #autoencoder.network.load_state_dict(torch.load(name_autoencoder))
 
             print(" ------------ Train as Autoencoder ----------------- ")
             for epoch in range(num_epochs):
@@ -136,7 +148,8 @@ class Model:
                            train_loader=self.train_loader)
 
         for epoch in range(num_epochs):
-            print("-------------- Model that was not pretrained ------------------")
+            print("-------------- Not pretrained Model with arch " + TYPE_ARCH + " and loss " + self.loss_type
+                  + " ------------------")
 
             model_comp.train(epoch)
             loss_notPret, f1_notPret, accuracy = model_comp.prediction()
@@ -144,6 +157,7 @@ class Model:
             self.losses_validation["Non-pretrained Model"].append(loss_notPret)
             self.f1_validation["Non-pretrained Model"].append(f1_notPret)
             self.acc_validation["Non-pretrained Model"].append(accuracy)
+            self.losses_train["Non-pretrained Model"].append(model_comp.losses_train["Pretrained Model"][-1])
 
             model_comp.f1_validation["Non-pretrained Model"].append(f1_notPret)
             model_comp.active_learning(more_data_name=extra_source, mode="Non-pretrained Model")
@@ -214,7 +228,8 @@ class Model:
         if self.scheduler is not None: self.scheduler.step()
 
         if not autoencoder and self.nb_classes is None and self.weighted_classes: self.update_weights()
-        self.losses_train.append(loss_list)
+        self.losses_train["Pretrained Model"].append(loss_list)
+
 
     '''---------------------------- prediction --------------------------------
      This function tests the given model 
@@ -487,15 +502,13 @@ class Model:
                    + self.loss_type + "_arch" + TYPE_ARCH
 
         # TOCHANGE int(round(num_epoch / 5))
-        visualization_train(range(0, num_epoch, math.ceil(num_epoch / 5)), self.losses_train,
-                            save_name=name_fig + "_train.png")
+        visualization_train(num_epoch, self.losses_train, save_name=name_fig + "_train")
 
         visualization_validation(self.losses_validation, self.f1_validation,
-                                 self.acc_validation, save_name=name_fig + "_valid")
+                                 self.acc_validation, num_epoch, save_name=name_fig + "_valid")
 
         if self.loss_type[:len("cross_entropy")] == "cross_entropy":
             self.network.visualize_last_output(next(iter(self.validation_loader))[0], name_fig + "outputVis")
-
 
 
 #########################################
