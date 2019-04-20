@@ -27,6 +27,7 @@ MIN_AVG_F1 = 65
 TOLERANCE_MAX_SAME_F1 = 15
 TOL_OVERFITTING = 15  # 10% of difference
 MAX_NB_BATCH_PRED = 100
+MIN_FOR_SAVE = 70
 
 # Specifies where the torch.tensor is allocated
 DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -97,6 +98,8 @@ class Model:
         self.losses_validation = {"Pretrained Model": [], "Non-pretrained Model": []}
         self.f1_validation = {"Pretrained Model": [], "Non-pretrained Model": [], "On Training Set": []}
         self.acc_validation = {"Pretrained Model": [], "Non-pretrained Model": [], "On Training Set": []}
+        self.f1_detail = {}
+        self.f1_test = {}
 
         self.train_f1 = 0
         self.do_act_learning = True
@@ -148,8 +151,8 @@ class Model:
                            train_loader=self.train_loader)
 
         for epoch in range(num_epochs):
-            print("-------------- Not pretrained Model with arch " + TYPE_ARCH + " and loss " + self.loss_type
-                  + " ------------------")
+            print("---------- Not pretrained Model with arch " + TYPE_ARCH + " and loss " + self.loss_type
+                  + " -----------")
 
             model_comp.train(epoch)
             loss_notPret, f1_notPret, accuracy = model_comp.prediction()
@@ -158,6 +161,8 @@ class Model:
             self.f1_validation["Non-pretrained Model"].append(f1_notPret)
             self.acc_validation["Non-pretrained Model"].append(accuracy)
             self.losses_train["Non-pretrained Model"].append(model_comp.losses_train["Pretrained Model"][-1])
+            self.f1_detail["Non-pretrained Model"] = model_comp.f1_detail["Pretrained Model"]
+
 
             model_comp.f1_validation["Non-pretrained Model"].append(f1_notPret)
             model_comp.active_learning(more_data_name=extra_source, mode="Non-pretrained Model")
@@ -174,9 +179,9 @@ class Model:
                 torch.save(model_comp, name_model)
             print("Model not pretrained is saved!")
 
-        f1_test_1 = self.prediction(validation=False) if self.loss_type != "ce_classif" else "None"
+        self.f1_test["Non-pretrained Model"] = self.prediction(validation=False) \
+            if self.loss_type != "ce_classif" else "None"
 
-        return (self.eval_dic["f1_pos"], self.eval_dic["f1_neg"]), f1_test_1
 
     '''---------------------------- train --------------------------------
      This function trains the network attached to the model  
@@ -298,23 +303,25 @@ class Model:
                     print("ERR: A runtime error occured in prediction!")
                     break
 
+        f1_neg_avg = self.eval_dic["f1_neg"] / len(data_loader)
+        f1_pos_avg = self.eval_dic["f1_pos"] / len(data_loader)
+
         # ----------- Evaluation on the validation set (over epochs) ---------------
         if not on_train and validation:
             eval_measure, accuracy = self.print_eval_model(acc_loss)
             self.losses_validation["Pretrained Model"].append(round(float(acc_loss), ROUND_DEC))
             self.f1_validation["Pretrained Model"].append(eval_measure)
             self.acc_validation["Pretrained Model"].append(accuracy)
+            self.f1_detail["Pretrained Model"] = (f1_pos_avg, f1_neg_avg)
 
             return round(float(acc_loss), ROUND_DEC), eval_measure, accuracy
 
         # ----------- Evaluation on the test set ---------------
         elif not on_train:
-            return self.print_eval_model(acc_loss, loader="Test")
+            self.f1_test["Pretrained Model"] = self.print_eval_model(acc_loss, loader="Test")
 
         # ----------- Evaluation on the train set ---------------
         else:
-            f1_neg_avg = self.eval_dic["f1_neg"] / len(self.train_loader)
-            f1_pos_avg = self.eval_dic["f1_pos"] / len(self.train_loader)
             self.f1_validation["On Training Set"].append((f1_neg_avg + f1_pos_avg) / 2)
             return f1_pos_avg, f1_neg_avg
 
@@ -396,7 +403,8 @@ class Model:
             print("f1 Pos is: " + str(100. * self.eval_dic["f1_pos"] / nb_eval) +
                   "          f1 Neg is: " + str(round(100. * self.eval_dic["f1_neg"] / nb_eval, ROUND_DEC)))
             print(" ------------------------------------------------------------------\n ")
-            return round(100. * 0.5 * (self.eval_dic["f1_neg"] + self.eval_dic["f1_pos"]) / nb_eval, ROUND_DEC), acc
+
+            return round(100. * 0.5 * (self.eval_dic["f1_neg"] + self.eval_dic["f1_pos"]) / nb_eval, ROUND_DEC), acc.item()
 
     '''------------------------- get_optimizer -------------------------------- '''
 
@@ -482,6 +490,10 @@ class Model:
     -------------------------------- '''
 
     def save_model(self, name_model):
+        if self.acc_validation["Pretrained Model"][-1] < MIN_FOR_SAVE:
+            print("The last computed accuracy on the validation set is lower than " + str(MIN_FOR_SAVE))
+            print("The model wasn't saved!\n")
+            return
         try:
             torch.save(self.network, name_model)
         except IOError:  # FileNotFoundError

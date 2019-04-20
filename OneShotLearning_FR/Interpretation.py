@@ -67,7 +67,7 @@ def to_dic(csv_name, crit_key_list, crit_value, lower_bound=0):
             for key2, values in val_list.items():
                 dic[key_val][key2] = sum(values) / float(len(values))
         else:
-            dic[key_val] = sum(val_list)/float(len(val_list))
+            dic[key_val] = sum(val_list) / float(len(val_list))
 
     return dic
 
@@ -166,6 +166,53 @@ def find_optimal_val(csv_name, to_return, eval_crit):
     return max(score_per_val, key=score_per_val.get)
 
 
+"""
+IN: restriction_min: dictionary where the key is the criterion the restriction is on and the value 
+is the minimum value this criterion has to have 
+restriction_equal: dictionary where the key is the criterion the restriction is on and the value 
+is a list of values the criterion has to be equal to 
+"""
+
+
+def print_with_best_scenarios(csv_name, restriction_min, restriction_equal, to_visualize=None):
+    # ------------------------------
+    # Open CSV
+    # ------------------------------
+    df = pd.read_csv(csv_name, delimiter=";")
+    best_rows = []
+
+    # ------------------------------
+    # Restriction Check
+    # ------------------------------
+    for i, row in df.iterrows():
+        to_add = True
+        # ----------- Restriction MIN Check -----------
+        for crit, min_val in restriction_min.items():
+            if row[crit] < min_val:
+                to_add = False
+                break
+
+        # ----------- Restriction Equal Check -----------
+        for crit, list_val in restriction_equal.items():
+            if row[crit] not in list_val:
+                to_add = False
+                break
+
+        if to_add:
+            best_rows.append(row)
+
+    # ------------------------------
+    # Visualize row
+    # ------------------------------
+    for i, row in enumerate(best_rows):
+        if to_visualize is None:
+            print("\n" + str(row))
+        else:
+            print("\n---------- For row " + str(i) + ": ----------")
+            for j, crit in enumerate(to_visualize):
+                print("Value of " + crit + " is " + str(row[crit]))
+
+
 # ================================================================
 #                    MAIN
 # ================================================================
@@ -174,7 +221,7 @@ def find_optimal_val(csv_name, to_return, eval_crit):
 if __name__ == "__main__":
 
     csv_name = "test.csv"
-    test_id = 3
+    test_id = 4
 
     if test_id == 1:
         eval_crit = ["nb_correct_vote", "nb_correct_dist", "EER"]
@@ -186,6 +233,9 @@ if __name__ == "__main__":
         print("The optimal crit is " + str(find_highest(csv_name, crits)))
 
     if test_id == 3:
+        print(" -------------------------- TEST 3 --------------------------------")
+        print("Visualize the f1 measure for different architectures and losses")
+        print(" ------------------------------------------------------------------")
         csv_name = "model_evaluation_test.csv"
         title = "Comparison between different archtitures and losses"
         # Compare architectures
@@ -193,7 +243,17 @@ if __name__ == "__main__":
         filt_di1 = key_restiction(di1, ["triplet_loss", "cross_entropy", "constrastive_loss"],
                                   keys2=["1default", "4AlexNet", "VGG16"])
         print(filt_di1)
-        #arch = list(di1.keys())
+        # arch = list(di1.keys())
         bar_chart(filt_di1["triplet_loss"], filt_di1["cross_entropy"], title, dictionary3=filt_di1["constrastive_loss"],
                   first_title="triplet_loss", second_title="cross_entropy", third_title="constrastive_loss",
                   annotated=True, y_title="f1 measure", save_name="arch_loss_comp")
+
+    if test_id == 4:
+        print(" -------------------------- TEST 4 --------------------------------")
+        print("Visualize the \"best\" scenarios")
+        print(" ------------------------------------------------------------------")
+        csv_name = "model_evaluation_test.csv"
+        restriction_min = {"Nb of triplets (train) ": 1000, "NbEpoches": 40, "best_f1_score": 80} #, "f1_test": 60}
+        restriction_equal = {"Optimizer": ["Adam"]}
+        to_visualize = ["Archit", "LossType", "best_f1_score", "With Pretraining"]
+        print_with_best_scenarios(csv_name, restriction_min, restriction_equal, to_visualize=to_visualize)

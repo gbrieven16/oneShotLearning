@@ -286,7 +286,7 @@ class Fileset:
                 original_image.save("Undetected_" + data.filename.replace("/", SEPARATOR))
                 nb_undetected_faces += 1
                 continue
-
+            #print("data.filename " + str(data.filename))
             img = FaceImage(data.filename, formatted_image, db_path=data.db_path, pers=personName, i=data.index)
             if not with_synth and img.is_synth:
                 continue
@@ -476,8 +476,9 @@ class FaceImage():
 
 
 class Face_DS(torch.utils.data.Dataset):
-    def __init__(self, fileset=None, face_set=None, transform=TRANS, to_print=False, device="cpu",
-                 triplet_version=True, save=None, faces_dic=None, nb_triplet=NB_TRIPLET_PER_PICT, nb_people=None):
+    def __init__(self, fileset=None, face_set=None, transform=TRANS, to_print=False,
+                 triplet_version=True, save=None, faces_dic=None, nb_triplet=NB_TRIPLET_PER_PICT, nb_people=None,
+                 with_synt=WITH_SYNTH):
 
         self.to_print = to_print
         self.transform = transforms.ToTensor() if transform is None else transform
@@ -485,6 +486,7 @@ class Face_DS(torch.utils.data.Dataset):
         self.train_labels = []
         self.nb_classes = 0
         self.nb_triplets = nb_triplet
+        self.with_synt = with_synt
 
         if fileset is None and faces_dic is None and face_set is None:
             return
@@ -505,7 +507,7 @@ class Face_DS(torch.utils.data.Dataset):
         # ---------------- Build Dictionary where pictures are ordered per person --------------------
         if faces_dic is None:
             t = time.time()
-            faces_dic = fileset.order_per_personName(self.transform, nb_people=nb_people)
+            faces_dic = fileset.order_per_personName(self.transform, nb_people=nb_people, with_synth=with_synt)
             print("Pictures have been processed and ordered after " + str(time.time() - t))
 
         # data_augmentation(faces_dic, Q_DATA_AUGM)
@@ -515,14 +517,14 @@ class Face_DS(torch.utils.data.Dataset):
         # ------------------------------------------------------------------------
         if triplet_version:
             self.train_not_formatted_data = []
-            self.build_triplet(faces_dic, device=device)
+            self.build_triplet(faces_dic)
 
         # ------------------------------------------------
         # CASE 3: Build training set composed of faces
         # ------------------------------------------------
         else:
             print("Correct single image detection")
-            self.image_data(faces_dic, device=device)
+            self.image_data(faces_dic)
 
         self.print_data_report(faces_dic=faces_dic, triplet=triplet_version)
 
@@ -566,7 +568,7 @@ class Face_DS(torch.utils.data.Dataset):
             self.train_data.extend(ds.train_data)
             self.train_labels.extend(ds.train_labels)
 
-    def build_triplet(self, faces_dic, device):
+    def build_triplet(self, faces_dic):
         """ ---------------------------------------------------
         Define the training set composed of (ref, pos, neg)
         List of 3 lists, each containing tensors
@@ -611,10 +613,23 @@ class Face_DS(torch.utils.data.Dataset):
                     pos_pict_list.append(curr_index_pos)  # Remember the pairs that are defined to avoid redundancy
 
                     # -------------- Negative Picture definition --------------
-                    # Pick a random different person
-                    curr_index_neg = random.choice(labels_indexes_neg)
+                    try:
+                        # Pick a random different person
+                        curr_index_neg = random.choice(labels_indexes_neg)
+                    except IndexError:
+                        print("In triplet loss, error for the " + str(j) + "eme triplet generation")
+                        print("The all people are "+ str(all_labels))
+                        break
+
                     label_neg = all_labels[curr_index_neg]
-                    picture_negative = random.choice(faces_dic[label_neg])
+                    try:
+                        picture_negative = random.choice(faces_dic[label_neg])
+                    except IndexError:
+                        print("In triplet loss, error for the " + str(j) + "eme triplet generation")
+                        print("The all people are "+ str(all_labels))
+                        print("The \"neg\" person is "+ str(label_neg))
+                        print("The dictionary of faces is "+ str(faces_dic))
+                        break
 
                     if nb_same_db < self.nb_triplets / 2:  # Half of the negative must belong to the same db
                         nb_same_db += 1
@@ -645,25 +660,25 @@ class Face_DS(torch.utils.data.Dataset):
 
         # print("pos_pict_lists: " + str(pos_pict_lists))
         # self.train_data = torch.stack(self.train_data)
-        self.train_labels = torch.tensor(self.train_labels)  # .to(device)
+        self.train_labels = torch.tensor(self.train_labels)
 
     """ --------------------- image_data ------------------------------------
       This function sets data by filling it with the pictures contained in 
       face_dic (that are the elements in the values)
       --------------------------------------------------------------------- """
 
-    def image_data(self, faces_dic, device="cpu"):
+    def image_data(self, faces_dic):
 
         label_nb = 0
         # ========= Consider each person =================
         for label, pictures_list in faces_dic.items():
             # ======== Consider each picture of each person ==========
             for i, picture in enumerate(pictures_list):
-                self.train_data.append(picture.trans_img)  # .to(device))
+                self.train_data.append(picture.trans_img)
                 self.train_labels.append(label_nb)
             label_nb += 1
         self.nb_classes = len(faces_dic)
-        self.train_labels = torch.tensor(self.train_labels)  # .to(device)
+        self.train_labels = torch.tensor(self.train_labels)
 
     """ --------------------- to_single ------------------------------------
       This function returns a Face_DS object whose data are build from the 
@@ -769,7 +784,7 @@ def load_sets(db_name, dev, nb_classes, sets_list, save=True):
         # ------------------------------------------------------------------------
         except (ValueError, IOError) as e:  # EOFError  IOError FileNotFoundError
             print("\nThe set " + name_file + " couldn't be loaded...\n" + "Building Process ...")
-            result_sets_list.append(Face_DS(fileset=set, device=dev, triplet_version=(nb_classes == 0), save=name_file))
+            result_sets_list.append(Face_DS(fileset=set, triplet_version=(nb_classes == 0), save=name_file))
 
         # ------- Classification Case: no testset -------
         if nb_classes != 0 and i == 1:
@@ -1021,8 +1036,8 @@ if __name__ == "__main__":
 
     # ----------------- Synthetic Images Generation and saving ----------------
     if test_id == 2:
-        db_list = ["cfp_humFiltered.zip", "gbrieven_filtered.zip", "lfw_filtered.zip", "faceScrub_filtered.zip",
-                   "testdb_filtered.zip"]
+        db_list = ["gbrieven_filtered.zip", "lfw_filtered.zip", "faceScrub_filtered.zip",
+                   "testdb_filtered.zip"] #"cfp_humFiltered.zip",
 
         for i, db in enumerate(db_list):
             print("Current db is " + str(FOLDER_DB + db) + "...\n")

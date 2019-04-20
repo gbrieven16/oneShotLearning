@@ -188,54 +188,37 @@ results related to the different scenarios that were experimented
 IN: List of information to record about:
     data = [used_db, DIFF_FACES, WITH_PROFILE, DB_TRAIN]
     training = [pretrain_loss, nb_ep, bs, wd, lr, arch, opt, loss_type, margin]
-    result = [losses_validation, f1_validation, f1_valid_posAndNeg, f1_test_posAndNeg]
+    result = [losses_validation, f1_validation, f1_valid_detail, f1_test]
     train_time: time required for training 
 ---------------------------------------------------------------------------------------'''
 
 
 def store_in_csv(data, training, result, train_time):
-    two_lines = False
 
+    # Merge the loss and the weight info
     training[-2] = training[-2] + "_" + str(training[-1])
-    training.pop()  # Remove margin information from the list
-    curr_parameters = [("ds_" + data[0])] + data[1:] + training
+    training.pop()
 
-    res_loss1 = result[0]["Non-pretrained Model"]
-    res_loss2 = result[0]["Pretrained Model"]
+    param = {}
+    param["Non-pretrained Model"] = [("ds_" + data[0])] + data[1:] + ["not_pret"] + training[1:]
+    param["Pretrained Model"] = [("ds_" + data[0])] + data[1:] + training
 
-    res_f1_1 = result[1]["Non-pretrained Model"]
-    res_f1_2 = result[1]["Pretrained Model"]
-
-    if 0 < len(res_loss1):
-        two_lines = True
-        curr_evaluation1 = [float(res_loss1[0]), float(res_loss1[int(round(len(result[0])) / 2)]), float(res_loss1[-1]),
-                            float(res_f1_1[0]), float(res_f1_1[int(round(len(result[1]) / 2))]), float(res_f1_1[-1])]
-        best_f1_1 = float(max(res_f1_1))
-        best_epoch_1 = res_f1_1.index(best_f1_1)
-
-    curr_evaluation = [float(res_loss2[0]), float(res_loss2[int(round(len(result[0])) / 2)]), float(res_loss2[-1]),
-                       float(res_f1_2[0]), float(res_f1_2[int(round(len(result[1]) / 2))]), float(res_f1_2[-1])]
-
-    best_f1 = float(max(res_f1_2))
-    best_epoch = res_f1_2.index(best_f1)
-    print("IN STORE IN CSV: best f1 is " + str(best_f1))
-
-    # titles = ["Name BD", "IsDiffFaces", "IsWithProfile", "Db_train", With Pretraining,
-    #  "NbEpoches", "BS", "WD", "LR", "ArchType", "Optimizer", "LossType", "Weighted Classes",
-    # "Loss1", "Loss2", "Loss3", "F11", "F12", 'F13', "F1Best", epochBest, train_time]
+    lines = ["Non-pretrained Model", "Pretrained Model"] if 0 < len(result[0]["Non-pretrained Model"]) else ["Pretrained Model"]
+    best_f1=0
 
     with open(CSV_NAME, 'a') as f:
         writer = csv.writer(f, delimiter=";")
-        # writer.writerow(titles)
+        for i, line in enumerate(lines):
+            curr_eval = [float(result[0][line][0]), float(result[0][line][int(round(len(result[0][line])) / 2)]),
+                                float(result[0][line][-1]),
+                                float(result[1][line][0]), float(result[1][line][int(round(len(result[1]) / 2))]),
+                                float(result[1][line][-1])]
 
-        if two_lines:
-            writer.writerow(
-                curr_parameters + curr_evaluation1 + [str(best_f1_1)] + [str(best_epoch_1)] + [result[-2]]
-                + [str(train_time)] + [str(res_loss1)] + [str(res_loss2)])
-
-        writer.writerow(
-            curr_parameters + curr_evaluation + [str(best_f1)] + [str(best_epoch)] + [result[-1]]
-            + [str(train_time)] + [str(res_loss2)] + [str(res_f1_2)])
+            best_f1 = float(max(result[1][line]))
+            best_epoch = [str(result[1][line].index(best_f1))]
+            best_f1 = [str(best_f1)]
+            writer.writerow(param[line] + curr_eval + best_f1 + best_epoch + [result[2][line][0], result[2][line][1],
+                    result[3][line]] + [str(train_time)] + [str(result[0][line])] + [str(result[1][line])])
 
     return best_f1
 

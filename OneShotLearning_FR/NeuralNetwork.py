@@ -27,13 +27,14 @@ TYPE_ARCH (related to the embedding Network)
 4: AlexNet architecture 
 """
 
-TYPE_ARCH = "VGG16"  # "resnet152"  #"1default" "VGG16" #  "2def_drop" "3def_bathNorm"
+TYPE_ARCH = "1default"  # "resnet152"  #"1default" "VGG16" #  "2def_drop" "3def_bathNorm"
 DIM_LAST_LAYER = 1024 if TYPE_ARCH in ["VGG16", "4AlexNet"] else 512 # TO CHANGE?
 
 DIST_THRESHOLD = 0.02
 MARGIN = 0.2
 METRIC = "Euclid" # "Cosine" #
 NORMALIZE_DIST = False
+WEIGHT_DIST = 0.2
 
 # Specifies where the torch.tensor is allocated
 DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -231,7 +232,7 @@ class Triplet_Net(DistanceBased_Net):
             if diff_dist_loss.item() < 0.01:
                 loss = (min(1/med_distance, 100) + med_disturb)/2 - diff_dist_loss
             else:
-                loss = 0.6 * loss - 0.4 * diff_dist_loss
+                loss = (1-WEIGHT_DIST) * loss - WEIGHT_DIST * diff_dist_loss
         # ----------------------------------
         # Cross Entropy Loss Definition
         # ----------------------------------
@@ -259,7 +260,7 @@ class ContrastiveLoss(DistanceBased_Net):
     """
 
     def __init__(self, embeddingNet):
-        super(ContrastiveLoss, self).__init__(embeddingNet)
+        super(ContrastiveLoss, self).__init__(embeddingNet, METRIC)
         self.eps = 1e-9
 
     '''------------------ get_loss ------------------------ '''
