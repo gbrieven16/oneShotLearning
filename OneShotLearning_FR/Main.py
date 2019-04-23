@@ -16,21 +16,22 @@ from Visualization import store_in_csv, line_graph
 #########################################
 
 
-NUM_EPOCH = 1 if platform.system() == "Darwin" else 102
+NUM_EPOCH = 1 if platform.system() == "Darwin" else 100
 BATCH_SIZE = 32 # TO CHANGE IF BACK TO NORMAL SITUATION
 
 LR_NONPRET = 0.001
-LEARNING_RATE = 0.001 # SOULD BE CHANGED?
-WITH_LR_SCHEDULER = "StepLR" #"" #"StepLR"  #"StepLR"  # "ExponentialLR" None
+LEARNING_RATE = 0.01 # SOULD BE CHANGED?
+WITH_LR_SCHEDULER = "StepLR" #"StepLR" #"StepLR"  #"StepLR"  # "ExponentialLR" None
 WEIGHT_DECAY = 0.001  # To control regularization
 OPTIMIZER = "Adam" #"Adagrad"  # Adagrad "SGD"
 
 WEIGHTED_CLASS = False
 WITH_EPOCH_OPT = False
-LOSS = "triplet_loss"  # "cross_entropy" "ce_classif"   "constrastive_loss" triplet_and_ce
+LOSS = "triplet_loss"  # "cross_entropy" "ce_classif"   "constrastive_loss" triplet_and_ce triplet_distdif_loss
 
 MODE = "learn"  # "classifier training"
 PRETRAINING = "autoencoder"  # ""autoencoder"  # "autoencoder_only" "none"
+WITH_NON_PRET = True
 
 DIFF_FACES = True  # If true, we have different faces in the training and the testing set
 WITH_PROFILE = False  # True if both frontally and in profile people
@@ -205,9 +206,11 @@ def main_train(sets_list, fname, db_train=None,  name_model=None, scheduler=WITH
         if pret in ["autoencoder", "autoencoder_only"]:
             # ---------- Pretraining using an autoencoder or classical model --------------
             model_learn.pretraining(sets_list[0], hyp_par, batch_size=BATCH_SIZE)
-            hyp_par_nonPret = {"opt_type": OPTIMIZER, "lr": LR_NONPRET, "wd": WEIGHT_DECAY,
-                               "lr_scheduler": scheduler, "num_epoch": NUM_EPOCH}
-            model_learn.train_nonpretrained(NUM_EPOCH, hyp_par_nonPret, save=name_model)
+
+            if WITH_NON_PRET:
+                hyp_par_nonPret = {"opt_type": OPTIMIZER, "lr": LR_NONPRET, "wd": WEIGHT_DECAY,
+                                   "lr_scheduler": scheduler, "num_epoch": NUM_EPOCH}
+                model_learn.train_nonpretrained(NUM_EPOCH, hyp_par_nonPret, save=name_model)
 
         # ------- Model Training ---------
         if pret != "autoencoder_only":
@@ -309,9 +312,9 @@ if __name__ == '__main__':
     # -----------------------------------------------------------------------
     if test == 3 or test is None:
         #db_name_train = [FOLDER_DB + "gbrieven_filtered.zip", FOLDER_DB + "lfw_filtered.zip"]  # "faceScrub", "lfw", "cfp", "gbrieven", "testdb"] #"testCropped"
-        db_name_train = [FOLDER_DB + "cfp70.zip"]
+        #db_name_train = [FOLDER_DB + "cfp70.zip"]
         #db_name_train = [FOLDER_DB + "gbrieven_filtered.zip"]
-        loss_list = ["triplet_distdif_loss", "triplet_and_ce", "triplet_loss", "cross_entropy", "constrastive_loss"]
+        loss_list = ["triplet_loss", "triplet_distdif_loss", "triplet_and_ce", "cross_entropy", "constrastive_loss"]
         for i, loss in enumerate(loss_list):
             main(fname=db_name_train, loss=loss)
 
@@ -324,7 +327,7 @@ if __name__ == '__main__':
                        #  FOLDER_DB + "faceScrub.zip"]
         db_name_train = [FOLDER_DB + "cfp_humFiltered.zip", FOLDER_DB + "gbrieven_filtered.zip",
                         FOLDER_DB + "lfw_filtered.zip", FOLDER_DB + "faceScrub_humanFiltered.zip"]
-        loss_list = ["triplet_loss", "triplet_distdif_loss", "triplet_and_ce", "cross_entropy", "constrastive_loss"]
+        loss_list = ["triplet_loss", "triplet_and_ce", "cross_entropy", "constrastive_loss", "triplet_distdif_loss"]
         for i, loss in enumerate(loss_list):
             main(fname=db_name_train, loss=loss)
 

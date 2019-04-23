@@ -6,7 +6,6 @@ from tqdm import tqdm
 import PIL.Image
 import numpy as np
 import dnnlib.tflib as tflib
-import config
 from encoder.generator_model import Generator
 from encoder.perceptual_model import PerceptualModel
 
@@ -100,10 +99,9 @@ def generate_synth_face(Gs=GS_NETWORK, save=True, nb_people=1):
 
         # Save image.
         if save:
-            os.makedirs(config.result_dir, exist_ok=True)
-            filename = os.path.join(config.result_dir, 'synthImage_m2_' + str(i) + '.jpg')
-            print("Saving of image in location " + filename)
+            filename = GENERATED_IMAGES_DIR + 'synthDB__synthPers' + "_" + str(i) + "__1.jpg"
             PIL.Image.fromarray(images[0], 'RGB').save(filename)
+            print("Synthetic image saved as " + filename + "\n")
 
 
 def generate_image(latent_vector):

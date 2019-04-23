@@ -106,7 +106,7 @@ def bar_chart(dictionary1, dictionary2, title, dictionary3=None, first_title='Av
     #plt.rc('axes', axisbelow=True)
     ax = fig.add_subplot(111)
     ind = np.arange(len(dictionary1))  # 2 bars to consider
-    width = 0.2
+    width = 0.4
 
     first_vals = []
     if dictionary2 is not None:
@@ -114,6 +114,13 @@ def bar_chart(dictionary1, dictionary2, title, dictionary3=None, first_title='Av
 
     if dictionary3 is not None:
         third_vals = []
+        col1 = '#306998'
+        col2 = '#FFD43B'
+        col3 = '#646464'
+    else:
+        col1 = "#28d9c2"
+        col2 = "#FF9933"
+        col3 = None
 
     for key in dictionary1.keys():
         first_vals.append(dictionary1[key])
@@ -122,14 +129,14 @@ def bar_chart(dictionary1, dictionary2, title, dictionary3=None, first_title='Av
         if dictionary3 is not None:
             third_vals.append(dictionary3[key])
 
-    rects1 = ax.bar(ind, first_vals, width, color='#306998')
+    rects1 = ax.bar(ind, first_vals, width, color=col1)
     if dictionary2 is not None:
-        rects2 = ax.bar(ind + width, second_vals, width, color='#FFD43B')
-        ax.legend((rects1[0], rects2[0]), (first_title, second_title))
+        rects2 = ax.bar(ind + width, second_vals, width, color=col2)
+        ax.legend((rects1[0], rects2[0]), (first_title, second_title), loc='lower right')
 
     if dictionary3 is not None:
-        rects3 = ax.bar(ind + 2 * width, third_vals, width, color='#646464')
-        ax.legend((rects1[0], rects2[0], rects3[0]), (first_title, second_title, third_title))
+        rects3 = ax.bar(ind + 2 * width, third_vals, width, color=col3)
+        ax.legend((rects1[0], rects2[0], rects3[0]), (first_title, second_title, third_title), loc='lower right')
 
     if annotated:
         autolabel(rects1, ax)
@@ -271,19 +278,16 @@ def visualization_train(num_epoch, losses_dic, save_name=None):
         dictionary = {}
         for i, epoch in enumerate(epoch_list):
                 dictionary["epoch " + str(epoch)] = losses_dic[key1][epoch]
+        multi_line_graph(dictionary, perc_train, title, x_label="percentage of data", y_label="Loss",
+                         save_name=save_name + ".png", loc='upper right')
     except IndexError:
         print("The size of loss list is " + str(len(losses_dic[key1])))
         print("Epoch list is " + str(epoch_list))
-        print("IN visualization_train: error with " + str(losses_dic[key1]) + " by accessing element " + str(epoch))
-
-
-    multi_line_graph(dictionary, perc_train, title, x_label="percentage of data", y_label="Loss",
-                     save_name=save_name + ".png", loc='upper right')
 
     # --------------------------------------------------------------------
     # Visualization of losses over epochs
     # --------------------------------------------------------------------
-    title_loss = "Comparison of the evolution of the losses on training data"
+    title_loss = "Evolution of the losses on training data"
     epoches = list(range(0, num_epoch, 1))
 
     # Compute the avg of each list in value
@@ -313,11 +317,11 @@ IN : self.losses_validation = {"Pretrained Model": [], "Non-pretrained Model": [
 
 
 def visualization_validation(loss, f1, acc, num_ep, save_name=None):
-    title_loss = "Comparison of the evolution of the losses"
-    title_f1 = "Comparison of the evolution of the f1-measure on the validation set"
-    title_acc = "Comparison of the evolution of the accuracy on the validation set"
+    title_loss = "Evolution of the losses"
+    title_f1 = "Evolution of the f1-measure on the validation set"
+    title_acc = "Evolution of the accuracy on the validation set"
 
-    title_f1_train_valid = "Comparison of the evolution of the f1-measure for the training and the validation set"
+    title_f1_train_valid = "Evolution of the f1-measure for the training and the validation set"
 
     key0 = list(loss.keys())[0]
     key1 = list(loss.keys())[1]

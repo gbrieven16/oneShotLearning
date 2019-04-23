@@ -64,7 +64,7 @@ TRANS = transforms.Compose([transforms.CenterCrop(CENTER_CROP), transforms.ToTen
 
 Q_DATA_AUGM = 4
 BATCH_SIZE_DA = 15  # Batch size of data augmentation (so that images are registered)
-DIST_METRIC = "Manhattan" #"Manhattan"  # "Cosine_Sym"
+DIST_METRIC = "Cosine_Sym" #"MeanSquare"  "Manhattan"
 
 
 # ================================================================
@@ -403,7 +403,9 @@ class FaceImage():
             return self.feature_repres
         else:
             data = torch.unsqueeze(self.trans_img, 0)
-            self.feature_repres = f.normalize(model.embedding_net(data), p=2, dim=1)
+            #self.feature_repres = f.normalize(model.embedding_net(data), p=2, dim=1)
+            self.feature_repres = model.embedding_net(data)
+
             return self.feature_repres
 
     def get_latent_repr(self):
@@ -1025,7 +1027,7 @@ def register_aligned(db):
 
 if __name__ == "__main__":
 
-    test_id = 2
+    test_id = 3
     # ----------------- Galleries Generation and saving ----------------
     if test_id == 1:
         db_list = ["cfp_humFiltered", "lfw_filtered", "gbrieven_filtered", "faceScrub_humanFiltered"]
@@ -1045,5 +1047,5 @@ if __name__ == "__main__":
 
     # ----------------- Synthetic Person Generation and saving ----------------
     if test_id == 3:
-        generate_synth_face(nb_people=100)
+        generate_synth_face(nb_people=150)
 

@@ -20,7 +20,6 @@ import matplotlib.pyplot as plt
 
 """
 TYPE_ARCH (related to the embedding Network)
-
 1: without dropout, without batch normalization 
 2: with dropout, without batch normalization  
 3: without dropout, with batch normalization  
@@ -34,6 +33,7 @@ DIST_THRESHOLD = 0.02
 MARGIN = 0.2
 METRIC = "Euclid" # "Cosine" #
 NORMALIZE_DIST = False
+NORMALIZE_FR = True
 WEIGHT_DIST = 0.2
 
 # Specifies where the torch.tensor is allocated
@@ -89,8 +89,11 @@ class DistanceBased_Net(nn.Module):
     def get_distance(self, anchor, negative, positive=None, as_embedding=False):
         # --- Derivation of the feature representation ---
         if not as_embedding:
-            embedded_anchor = f.normalize(self.embedding_net(anchor), p=2, dim=1)
-            embedded_neg = f.normalize(self.embedding_net(negative), p=2, dim=1)
+            embedded_anchor = self.embedding_net(anchor)
+            embedded_neg = self.embedding_net(negative)
+            if NORMALIZE_FR:
+                embedded_anchor = f.normalize(embedded_anchor, p=2, dim=1)
+                embedded_neg = f.normalize(embedded_neg, p=2, dim=1)
         else:
             embedded_anchor = anchor
             embedded_neg = negative
@@ -108,7 +111,9 @@ class DistanceBased_Net(nn.Module):
                 distance = abs(distance - distance.mean) / distance.std
             return distance, None
         else:
-            embedded_pos = f.normalize(self.embedding_net(positive), p=2, dim=1)
+            embedded_pos = self.embedding_net(positive)
+            if NORMALIZE_FR:
+                embedded_pos = f.normalize(self.embedding_net(positive), p=2, dim=1)
 
             disturb = f.pairwise_distance(embedded_anchor, embedded_pos, 2) if self.metric == "Euclid" \
                  else f.cosine_similarity(embedded_anchor, embedded_pos)
@@ -145,8 +150,12 @@ class DistanceBased_Net(nn.Module):
     '''-------------------------- predict --------------------------------- '''
 
     def predict(self, data):
-        embedded1 = f.normalize(self.embedding_net(data[0]), p=2, dim=1)
-        embedded2 = f.normalize(self.embedding_net(data[1]), p=2, dim=1)
+        embedded1 = self.embedding_net(data[0])
+        embedded2 = self.embedding_net(data[1])
+        if NORMALIZE_FR:
+            embedded1 = f.normalize(embedded1, p=2, dim=1)
+            embedded2 = f.normalize(embedded2, p=2, dim=1)
+
         return self.output_from_embedding(embedded1, embedded2)
 
     '''----------------- output_from_embedding -------------------------------- '''
@@ -284,10 +293,8 @@ class ContrastiveLoss(DistanceBased_Net):
 # ============================================================================================
 class CenterLoss(nn.Module):
     """Center loss.
-
     Reference:
     Wen et al. A Discriminative Feature Learning Approach for Deep Face Recognition. ECCV 2016.
-
     Args:
         num_classes (int): number of classes.
         feat_dim (int): feature dimension.
@@ -405,7 +412,10 @@ class Classif_Net(nn.Module):
         self.to(DEVICE)
 
     def forward(self, data, label):
-        embedded_data = f.normalize(self.embedding_net(data), p=2, dim=1)
+        embedded_data = self.embedding_net(data)
+        if NORMALIZE_FR:
+            embedded_data = f.normalize(embedded_data, p=2, dim=1)
+
         # ---------- Center Loss Consideration ----------------
         if self.center_loss is not None:
             self.loss_cur = self.center_loss(embedded_data, label)
@@ -413,7 +423,10 @@ class Classif_Net(nn.Module):
         return self.final_layer(embedded_data)
 
     def predict(self, data):
-        feature_repr = f.normalize(self.embedding_net(data), p=2, dim=1)
+        feature_repr = self.embedding_net(data)
+        if NORMALIZE_FR:
+            feature_repr = f.normalize(feature_repr, p=2, dim=1)
+
         return self.output_from_embedding(feature_repr)
 
     def output_from_embedding(self, embedding):
@@ -460,9 +473,14 @@ class SoftMax_Net(nn.Module):
 
     def forward(self, data):
         # Computation of the difference of the 2 feature representations
-        feature_repr_anch = f.normalize(self.embedding_net(data[0]), p=2, dim=1)
-        feature_repr_pos = f.normalize(self.embedding_net(data[1]), p=2, dim=1)
-        feature_repr_neg = f.normalize(self.embedding_net(data[2]), p=2, dim=1)
+        feature_repr_anch = self.embedding_net(data[0])
+        feature_repr_pos = self.embedding_net(data[1])
+        feature_repr_neg = self.embedding_net(data[2])
+        if NORMALIZE_FR:
+            feature_repr_anch = f.normalize(feature_repr_anch, p=2, dim=1)
+            feature_repr_pos = f.normalize(feature_repr_pos, p=2, dim=1)
+            feature_repr_neg = f.normalize(feature_repr_neg, p=2, dim=1)
+
         disturb = torch.abs(feature_repr_pos - feature_repr_anch)
         distance = torch.abs(feature_repr_neg - feature_repr_anch)
 
@@ -481,9 +499,12 @@ class SoftMax_Net(nn.Module):
         # return self.avg_val_tensor(difference).requires_grad_(True) #
 
     def predict(self, data):
-        feature_repr1 = f.normalize(self.embedding_net(data[0]), p=2, dim=1)
-        feature_repr2 = f.normalize(self.embedding_net(data[1]), p=2, dim=1)
-        return self.output_from_embedding(feature_repr1, feature_repr2)
+        embedded1 = self.embedding_net(data[0])
+        embedded2 = self.embedding_net(data[1])
+        if NORMALIZE_FR:
+            embedded1 = f.normalize(embedded1, p=2, dim=1)
+            embedded2 = f.normalize(embedded2, p=2, dim=1)
+        return self.output_from_embedding(embedded1, embedded2)
 
     def output_from_embedding(self, embedding1, embedding2):
         dist = torch.abs(embedding2 - embedding1)
@@ -644,4 +665,3 @@ def visualize_autoencoder_res(name_autoencoder, db_source):
 if __name__ == '__main__':
     name_autoencoder = "encoders/auto_180.pwf"
     db_source = "/data/gbrieven/cfp_3.zip"
-    visualize_autoencoder_res(name_autoencoder, db_source)

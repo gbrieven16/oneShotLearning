@@ -18,7 +18,7 @@ MOMENTUM = 0.9
 GAMMA = 0.1  # for the lr_scheduler - default value 0.1
 N_TEST_IMG = 5
 PT_BS = 32  # Batch size for pretraining
-PT_NUM_EPOCHS = 200  # 200
+PT_NUM_EPOCHS = 200 # 200
 EP_SAVE = 30
 ROUND_DEC = 5
 
@@ -93,7 +93,8 @@ class Model:
             # self.loss_type = "None"
 
         # For Visualization
-        self.eval_dic = {"nb_correct": 0, "nb_labels": 0, "recall_pos": 0, "recall_neg": 0, "f1_pos": 0, "f1_neg": 0}
+        self.eval_dic = {"nb_correct": 0, "nb_labels": 0, "recall_pos": 0,
+                         "recall_neg": 0, "f1_pos": 0, "f1_neg": 0, "prec_pos":0, "prec_neg":0}
         self.losses_train = {"Pretrained Model": [], "Non-pretrained Model": []}
         self.losses_validation = {"Pretrained Model": [], "Non-pretrained Model": []}
         self.f1_validation = {"Pretrained Model": [], "Non-pretrained Model": [], "On Training Set": []}
@@ -113,19 +114,16 @@ class Model:
 
     def pretraining(self, Face_DS_train, hyper_par, num_epochs=PT_NUM_EPOCHS, batch_size=PT_BS):
 
-        name_trained_net = ENCODER_DIR + "encoder_al_" + TYPE_ARCH + "_ep" + str(num_epochs) + ".pkl"
+        name_trained_net = ENCODER_DIR + "encoder_al_" + TYPE_ARCH + "_ep" + str(num_epochs) + ".pt"
         try:
-            with open(name_trained_net, "rb") as f:
-                self.network.embedding_net = pickle.load(f)
-            print("The autoencoder has been loaded!\n")
+            self.network.embedding_net.load_state_dict(torch.load(name_trained_net))
+            print("The encoder has been loaded!\n")
         except FileNotFoundError:
             train_data = Face_DS_train.to_single(Face_DS_train) if self.nb_classes is None else Face_DS_train
             train_loader = torch.utils.data.DataLoader(train_data, batch_size=batch_size, shuffle=True)
             train_param = {"loss_type": None, "hyper_par": hyper_par, "weighted_class": False}
             autoencoder = Model(train_param=train_param, embedding_net=self.network.embedding_net,
                                 train_loader=train_loader)
-
-            #autoencoder.network.load_state_dict(torch.load(name_autoencoder))
 
             print(" ------------ Train as Autoencoder ----------------- ")
             for epoch in range(num_epochs):
@@ -134,8 +132,8 @@ class Model:
                     torch.save(autoencoder.network.state_dict(), ENCODER_DIR + "auto_{0:03d}.pwf".format(epoch))
                     autoencoder.network.visualize_dec()
 
-            pickle.dump(self.network.embedding_net, open(name_trained_net, "wb"))  # , protocol=2)
-            print("The autoencoder has been saved as " + name_trained_net + "!\n")
+            torch.save(self.network.embedding_net.state_dict(), name_trained_net)
+            print("The encoder has been saved as " + name_trained_net + "!\n")
             autoencoder.network.visualize_dec()
 
     '''------------------ train_nonpretrained -------------------------------------
@@ -170,13 +168,13 @@ class Model:
             if should_break(self.acc_validation["Non-pretrained Model"], epoch):
                 break
 
-        if save is not None:
+        if save is not None and MIN_FOR_SAVE < self.acc_validation["Non-pretrained Model"][-1]:
             name_model = save.split("_pre")[0] + "_nonpretrained.pt"
             try:
-                torch.save(model_comp, name_model)
+                torch.save(model_comp.network, name_model)
             except IOError:  # FileNotFoundError
                 os.mkdir(name_model.split("/")[0])
-                torch.save(model_comp, name_model)
+                torch.save(model_comp.network, name_model)
             print("Model not pretrained is saved!")
 
         self.f1_test["Non-pretrained Model"] = self.prediction(validation=False) \
@@ -213,8 +211,17 @@ class Model:
                 print("ERR: An IO error occured in train! ")
                 break
 
+            a = torch.tensor(list(self.network.embedding_net.parameters())[0].data) if not autoencoder \
+                else torch.tensor(list(self.network.encoder.parameters())[0].data)
+
             loss.backward()  # backpropagation, compute gradients
             self.optimizer.step()  # apply gradients
+            b = list(self.network.embedding_net.parameters())[0].data if not autoencoder \
+                else list(self.network.encoder.parameters())[0].data
+
+            if torch.equal(a, b):
+                print("!! WARNING: The weights of the model were not updated! \n")
+
             loss_list.append(loss.item())
 
             # -----------------------
@@ -400,6 +407,8 @@ class Model:
         else:
             print("Recall Pos is: " + str(100. * self.eval_dic["recall_pos"] / nb_eval) +
                   "   Recall Neg is: " + str(round(100. * self.eval_dic["recall_neg"] / nb_eval, ROUND_DEC)))
+            print("Precision Pos is: " + str(100. * self.eval_dic["prec_pos"] / nb_eval) +
+                  "   Precision Neg is: " + str(round(100. * self.eval_dic["prec_neg"] / nb_eval, ROUND_DEC)))
             print("f1 Pos is: " + str(100. * self.eval_dic["f1_pos"] / nb_eval) +
                   "          f1 Neg is: " + str(round(100. * self.eval_dic["f1_neg"] / nb_eval, ROUND_DEC)))
             print(" ------------------------------------------------------------------\n ")
@@ -458,16 +467,18 @@ class Model:
 
         try:
             rec_pos = float(tp) / p
-            self.eval_dic["recall_pos"] += rec_pos
             prec_pos = float(tp) / (float(tp) + (n - float(tn)))
+            self.eval_dic["prec_pos"] += prec_pos
+            self.eval_dic["recall_pos"] += rec_pos
             self.eval_dic["f1_pos"] += (2 * rec_pos * prec_pos) / (prec_pos + rec_pos)
         except ZeroDivisionError:  # the tp is 0
             pass
 
         try:
             rec_neg = float(tn) / n
-            self.eval_dic["recall_neg"] += rec_neg
             prec_neg = float(tn) / (float(tn) + (p - float(tp)))
+            self.eval_dic["prec_neg"] += prec_neg
+            self.eval_dic["recall_neg"] += rec_neg
             self.eval_dic["f1_neg"] += (2 * rec_neg * prec_neg) / (prec_neg + rec_neg)
         except ZeroDivisionError:  # the tn is 0
             pass

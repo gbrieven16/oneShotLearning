@@ -82,7 +82,7 @@ class BasicNet(nn.Module):
         x = self.linear1(x)
         x = f.relu(x)
 
-        return x # f.normalize(x, p=2, dim=1)
+        return f.normalize(x, p=2, dim=1)
 
 
 # ================================================================
@@ -128,9 +128,8 @@ class AlexNet(nn.Module):
         x = self.features(data.to(DEVICE))
         if WITH_GNAP: x = self.gnap(x)
         x = x.view(x.size(0), 512) #16384 /32 = 512.0
-        x = self.linearization(x)
 
-        return x #f.normalize(x, p=2, dim=1)
+        return self.linearization(x)
 
 
 # ================================================================
@@ -169,8 +168,7 @@ class VGG16(nn.Module):
         if WITH_GNAP: x = self.gnap(x)
         x = self.avgpool(x)
         x = x.view(x.size(0), -1)
-        x = self.linearization(x)
-        return x #f.normalize(x, p=2, dim=1)
+        return self.linearization(x)
 
     def _initialize_weights(self):
         for m in self.modules():
@@ -245,8 +243,7 @@ class BasicBlock(nn.Module):
             identity = self.downsample(x)
 
         out += identity
-        out = self.relu(out)
-        return x #f.normalize(out, p=2, dim=1)
+        return self.relu(out)
 
 # ================================================================
 #                    CLASS: ResNet
@@ -286,9 +283,8 @@ class Bottleneck(nn.Module):
             identity = self.downsample(x)
 
         out += identity
-        out = self.relu(out)
 
-        return x #f.normalize(out, p=2, dim=1)
+        return self.relu(out)
 
 
 class ResNet(nn.Module):
@@ -361,9 +357,8 @@ class ResNet(nn.Module):
         x = self.gnap(x)
         x = self.avgpool(x)
         x = x.view(x.size(0), -1)
-        x = self.fc(x)
 
-        return x #f.normalize(x, p=2, dim=1)
+        return self.fc(x)
 
 
 # ================================================================

@@ -1,5 +1,6 @@
 import pandas as pd
 from Visualization import bar_chart
+import numpy as np
 
 #########################################
 #       GLOBAL VARIABLES                #
@@ -24,7 +25,8 @@ Eg: crit_key ; crit_value
 
 IN: lower_bound: the minimum value the value of crit_value has to have 
 to be considered 
-crit key: (list of 2) crit to discuss
+crit key: (list of 2) crit to discuss (the first one represent the bars inside 
+a set and the second element represent the different sets of bars) 
 ------------------------------------------------------------------------ """
 
 
@@ -188,7 +190,7 @@ def print_with_best_scenarios(csv_name, restriction_min, restriction_equal, to_v
         to_add = True
         # ----------- Restriction MIN Check -----------
         for crit, min_val in restriction_min.items():
-            if row[crit] < min_val:
+            if row[crit] < min_val or is_not_nb(row[crit]): # np.isnan(row[crit]):
                 to_add = False
                 break
 
@@ -212,6 +214,8 @@ def print_with_best_scenarios(csv_name, restriction_min, restriction_equal, to_v
             for j, crit in enumerate(to_visualize):
                 print("Value of " + crit + " is " + str(row[crit]))
 
+def is_not_nb(nb):
+    return not (float('-inf') < float(nb) < float('inf'))
 
 # ================================================================
 #                    MAIN
@@ -221,7 +225,7 @@ def print_with_best_scenarios(csv_name, restriction_min, restriction_equal, to_v
 if __name__ == "__main__":
 
     csv_name = "test.csv"
-    test_id = 4
+    test_id = 5
 
     if test_id == 1:
         eval_crit = ["nb_correct_vote", "nb_correct_dist", "EER"]
@@ -237,9 +241,9 @@ if __name__ == "__main__":
         print("Visualize the f1 measure for different architectures and losses")
         print(" ------------------------------------------------------------------")
         csv_name = "model_evaluation_test.csv"
-        title = "Comparison between different archtitures and losses"
+        title = "Comparison between different architectures and losses"
         # Compare architectures
-        di1 = to_dic(csv_name, ["LossType", "Archit"], "best_f1_score", lower_bound=0)
+        di1 = to_dic(csv_name, ["LossType - Weighted Classes", "Archit"], "best_f1_score", lower_bound=0)
         filt_di1 = key_restiction(di1, ["triplet_loss", "cross_entropy", "constrastive_loss"],
                                   keys2=["1default", "4AlexNet", "VGG16"])
         print(filt_di1)
@@ -252,8 +256,24 @@ if __name__ == "__main__":
         print(" -------------------------- TEST 4 --------------------------------")
         print("Visualize the \"best\" scenarios")
         print(" ------------------------------------------------------------------")
-        csv_name = "model_evaluation_test.csv"
-        restriction_min = {"Nb of triplets (train) ": 1000, "NbEpoches": 40, "best_f1_score": 80} #, "f1_test": 60}
+        csv_name = "model_evaluation.csv"
+        restriction_min = {"Nb of triplets (train)": 1000, "NbEpoches": 40, "best_f1_score": 88} #, "f1_test": 60}
         restriction_equal = {"Optimizer": ["Adam"]}
-        to_visualize = ["Archit", "LossType", "best_f1_score", "With Pretraining"]
+        to_visualize = ["Archit", "LossType - Weighted Classes", "best_f1_score", "With Pretraining", "Name BD",
+                        "Nb of triplets (train)", "NbEpoches"]
         print_with_best_scenarios(csv_name, restriction_min, restriction_equal, to_visualize=to_visualize)
+
+    if test_id == 5:
+        # -------------------------------------------------------
+        # Compare the scenarios with and without synthetic data
+        # -------------------------------------------------------
+        csv_name = "syntAndReal.csv"
+        title = "Comparison between different data quantities and nature"
+        # Compare architectures
+        di1 = to_dic(csv_name, ["Synth", "Total Nb of Images"], "f1_score3", lower_bound=0)
+
+        print(di1)
+        # arch = list(di1.keys())
+        bar_chart(di1["real"], di1["real + synth"], title, first_title="real", second_title="real + synth",
+                  annotated=False, y_title="f1 measure", save_name="synthVSreal")
+

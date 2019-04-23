@@ -4,7 +4,7 @@ import torch
 
 from Main import load_model, WITH_PROFILE, DIFF_FACES, main_train
 from Dataprocessing import FOLDER_DB, FaceImage, Face_DS, from_zip_to_data, TEST_ZIP, TRANS, FOLDER_DIC
-from FaceRecognition import remove_synth_data
+from FaceRecognition import remove_synth_data, remove_real_data
 
 #########################################
 #       GLOBAL VARIABLES                #
@@ -14,7 +14,7 @@ PICTURES_NB = [200, 500, 1000, 2000, 4000, 10000, 15000, 20000]
 TRIPLET_NB = [5, 3, 2, 2, 2, 1, 1, 1]
 SIZE_VALIDATION_SET = 1000
 SEED = 9
-WITH_SYNTH = True
+WITH_SYNTH = False
 
 #########################################
 #       FUNCTIONS                       #
@@ -29,7 +29,6 @@ WITH_SYNTH = True
 
 
 def build_ds(db_list, nb_people, nb_pict_per_pers):
-
     # 1. ------------- Order the picture per person ------------------------
     face_dic = {}
     for i, db in enumerate(db_list):
@@ -38,7 +37,7 @@ def build_ds(db_list, nb_people, nb_pict_per_pers):
             print("The dictionary storing pictures ordered by person has been loaded!\n")
         except FileNotFoundError:
             fileset = from_zip_to_data(False, fname=FOLDER_DB + db + ".zip")
-            face_dic.update(fileset.order_per_personName(TRANS, save=db, with_synth=False, nb_people=nb_people))
+            face_dic.update(fileset.order_per_personName(TRANS, save=db, with_synth=WITH_SYNTH, nb_people=nb_people))
 
     # 2. -------------- Shuffle all people ---------------------
     l = list(face_dic.items())
@@ -100,14 +99,14 @@ def put_synth_first(face_dic):
 IN: pict_list: list of FaceImage objects
 OUT: nb of real images in pict_list
 """
+
+
 def nb_real_pict(pict_list):
     nb_real_pic = 0
     for i, pict in enumerate(pict_list):
         if not pict.is_synth:
             nb_real_pic += 1
     return nb_real_pic
-
-
 
 
 """
@@ -140,24 +139,31 @@ Take about 80 people (+500 pictures) and build 4000 triplets from
 Train Model2 on 
 Save the model => Model3
 ... 
+
+OUT: a list of 4 datasets if synth = True: [trainset_real, trainset_realSynth, validset, test_set]
+                          else: [trainset_real, None, validset, test_set]
 """
 
 
-def define_datasets(db_list, with_test_set=False, with_synt_first=False, with_synt=WITH_SYNTH):
+def define_datasets(db_list, with_test_set=False, with_synt_first=False, with_synt=WITH_SYNTH, with_only_synth=False):
     name_ds_train_real = "dss_train_non_synth_q" + str(PICTURES_NB[-1])
     name_ds_val = "dss_validation"
     name_ds_train_withSynt = "dss_train_synth_q" + str(PICTURES_NB[-1])
+    name_ds_train_onlySynt = "dss_train_onlysynth_q" + str(PICTURES_NB[-1])
 
     try:
         face_DS_list_real = load_model(FOLDER_DB + name_ds_train_real + ".pt")
         face_DS_valid = load_model(FOLDER_DB + name_ds_val + ".pt")
         face_DS_list_synt = load_model(FOLDER_DB + name_ds_train_withSynt + ".pt") if with_synt else []
-
+        face_DS_list_only_synt = load_model(FOLDER_DB + name_ds_train_onlySynt + ".pt")
         print("The files content with loaders has been loaded ...\n")
 
     except FileNotFoundError:
-
         print("The files with loaders couldn't be found...\n")
+        face_DS_list_real = None
+        face_DS_valid = None
+        face_DS_list_synt = None
+        face_DS_list_only_synt = None
 
         # ------------------------------
         # 1. Load all the dictionaries
@@ -168,10 +174,10 @@ def define_datasets(db_list, with_test_set=False, with_synt_first=False, with_sy
             try:
                 face_dic.update(pickle.load(open(FOLDER_DB + FOLDER_DIC + "faceDic_" + db + ".pkl", "rb")))
                 print("The dictionary storing pictures ordered by person has been loaded!\n")
-            except FileNotFoundError:
+            except (FileNotFoundError, EOFError) as e:
+                print("The ordered pictures couldn't be found or loaded...\nBuilding... \n")
                 fileset = from_zip_to_data(False, fname=FOLDER_DB + db + ".zip")
                 face_dic.update(fileset.order_per_personName(TRANS, save=db, with_synth=with_synt))
-
         # ------------------------------
         # 2. Shuffle all people
         # ------------------------------
@@ -189,10 +195,14 @@ def define_datasets(db_list, with_test_set=False, with_synt_first=False, with_sy
         # ------------------------------------------------------------
         # 4. From dictionary to dataset
         # ------------------------------------------------------------
-        face_DS_list_synt = from_dic_to_ds(face_dic, name_ds_train_withSynt, "real and synth") if with_synt else []
-
-        remove_synth_data(face_dic)
-        face_DS_list_real = from_dic_to_ds(face_dic, name_ds_train_real, "real")
+        if not with_only_synth:
+            face_DS_list_synt = from_dic_to_ds(face_dic, name_ds_train_withSynt, "real and synth") if with_synt else []
+            remove_synth_data(face_dic)
+            face_DS_list_real = from_dic_to_ds(face_dic, name_ds_train_real, "real")
+        else:
+            face_dic_synth = remove_real_data(face_dic)
+            print("face dic after remove_real_data is " + str(face_dic_synth))
+            face_DS_list_only_synt = from_dic_to_ds(face_dic_synth, name_ds_train_onlySynt, "synth")
 
         # ---------------------------------------------------------
         # 5. Take the rest of data to build the validation set
@@ -218,13 +228,15 @@ def define_datasets(db_list, with_test_set=False, with_synt_first=False, with_sy
             test_set, _ = fileset_test.get_sets(DIFF_FACES, db_set1=TEST_ZIP.split("/")[-1].split(".zip")[0])
             face_DS_test = Face_DS(fileset=test_set, triplet_version=True, save=name_test_ds)
 
-        return [face_DS_list_real, face_DS_list_synt, face_DS_valid, face_DS_test]
+        return [face_DS_list_real, face_DS_list_synt, face_DS_valid, face_DS_test, face_DS_list_only_synt]
 
-    return [face_DS_list_real, face_DS_list_synt, face_DS_valid]
+    return [face_DS_list_real, face_DS_list_synt, face_DS_valid, face_DS_list_only_synt]
+
 
 """ --------------------- from_dic_to_ds ----------------------------------- """
-def from_dic_to_ds(face_dic, name_ds_train, nature):
 
+
+def from_dic_to_ds(face_dic, name_ds_train, nature):
     # Don't empty the dic supposed to support the real dataset just after
     face_dic_to_change = dict(face_dic) if nature == "real and synth" else face_dic
 
@@ -259,16 +271,30 @@ def from_dic_to_ds(face_dic, name_ds_train, nature):
     return face_DS_list
 
 
-
 """ --------------------- merge_datasets -----------------------------------
 This function merges the content of the datasets is list_ds and 
 returns a single dataset Face_DS
 ------------------------------------------------------------------------ """
 
+
 def merge_datasets(list_ds):
     all_ds = Face_DS()
     all_ds.merge_ds(list_ds)
     return all_ds
+
+
+def get_nb_synth_data(db_path):
+    fileset = from_zip_to_data(False, fname=db_path, dataset=None)
+    nb_synth = 0
+    nb_real = 0
+
+    for i, data in enumerate(fileset.data_list):
+        if data.synthetic:
+            nb_synth += 1
+        else:
+            nb_real += 1
+    print("The total number of real pictures in " + db_path + " is " + str(nb_real))
+    print("The total number of synthetic pictures in " + db_path + " is " + str(nb_synth))
 
 
 # ================================================================
@@ -277,12 +303,15 @@ def merge_datasets(list_ds):
 
 
 if __name__ == "__main__":
-    test_id = 4
+
+    # get_nb_synth_data(FOLDER_DB + "cfp_humFiltered.zip")
+    test_id = 2
 
     db_list = ["gbrieven_filtered", "cfp_humFiltered", "lfw_filtered", "faceScrub_humanFiltered"]
     #db_list = ["cfp_humFiltered"]
 
-    datasets = define_datasets(db_list, with_test_set=True, with_synt_first=True, with_synt=WITH_SYNTH)
+    if test_id < 6:
+        datasets = define_datasets(db_list, with_test_set=True, with_synt_first=True, with_synt=WITH_SYNTH)
 
     model_name = None
     db_name_train = [FOLDER_DB + "gbrieven_filtered.zip",
@@ -298,36 +327,40 @@ if __name__ == "__main__":
         # 4. Basic Arch & Cross Entropy
         # 5. Basic Arch & Cross Entropy
         # => Choose best =================================================================
-        index_ds = 3
-        sets_list = [datasets[0][index_ds], datasets[2], datasets[3]]
-        _, model_name = main_train(sets_list, db_name_train, name_model=model_name, nb_images=PICTURES_NB[index_ds])
+        index_ds = 5
+        train_ds = merge_datasets(datasets[0][:index_ds])  # Explicit Reuse of previous data
+        sets_list = [train_ds, datasets[2], datasets[3]]
+        nb_pic = sum(PICTURES_NB[:index_ds])
+        _, model_name = main_train(sets_list, db_name_train, name_model=model_name, nb_images=PICTURES_NB[nb_pic])
 
     if test_id == 2:
         # ============================================================
         #  With test Data Quantity (incremental approach)
         # !!!!! Hardcode nom de l'autoencoder (already trained)
         # ============================================================
-        for i, nb_pict in enumerate(PICTURES_NB):
+        for i, nb_pict in enumerate(PICTURES_NB[:4]):
             print("================== Training on set " + str(i) + " with "
-                  + str(sum(PICTURES_NB[:i+1])) +" real images... ========================= ")
-            train_ds = merge_datasets(datasets[0][:i+1]) # Explicit Reuse of previous data
+                  + str(sum(PICTURES_NB[:i + 1])) + " real images... ========================= ")
+            train_ds = merge_datasets(datasets[0][:i + 1])  # Explicit Reuse of previous data
             sets_list = [train_ds, datasets[2], datasets[3]]
             main_train(sets_list, db_name_train, name_model=model_name, pret="autoencoder",
-                                       nb_images=nb_pict) # "autoencoder"
+                       nb_images=nb_pict)  # "autoencoder"
 
-        for i, nb_pict in enumerate(PICTURES_NB):
+        for i, nb_pict in enumerate(PICTURES_NB[:4]):
             print("=============== Training on set " + str(i) + " with "
-                  + str(sum(PICTURES_NB[:i+1])) +" real and synth images... ===================== ")
-            train_ds = merge_datasets(datasets[1][:i+1]) # Explicit Reuse of previous data
+                  + str(sum(PICTURES_NB[:i + 1])) + " real and synth images... ===================== ")
+            train_ds = merge_datasets(datasets[1][:i + 1])  # Explicit Reuse of previous data
             sets_list = [train_ds, datasets[2], datasets[3]]
             main_train(sets_list, db_name_train, name_model=model_name, pret="autoencoder",
-                                       nb_images=nb_pict, with_synt=WITH_SYNTH) # "autoencoder"
+                       nb_images=nb_pict, with_synt=WITH_SYNTH)  # "autoencoder"
 
     if test_id == 3:
         # ============================================================
         #  With different Scheduler
         # ============================================================
-        sets_list = [merge_datasets(datasets[0]), datasets[1], datasets[2]]
+        train_ds = merge_datasets(datasets[0][:4])  # Explicit Reuse of previous data
+
+        sets_list = [train_ds, datasets[2], datasets[3]]
         print("len train set is " + str(len(sets_list[0].train_data)))
         schedulers = [None, "StepLR", "ExponentialLR"]
         for i, sched in enumerate(schedulers):
@@ -366,3 +399,12 @@ if __name__ == "__main__":
             print("======================= Check size on set " + str(i) + "... ================================= ")
             sets_list = [datasets[0][i], datasets[1], datasets[2]]
             print("Len dataset is " + str(len(sets_list[0].train_data)))
+
+    if test_id == 6:
+        # ============================================================
+        #  Train only on synthetic data
+        # ============================================================
+
+        dss = define_datasets(db_list, with_test_set=True, with_only_synth=True)
+        print("complete ds: " + str(dss))
+        print("ds with only synthetic data: " + str(dss[-1]))

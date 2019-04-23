@@ -1,5 +1,6 @@
 import matplotlib
-matplotlib.use('Agg') #TkAgg
+
+matplotlib.use('Agg')  # TkAgg
 import matplotlib.pyplot as plt
 
 import torch
@@ -9,7 +10,7 @@ import pickle
 from random import shuffle, Random
 import numpy as np
 
-from Dataprocessing import from_zip_to_data, extract_randomly_elem, TRANS, FOLDER_DB, FaceImage, DIST_METRIC
+from Dataprocessing import from_zip_to_data, extract_randomly_elem, TRANS, FOLDER_DB, FaceImage, DIST_METRIC, FOLDER_DIC
 from Visualization import multi_line_graph, fr_in_csv
 from Main import WITH_PROFILE, load_model
 
@@ -23,11 +24,11 @@ NB_PROBES = 20
 SIZE_GALLERY = 20  # Nb of people to consider
 TOLERANCE = 5  # 3 Max nb of times the model can make mistake in comparing p_test and the pictures of 1 person
 NB_REPET = 6  # Nb of times test is repeated (over different probes)
-THRESHOLDS_LIST = list(np.arange(0, 3, 0.03))  # For MeanSquare
+THRESHOLDS_LIST = list(np.arange(0, 5, 0.05))  # For MeanSquare
 DETAILED_PRINT = False
 NB_IM_PER_PERS = 8
 WITH_SYNTHETIC_DATA = False
-NB_INST_PROBES = 2
+NB_INST_PROBES = 1
 
 if WITH_SYNTHETIC_DATA:
     NB_IM_PER_PERS = None  # No restriction, otherwise you may not get the synth images in face_dic
@@ -56,7 +57,7 @@ class Probe:
 
     def median_dist(self, person, nb_pictures):
         if 1 < nb_pictures:
-            try: # TOCHECK: error occurred with 'lfwAllison_Janney'
+            try:  # TOCHECK: error occurred with 'lfwAllison_Janney'
                 self.dist_avg_pers[person] = np.median(self.dist_pers[person])
                 # print("median: " + str(self.dist_avg_pers[person]))
             except KeyError:
@@ -113,7 +114,7 @@ class FaceRecognition:
         # -------- Model Loading ----------------
         if model_path is not None:
             model = load_model(model_path)
-            self.siamese_model = model.cuda() if torch.cuda.is_available() else model
+            self.siamese_model = model.network.cuda() if torch.cuda.is_available() else model.network
 
         # ------- Get data (from MAIN_ZIP) --------------
         self.probes = []  # list of NB_REPET lists of lists (person, picture, index_pict)
@@ -297,11 +298,14 @@ is a list of FaceImage objects
 
 
 def get_gallery(size_gallery, db_source_list):
-
     face_dic = {}
     for i, db in enumerate(db_source_list):
         try:
-            face_dic.update(pickle.load(open(FOLDER_DB + "faceDic_" + db + ".pkl", "rb")))
+            if not WITH_SYNTHETIC_DATA:
+                face_dic.update(pickle.load(open(FOLDER_DB + FOLDER_DIC + "faceDic_" + db + ".pkl", "rb")))
+            else:
+                face_dic.update(pickle.load(open(FOLDER_DB + FOLDER_DIC + "faceDic_" + db + "with_synth.pkl", "rb")))
+
         except FileNotFoundError:
             print("The file " + FOLDER_DB + db + ".zip coundn't be found ... \n")
             fileset = from_zip_to_data(WITH_PROFILE, fname=FOLDER_DB + db + ".zip")
@@ -403,20 +407,42 @@ def remove_synth_data(gallery):
         gallery[person] = [picture for i, picture in enumerate(pictures) if not picture.is_synth]
 
 
+'''-------------- remove_real_data ------------------------------
+This function removes from the gallery all the real pictures
+IN: gallery: dictionary where the key is the name of the person
+and the value is the list of their pictures
+--------------------------------------------------------------- '''
+
+
+def remove_real_data(gallery):
+    face_dic = {}
+    for person, pictures in gallery.items():
+        #for i, pict in enumerate(pictures):
+            #print("\nName of pict is " + str(pict.file_path))
+            #print("Is synth " + str(pict.is_synth))
+        gallery[person] = [picture for i, picture in enumerate(pictures) if picture.is_synth]
+        if 0 < len(gallery[person]):
+            face_dic[person] = gallery[person]
+    return face_dic
+
+
+
+
 # ================================================================
 #                    MAIN
 # ================================================================
 
 if __name__ == '__main__':
 
-    test_id = 1
+    test_id = 2
 
     # ------------------------------------------------
     #       Test 1: Set with_synt to true
     # ------------------------------------------------
     if test_id == 1:
         db_source = "testdb"
-        model = "models/dsgbrieven_filteredlfw_filtered_7944_1default_1_triplet_loss_pretautoencoder.pt"
+        model = "models/dsgbrieven_filteredcfp_humFilteredlfw_filteredfaceScrub_humanFiltered_" \
+                "5694_1default_100_triplet_loss_nonpretrained.PT"
         fr = FaceRecognition(model, db_source=[db_source])
 
         # ------- Accumulators Definition --------------
@@ -451,10 +477,10 @@ if __name__ == '__main__':
     if test_id == 2:
 
         size_gallery = [20, 50, 100, 200, 400]  # Nb of people to consider
-        db_source_list = ["cfp_humFiltered", "lfw_filtered1", "lfw_filtered2", "gbrieven_filtered", "testdb_filtered",
+        db_source_list = ["cfp_humFiltered", "gbrieven_filtered", "testdb_filtered",
                           "faceScrub_filtered"]
-        model = "models/dsgbrieven_filteredlfw_filtered_7944_1default_1_triplet_loss_pretautoencoder.pt"
-
+        model = "models/dsgbrieven_filteredcfp_humFilteredlfw_filteredfaceScrub_humanFiltered_5694_" \
+                "1default_100_triplet_loss_nonpretrained.pt"
 
         for i, SIZE_GALLERY in enumerate(size_gallery):
 
@@ -492,8 +518,8 @@ if __name__ == '__main__':
                 NB_PROBES * NB_REPET) + " people is " + total_time)
 
             eer = fr.compute_far_frr()
-            perc_vote_success = str(100*acc_nb_correct / (NB_PROBES*NB_REPET))
-            perc_dist_success = str(100*acc_nb_correct_dist / (NB_PROBES*NB_REPET))
+            perc_vote_success = str(100 * acc_nb_correct / (NB_PROBES * NB_REPET))
+            perc_dist_success = str(100 * acc_nb_correct_dist / (NB_PROBES * NB_REPET))
 
             data = [NB_REPET, SIZE_GALLERY, NB_PROBES, NB_IM_PER_PERS, str(db_source_list)]
             algo = [model.split("models/")[1], TOLERANCE, DIST_METRIC, NB_INST_PROBES, WITH_SYNTHETIC_DATA]
