@@ -25,7 +25,8 @@ To generate new data, 2 approaches can be used:
 #########################################
 
 GENERATED_IMAGES_DIR = "/data/gbrieven/synth_im/"
-DLATENT_DIR = "/data/gbrieven/latent_repres/"
+DIRECTION_DIR = 'ffhq_dataset/latent_directions/'
+DLATENT_DIR = "/data/gbrieven/latent_repres/" if platform.system() != "Darwin" else "data/gbrieven/latent_repres/"
 
 if GENERATED_IMAGES_DIR is not None:
     try:
@@ -45,10 +46,8 @@ NB_ITERATIONS = 1200  # !!! the higher it is, the more similar to the given inpu
 RANDOMIZE_NOISE = False
 
 CHANGES = ["smile", "age", "gender"]
-#COEF = {"smile": [-1, 0], "age": [-1, 0], "gender": [-1, 0]}
 COEF = {"smile": [-1.5, 0, 1.3], "age": [-1.5, 0], "gender": [-1, 0]}
 
-# COEF = [-1, 0, 1]  # Coefficient measuring the intensity of change
 
 if platform.system() != "Darwin":
     tflib.init_tf()  # Initialization of TensorFlow session
@@ -144,7 +143,7 @@ IN: latent_representation: numpy.ndarray resulting from a face picture
 
 def apply_latent_direction(latent_representation, direction="smile", coef=0, save_result=None):
     # Direction Loading ...
-    direction = np.load('ffhq_dataset/latent_directions/' + direction + '.npy')
+    direction = np.load(DIRECTION_DIR + direction + '.npy')
 
     # Face Change Application
     return move_and_show(latent_representation, direction, coef, save_result)
@@ -219,9 +218,13 @@ REM: IMPL_CHOICE: the latent representation related to a person is derived from 
 ----------------------------------------------------------------------------------------------------------------- """
 
 
-def data_augmentation(face_dic=None, nb_add_instances=3, save_generated_im=False, save_dlatent=False):
+def data_augmentation(face_dic=None, nb_add_instances=3, save_generated_im=False, save_dlatent=False, dirs=None):
+
     if nb_add_instances == 0:
         return
+
+    if dirs is None:
+        dirs = CHANGES
 
     for person, images in face_dic.items():
         if save_generated_im:
@@ -237,7 +240,7 @@ def data_augmentation(face_dic=None, nb_add_instances=3, save_generated_im=False
         nb_additional_pict = 0
 
         time_in = time.time()
-        for i, change in enumerate(CHANGES):
+        for i, change in enumerate(dirs):
             for j, coef in enumerate(COEF[change]):
 
                 if nb_additional_pict < nb_add_instances:

@@ -163,7 +163,7 @@ IN: sets_list: list of 3 Datasets (training, validation and testing)
 ------------------------------------------------------------------------------------- """
 
 
-def main_train(sets_list, fname, db_train=None,  name_model=None, scheduler=WITH_LR_SCHEDULER, pret=PRETRAINING,
+def main_train(sets_list, fname, db_train=None, name_model=None, scheduler=WITH_LR_SCHEDULER, pret=PRETRAINING,
                loss=LOSS, nb_images=0, with_synt=WITH_SYNTH):
     visualization = True
     num_epoch = NUM_EPOCH
@@ -180,7 +180,8 @@ def main_train(sets_list, fname, db_train=None,  name_model=None, scheduler=WITH
     if with_synt:
         ds_info += "with_synt"
 
-    name_model = "models/" + ds_info + TYPE_ARCH + "_" + str(NUM_EPOCH) + "_" + loss + "_pret" + pret + ".pt"
+    if name_model is None:
+        name_model = "models/" + ds_info + TYPE_ARCH + "_" + str(NUM_EPOCH) + "_" + loss + "_pret" + pret + ".pt"
 
     # ----------------- Data Loaders definition ------------------------
     train_loader = torch.utils.data.DataLoader(sets_list[0], batch_size=BATCH_SIZE, shuffle=True)
@@ -261,7 +262,7 @@ def main_train(sets_list, fname, db_train=None,  name_model=None, scheduler=WITH
             # Tuple of test result on validation (dic with "nonPret" and "pret")
             # ------------------------------------------------------------------------------
             info_result = [model_learn.losses_validation, model_learn.f1_validation,
-                           model_learn.f1_detail, model_learn.f1_test]
+                           model_learn.f1_detail, model_learn.pos_recall, model_learn.f1_test]
 
             x = store_in_csv(info_data, info_training, info_result, time.time() - time_init)
 

@@ -827,7 +827,7 @@ def include_data_to_zip():
  ---------------------------------------------------------------------------------------------'''
 
 
-def from_zip_to_data(with_profile, fname=MAIN_ZIP, dataset=None):
+def from_zip_to_data(with_profile, fname=MAIN_ZIP, dataset=None, max_nb_entry=MAX_NB_ENTRY):
     t = time.time()
     if dataset is None: dataset = Fileset()
     if fname is None:
@@ -872,7 +872,7 @@ def from_zip_to_data(with_profile, fname=MAIN_ZIP, dataset=None):
 
             # ------ Limitation of the total number of instances ------
             nb_entry += 1
-            if MAX_NB_ENTRY < nb_entry:
+            if max_nb_entry < nb_entry:
                 break
 
     print("Loading Time: " + str(time.time() - t))
@@ -904,7 +904,7 @@ IN: zip_db: Zip file containing the pictures the db is made up of
 """
 
 
-def generate_synthetic_im(db, nb_additional_images=Q_DATA_AUGM):
+def generate_synthetic_im(db, nb_additional_images=Q_DATA_AUGM, directions=None):
     # ---------------------------------------------------
     # 0. Extract the list of already synthetized pictures
     # ---------------------------------------------------
@@ -955,7 +955,7 @@ def generate_synthetic_im(db, nb_additional_images=Q_DATA_AUGM):
         # ----------------------------------------------------------------------
         print("\nIn data Augmentation with batch " + str(batch_id) + "...\n")
         try:
-            data_augmentation(face_dic_curr, nb_add_instances=nb_additional_images, save_dlatent=True)
+            data_augmentation(face_dic_curr, nb_add_instances=nb_additional_images, save_dlatent=True, dirs=directions)
             raise KeyboardInterrupt
 
         except KeyboardInterrupt:
@@ -965,7 +965,8 @@ def generate_synthetic_im(db, nb_additional_images=Q_DATA_AUGM):
             fset = Fileset()
 
             for person, pictures_list in face_dic_curr.items():
-                for i, picture in enumerate(pictures_list[1:]):
+                start = 1 if directions is None else 0
+                for i, picture in enumerate(pictures_list[start:]):
                     # fname = db__person__indexReal_indexSynth.jpg
                     try:
                         db_name = db.split("/")[-1].split(".zip")[0].split("_")[0]
@@ -976,8 +977,13 @@ def generate_synthetic_im(db, nb_additional_images=Q_DATA_AUGM):
                     data = Data(fname, db, to_process=True, picture=picture)
                     fset.add_data(data)
 
-            # fset.ds_to_zip(db_destination=db + "_synthIm", file_is_pil=True) New db: Case of synthetic People
-            fset.ds_to_zip(db_destination=db, file_is_pil=True)
+            # CASE 1: synthetic images are put in the same db as the initial one
+            if directions is None:
+                fset.ds_to_zip(db_destination=db, file_is_pil=True)
+
+            # CASE 2: returns fileset to directly train model on
+            else:
+                return fset
 
 
 """ --------------------- register_aligned ---------------------------------

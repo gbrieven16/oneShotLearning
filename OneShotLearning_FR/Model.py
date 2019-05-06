@@ -99,11 +99,14 @@ class Model:
         # For Visualization
         self.eval_dic = {"nb_correct": 0, "nb_labels": 0, "recall_pos": 0,
                          "recall_neg": 0, "f1_pos": 0, "f1_neg": 0, "prec_pos":0, "prec_neg":0, "nb_eval": 0}
+
         self.losses_train = {"Pretrained Model": [], "Non-pretrained Model": []}
         self.losses_validation = {"Pretrained Model": [], "Non-pretrained Model": []}
         self.f1_validation = {"Pretrained Model": [], "Non-pretrained Model": [], "On Training Set": []}
         self.acc_validation = {"Pretrained Model": [], "Non-pretrained Model": [], "On Training Set": []}
-        self.f1_detail = {}
+        self.f1_detail = {"Pretrained Model": 0, "Non-pretrained Model": 0}
+        self.pos_recall = {"Pretrained Model": 0, "Non-pretrained Model": 0}
+
         self.f1_test = {}
 
         self.train_f1 = 0
@@ -164,6 +167,7 @@ class Model:
             self.acc_validation["Non-pretrained Model"].append(accuracy)
             self.losses_train["Non-pretrained Model"].append(model_comp.losses_train["Pretrained Model"][-1])
             self.f1_detail["Non-pretrained Model"] = model_comp.f1_detail["Pretrained Model"]
+            self.pos_recall["Non-pretrained Model"] = model_comp.pos_recall["Pretrained Model"]
 
             model_comp.f1_validation["Non-pretrained Model"].append(f1_notPret)
             #model_comp.active_learning(more_data_name=extra_source, mode="Non-pretrained Model")
@@ -498,6 +502,7 @@ class Model:
     -------------------------------- '''
 
     def reset_eval(self):
+        self.pos_recall["Pretrained Model"] = self.eval_dic["recall_pos"] / self.eval_dic["nb_eval"]
         for metric, value in self.eval_dic.items():
             self.eval_dic[metric] = 0
 

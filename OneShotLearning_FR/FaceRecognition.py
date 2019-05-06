@@ -44,7 +44,7 @@ class Probe:
     def __init__(self, person, pictures, index_pict):
         self.person = person
         self.pictures = pictures  # list of pictures (basic + synthetic / basic + extra)
-        self.index = index_pict   # list of indice(s)
+        self.index = index_pict  # list of indice(s)
 
         self.dist_pers = {}  # dic where the key is the person's name and the value is the list of distances from probe
         self.dist_avg_pers = {}
@@ -69,14 +69,13 @@ class Probe:
         ordered_people = sorted(self.dist_avg_pers.items(), key=lambda x: x[1])
         pred_pers_dist = ordered_people[0][0]
         dist_diff = ordered_people[1][1] - ordered_people[0][1]
-        #print("DELETE: The distances are: " + str(self.dist_avg_pers))
+        # print("DELETE: The distances are: " + str(self.dist_avg_pers))
         if self.person == pred_pers_dist:
             res_acc_dist["nb_correct_dist"] += 1
-            #print("DELETE: Correct and dist diff is " + str(dist_diff))
+            # print("DELETE: Correct and dist diff is " + str(dist_diff))
         else:
             res_acc_dist["nb_mistakes_dist"] += 1
-            #print("DELETE: Not correct and dist diff is " + str(dist_diff))
-
+            # print("DELETE: Not correct and dist diff is " + str(dist_diff))
 
     def pred_from_vote(self, DETAILED_PRINT, res_vote):
 
@@ -98,10 +97,10 @@ class Probe:
                 print("There are " + str(nb_equal_vote) + " equalities in the voting system")
                 print("The person is " + str(person) + " and the sorted_vote is " + str(sorted_vote))
 
-            pred_person = [pers for i, (pers, score) in enumerate(sorted_vote) if i < nb_equal_vote+1]
+            pred_person = [pers for i, (pers, score) in enumerate(sorted_vote) if i < nb_equal_vote + 1]
 
             if self.person in pred_person:
-                res_vote["nb_correct"] += 1/(nb_equal_vote+1)
+                res_vote["nb_correct"] += 1 / (nb_equal_vote + 1)
                 if DETAILED_PRINT: print("The correct predicted person is: " + pred_person + "\n")
             else:
                 res_vote["nb_mistakes"] += 1
@@ -142,9 +141,8 @@ class FaceRecognition:
             except AttributeError:
                 self.siamese_model = model.cuda() if torch.cuda.is_available() else model
 
-
-        self.acc_model = [0, 0] # Fisrt element: correct/not (1/0) ; Second element: Counter
-        self.pos_recall = [0, 0]  # Fisrt element: correct/not (1/0) ; Second element: Counter of positives
+        self.acc_model = [0, 0]  # First element: correct/not (1/0) ; Second element: Counter
+        self.pos_recall = [0, 0]  # First element: correct/not (1/0) ; Second element: Counter of positives
 
         # ------- Get data (from MAIN_ZIP) --------------
         self.probes = []  # list of NB_REPET lists of lists (person, picture, index_pict)
@@ -190,9 +188,11 @@ class FaceRecognition:
         res_vote = {"nb_not_recognized": 0, "nb_mistakes": 0, "nb_correct": 0}
         res_dist = {"nb_mistakes_dist": 0, "nb_correct_dist": 0}
 
+        self.acc_model = [0, 0]
+        self.pos_recall = [0, 0]
+
         # --- Go through each probe --- #
         for i, probe in enumerate(self.probes[index]):
-            #print("\n-------------------NEW PROBE: " + probe.person + " -----------------------")
 
             # --- Go through each person in the gallery --- #
             for person, pictures in self.gallery.items():
@@ -235,7 +235,7 @@ class FaceRecognition:
                                     self.acc_model[0] += 1
                                 else:
                                     self.pos_recall[1] += 1
-                                    #print("Mistake: " + str(pict_probe.person) + " not predicted as " + str(person))
+                                    # print("Mistake: " + str(pict_probe.person) + " not predicted as " + str(person))
                                     pict_probe.display_im(save=str(index) + str(i) + "_probe_" + pict_probe.person)
                                     picture.display_im(save=str(index) + str(i) + "_gall_" + person)
 
@@ -250,7 +250,7 @@ class FaceRecognition:
                                     self.acc_model[0] += 1
 
                                 else:
-                                    #print("Mistake: " + str(pict_probe.person) + " predicted as " + str(person))
+                                    # print("Mistake: " + str(pict_probe.person) + " predicted as " + str(person))
                                     pict_probe.display_im(save=str(index) + str(i) + "_probe_" + pict_probe.person)
                                     picture.display_im(save=str(index) + str(i) + "_gall_" + person)
 
@@ -274,9 +274,9 @@ class FaceRecognition:
         print("\n------------------------------------------------------------------")
         if self.siamese_model is not None:
             print("The computed Accuracy for the model is: " + str(self.acc_model[0]) + "/" + str(self.acc_model[1])
-                  + " (" + str(round(100.0*self.acc_model[0]/self.acc_model[1], 2)) + "%)")
+                  + " (" + str(round(100.0 * self.acc_model[0] / self.acc_model[1], 2)) + "%)")
             print("The Positive Recall for the model is: " + str(self.pos_recall[0]) + "/" + str(self.pos_recall[1])
-                  + " (" + str(round(100.0*self.pos_recall[0]/self.pos_recall[1], 2)) + "%)")
+                  + " (" + str(round(100.0 * self.pos_recall[0] / self.pos_recall[1], 2)) + "%)")
             print("Report: " + str(res_vote["nb_correct"]) + " correct, " + str(res_vote["nb_mistakes"]) + " wrong, "
                   + str(res_vote["nb_not_recognized"]) + " undefined recognitions")
 
@@ -315,7 +315,6 @@ class FaceRecognition:
         title = "FAR and FRR according to the threshold"
         multi_line_graph(dic, THRESHOLDS_LIST, title, x_label="threshold", y_label="Rate Value", save_name="eer")
         return print_eer(far, frr)
-
 
 
 # ================================================================
@@ -471,15 +470,13 @@ and the value is the list of their pictures
 def remove_real_data(gallery):
     face_dic = {}
     for person, pictures in gallery.items():
-        #for i, pict in enumerate(pictures):
-            #print("\nName of pict is " + str(pict.file_path))
-            #print("Is synth " + str(pict.is_synth))
+        # for i, pict in enumerate(pictures):
+        # print("\nName of pict is " + str(pict.file_path))
+        # print("Is synth " + str(pict.is_synth))
         gallery[person] = [picture for i, picture in enumerate(pictures) if picture.is_synth]
         if 0 < len(gallery[person]):
             face_dic[person] = gallery[person]
     return face_dic
-
-
 
 
 # ================================================================
@@ -533,8 +530,8 @@ if __name__ == '__main__':
         size_gallery = [20, 50, 100, 200, 400]  # Nb of people to consider
         db_source_list = ["cfp_humFiltered", "gbrieven_filtered", "testdb_filtered",
                           "faceScrub_humanFiltered"]
-        #model = "models/dsgbrieven_filteredcfp_humFilteredlfw_filteredfaceScrub_humanFiltered_5694_" \
-               # "1default_100_triplet_loss_nonpretrained.pt"
+        # model = "models/dsgbrieven_filteredcfp_humFilteredlfw_filteredfaceScrub_humanFiltered_5694_" \
+        # "1default_100_triplet_loss_nonpretrained.pt"
         model = "models/dsgbrieven_filteredcfp_humFilteredlfw_filteredfaceScrub_humanFiltered_3245_1default_70_" \
                 "triplet_loss_nonpretrained.pt"
 
@@ -578,8 +575,8 @@ if __name__ == '__main__':
             perc_dist_success = str(100 * acc_nb_correct_dist / (NB_PROBES * NB_REPET))
 
             data = [NB_REPET, SIZE_GALLERY, NB_PROBES, NB_IM_PER_PERS, str(db_source_list)]
-            acc = round(100.0*fr.acc_model[0]/fr.acc_model[1], 2)
-            recall = round(100.0*fr.pos_recall[0]/fr.pos_recall[1], 2)
+            acc = round(100.0 * fr.acc_model[0] / fr.acc_model[1], 2)
+            recall = round(100.0 * fr.pos_recall[0] / fr.pos_recall[1], 2)
             algo = [model.split("models/")[1], acc, recall, TOLERANCE, WITH_LATENT_REPRES,
                     DIST_METRIC, NB_INST_PROBES, WITH_SYNTHETIC_DATA]
             result = [perc_vote_success, perc_dist_success, eer, total_time]

@@ -196,7 +196,7 @@ results related to the different scenarios that were experimented
 IN: List of information to record about:
     data = [used_db, DIFF_FACES, WITH_PROFILE, DB_TRAIN]
     training = [pretrain_loss, nb_ep, bs, wd, lr, arch, opt, loss_type, margin]
-    result = [losses_validation, f1_validation, f1_valid_detail, f1_test]
+    result = [losses_validation, f1_validation, f1_valid_detail, positive recall, f1_test]
     train_time: time required for training 
 ---------------------------------------------------------------------------------------'''
 
@@ -226,7 +226,7 @@ def store_in_csv(data, training, result, train_time):
             best_epoch = [str(result[1][line].index(best_f1))]
             best_f1 = [str(best_f1)]
             writer.writerow(param[line] + curr_eval + best_f1 + best_epoch + [result[2][line][0], result[2][line][1],
-                    result[3][line]] + [str(train_time)] + [str(result[0][line])] + [str(result[1][line])])
+                result[3][line], result[4][line]] + [str(train_time)] + [str(result[0][line])] + [str(result[1][line])])
 
     return best_f1
 
