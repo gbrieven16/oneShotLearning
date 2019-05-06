@@ -1,6 +1,6 @@
 import matplotlib
 
-matplotlib.use('Agg')
+matplotlib.use('TkAgg')
 import matplotlib.pyplot as plt
 
 import math
@@ -14,9 +14,10 @@ import numpy as np
 # ================================================================
 
 CSV_NAME = "model_evaluation.csv"
-FR_CSV_NAME = "fr_model_evaluation.csv"
+FR_CSV_NAME = "result/fr_model_evaluation.csv"
 NB_DATA_GRAPH = 1000
 MAX_NB_KEYS = 12
+WIDTH_BAR = 0.2
 
 INDEX_BEGIN_GRAPH_LABEL = 0
 INDEX_END_GRAPH_LABEL = 9
@@ -106,7 +107,7 @@ def bar_chart(dictionary1, dictionary2, title, dictionary3=None, first_title='Av
     #plt.rc('axes', axisbelow=True)
     ax = fig.add_subplot(111)
     ind = np.arange(len(dictionary1))  # 2 bars to consider
-    width = 0.4
+    width = WIDTH_BAR
 
     first_vals = []
     if dictionary2 is not None:

@@ -19,7 +19,7 @@ from io import BytesIO
 
 import matplotlib
 
-matplotlib.use("Agg")  # ('TkAgg')
+matplotlib.use("TkAgg")  # ('TkAgg')
 import matplotlib.pyplot as plt
 
 if platform.system() != "Darwin": torch.cuda.set_device(0)
@@ -64,7 +64,7 @@ TRANS = transforms.Compose([transforms.CenterCrop(CENTER_CROP), transforms.ToTen
 
 Q_DATA_AUGM = 4
 BATCH_SIZE_DA = 15  # Batch size of data augmentation (so that images are registered)
-DIST_METRIC = "Cosine_Sym" #"MeanSquare"  "Manhattan"
+DIST_METRIC = "Manhattan" #"MeanSquare" "Cosine_Sym"
 
 
 # ================================================================
@@ -288,7 +288,7 @@ class Fileset:
                 continue
             #print("data.filename " + str(data.filename))
             img = FaceImage(data.filename, formatted_image, db_path=data.db_path, pers=personName, i=data.index)
-            if not with_synth and img.is_synth:
+            if not with_synth and img.synthetic:
                 continue
 
             try:
@@ -373,6 +373,7 @@ class FaceImage():
         self.person = pers
         self.index = i
         self.is_synth = 1 < len(self.index.split("_"))
+        self.synthetic = 1 < len(self.index.split("_"))
 
     def resize_to_1024(self):
         pass
@@ -386,13 +387,14 @@ class FaceImage():
             image = Image.open(BytesIO(archive.read(self.file_path))).convert("RGB")
             image.save(path_dest, "jpeg")
 
-    def display_im(self, to_print="A face is displayed"):
-        print(to_print)
+    def display_im(self, to_print="A face is displayed", save=None):
+        if save is None: print(to_print)
         with zipfile.ZipFile(self.db_path, 'r') as archive:
             image = Image.open(BytesIO(archive.read(self.file_path))).convert("RGB")
 
             plt.imshow(image)
             plt.show()
+            if save is not None: plt.savefig("result/faceRec_bad/" + save + ".png")
             image.close()
 
     def get_feature_repres(self, model):
@@ -488,7 +490,6 @@ class Face_DS(torch.utils.data.Dataset):
         self.train_labels = []
         self.nb_classes = 0
         self.nb_triplets = nb_triplet
-        self.with_synt = with_synt
 
         if fileset is None and faces_dic is None and face_set is None:
             return
@@ -620,7 +621,7 @@ class Face_DS(torch.utils.data.Dataset):
                         curr_index_neg = random.choice(labels_indexes_neg)
                     except IndexError:
                         print("In triplet loss, error for the " + str(j) + "eme triplet generation")
-                        print("The all people are "+ str(all_labels))
+                        #print("The all people are "+ str(all_labels))
                         break
 
                     label_neg = all_labels[curr_index_neg]
@@ -628,9 +629,9 @@ class Face_DS(torch.utils.data.Dataset):
                         picture_negative = random.choice(faces_dic[label_neg])
                     except IndexError:
                         print("In triplet loss, error for the " + str(j) + "eme triplet generation")
-                        print("The all people are "+ str(all_labels))
-                        print("The \"neg\" person is "+ str(label_neg))
-                        print("The dictionary of faces is "+ str(faces_dic))
+                        #print("The all people are "+ str(all_labels))
+                        #print("The \"neg\" person is "+ str(label_neg))
+                        #print("The dictionary of faces is "+ str(faces_dic))
                         break
 
                     if nb_same_db < self.nb_triplets / 2:  # Half of the negative must belong to the same db

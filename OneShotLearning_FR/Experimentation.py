@@ -10,11 +10,19 @@ from FaceRecognition import remove_synth_data, remove_real_data
 #       GLOBAL VARIABLES                #
 #########################################
 
+TEST_ID = 3
 PICTURES_NB = [200, 500, 1000, 2000, 4000, 10000, 15000, 20000]
 TRIPLET_NB = [5, 3, 2, 2, 2, 1, 1, 1]
+NB_INST = 2
 SIZE_VALIDATION_SET = 1000
 SEED = 9
 WITH_SYNTH = False
+
+if TEST_ID == 6:
+    PICTURES_NB = [3000]
+    TRIPLET_NB = [1]
+    WITH_SYNTH = True
+
 
 #########################################
 #       FUNCTIONS                       #
@@ -93,20 +101,6 @@ def put_synth_first(face_dic):
     # ----------------------------------------------------------
     people_with_synt.update(people_without_synt)
     return people_with_synt
-
-
-"""
-IN: pict_list: list of FaceImage objects
-OUT: nb of real images in pict_list
-"""
-
-
-def nb_real_pict(pict_list):
-    nb_real_pic = 0
-    for i, pict in enumerate(pict_list):
-        if not pict.is_synth:
-            nb_real_pic += 1
-    return nb_real_pic
 
 
 """
@@ -198,10 +192,10 @@ def define_datasets(db_list, with_test_set=False, with_synt_first=False, with_sy
         if not with_only_synth:
             face_DS_list_synt = from_dic_to_ds(face_dic, name_ds_train_withSynt, "real and synth") if with_synt else []
             remove_synth_data(face_dic)
+            reduce_nb_inst(face_dic, NB_INST)
             face_DS_list_real = from_dic_to_ds(face_dic, name_ds_train_real, "real")
         else:
             face_dic_synth = remove_real_data(face_dic)
-            print("face dic after remove_real_data is " + str(face_dic_synth))
             face_DS_list_only_synt = from_dic_to_ds(face_dic_synth, name_ds_train_onlySynt, "synth")
 
         # ---------------------------------------------------------
@@ -254,7 +248,9 @@ def from_dic_to_ds(face_dic, name_ds_train, nature):
             except IndexError:
                 print("The current final total nb of pictures is " + str(total_nb_pict) + "\n")
                 break
-            total_nb_pict += nb_real_pict(face_dic_to_change[first_person])
+
+            nb_synt, nb_real = get_nb_synth_data(list_pict=face_dic_to_change[first_person])
+            total_nb_pict += nb_real
             dict_list[j][first_person] = face_dic_to_change.pop(first_person)
 
     # -------------------------------------------
@@ -283,18 +279,54 @@ def merge_datasets(list_ds):
     return all_ds
 
 
-def get_nb_synth_data(db_path):
-    fileset = from_zip_to_data(False, fname=db_path, dataset=None)
+def get_nb_synth_data(db_path=None, list_pict=None):
     nb_synth = 0
     nb_real = 0
 
-    for i, data in enumerate(fileset.data_list):
+    if db_path is not None:
+        fileset = from_zip_to_data(False, fname=db_path, dataset=None)
+        list_pict = fileset.data_list
+
+    for i, data in enumerate(list_pict):
         if data.synthetic:
             nb_synth += 1
         else:
             nb_real += 1
-    print("The total number of real pictures in " + db_path + " is " + str(nb_real))
-    print("The total number of synthetic pictures in " + db_path + " is " + str(nb_synth))
+
+    print("The total number of real pictures is " + str(nb_real))
+    print("The total number of synthetic pictures in is " + str(nb_synth))
+    return nb_synth, nb_real
+
+
+"""
+This function removes some instances for each person in the 
+number of instances is higher than the given nb_inst
+"""
+
+
+def reduce_nb_inst(face_dic, nb_inst, synth_appart=True):
+    for person, pictures in face_dic.items():
+        print("The size before reduction: " + str(len(pictures)))
+        nb_synth, nb_real = get_nb_synth_data(list_pict=pictures)
+        # ----------------------------------------
+        # CASE 1: keep the synth pictures
+        # ----------------------------------------
+        if synth_appart and nb_inst < nb_real:
+            filtered_pict_list = []
+            nb_real_curr = 0
+            for i, pict in enumerate(pictures):
+                if pict.synthetic:
+                    filtered_pict_list.append(pict)
+                elif nb_real_curr < nb_inst:
+                    filtered_pict_list.append(pict)
+            face_dic[person] = filtered_pict_list
+
+        # --------------------------------------------------------
+        # CASE 2:No distinction between real and synth pictures
+        # --------------------------------------------------------
+        elif not synth_appart and nb_inst < nb_real + nb_synth:
+            face_dic[person] = pictures[:nb_inst]
+        print("The size after reduction: " + str(len(face_dic[person])))
 
 
 # ================================================================
@@ -304,14 +336,16 @@ def get_nb_synth_data(db_path):
 
 if __name__ == "__main__":
 
-    # get_nb_synth_data(FOLDER_DB + "cfp_humFiltered.zip")
-    test_id = 2
+    # get_nb_synth_data(db_path=FOLDER_DB + "cfp_humFiltered.zip")
+    test_id = TEST_ID
 
     db_list = ["gbrieven_filtered", "cfp_humFiltered", "lfw_filtered", "faceScrub_humanFiltered"]
-    #db_list = ["cfp_humFiltered"]
 
     if test_id < 6:
         datasets = define_datasets(db_list, with_test_set=True, with_synt_first=True, with_synt=WITH_SYNTH)
+    else:
+        datasets = None
+        db_list = ["cfp_humFiltered"]
 
     model_name = None
     db_name_train = [FOLDER_DB + "gbrieven_filtered.zip",
@@ -358,7 +392,8 @@ if __name__ == "__main__":
         # ============================================================
         #  With different Scheduler
         # ============================================================
-        train_ds = merge_datasets(datasets[0][:4])  # Explicit Reuse of previous data
+        index_last = 4
+        train_ds = merge_datasets(datasets[0][:index_last])  # Explicit Reuse of previous data
 
         sets_list = [train_ds, datasets[2], datasets[3]]
         print("len train set is " + str(len(sets_list[0].train_data)))
@@ -369,7 +404,8 @@ if __name__ == "__main__":
             except TypeError:
                 print("================ Training without scheduler ... ================================= ")
 
-            main_train(sets_list, db_name_train, scheduler=sched, pret="autoencoder", nb_images=PICTURES_NB[-1])
+            main_train(sets_list, db_name_train, scheduler=sched, pret="autoencoder",
+                       nb_images=sum(PICTURES_NB[:index_last]))
 
     if test_id == 4:
         # ============================================================
@@ -408,3 +444,5 @@ if __name__ == "__main__":
         dss = define_datasets(db_list, with_test_set=True, with_only_synth=True)
         print("complete ds: " + str(dss))
         print("ds with only synthetic data: " + str(dss[-1]))
+        sets_list = [dss[-1][0], dss[2], dss[3]]
+        main_train(sets_list, db_name_train, pret="autoencoder", nb_images=PICTURES_NB[-1])

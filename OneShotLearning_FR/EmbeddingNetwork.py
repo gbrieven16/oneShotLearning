@@ -51,13 +51,13 @@ class BasicNet(nn.Module):
         self.pool4 = nn.MaxPool2d(4)
         self.conv3 = nn.Conv2d(128, 256, kernel_size=5)
         self.conv3_bn = nn.BatchNorm2d(256)
-        self.linear1 = nn.Linear(256, dim_last_layer)
+        self.linear1 = nn.Linear(256, 512) # 7168, 512
         self.dropout = nn.Dropout(P_DROPOUT)
         self.to(DEVICE)
 
 
         # Last layer assigning a number to each class from the previous layer
-        # self.linear2 = nn.Linear(dim_last_layer, 2)
+        # self.linear2 = nn.Linear(dim_last_layer, 2)   [32 x 7168], m2: [256 x 512]
 
     def forward(self, data):
         x = self.conv1(data.to(DEVICE))
@@ -67,22 +67,24 @@ class BasicNet(nn.Module):
         x = self.pool4(x)
 
         x = self.conv2(x)
+
         if WITH_NORM_BATCH: x = self.conv2_bn(x)
         x = f.relu(x)
         x = self.dropout(x)
         x = self.pool4(x)
 
         x = self.conv3(x)
+
         if WITH_NORM_BATCH: x = self.conv3_bn(x)
         x = f.relu(x)
         x = self.dropout(x)
         x = self.pool4(x)
 
         x = x.view(x.shape[0], -1)  # To reshape
+        #print(x.size())
         x = self.linear1(x)
-        x = f.relu(x)
 
-        return f.normalize(x, p=2, dim=1)
+        return f.relu(x)
 
 
 # ================================================================
@@ -95,6 +97,18 @@ class AlexNet(nn.Module):
         self.name_arch = "4AlexNet"
         if WITH_GNAP: print("The GNAP module is used\n")
         self.dim_last_layer = dim_last_layer
+
+        self.conv1 = nn.Conv2d(3, 64, kernel_size=11, stride=4)
+        self.relu = nn.ReLU(inplace=True)
+        self.pool1 = nn.MaxPool2d(kernel_size=3, stride=2)
+        self.conv2 = nn.Conv2d(64, 192, kernel_size=5, padding=2)
+        self.conv3 = nn.Conv2d(192, 384, kernel_size=7, padding=1)
+        self.pool3 = nn.MaxPool2d(kernel_size=5, stride=2)
+        self.conv4 = nn.Conv2d(384, 256, kernel_size=5, padding=1)
+        self.conv5 = nn.Conv2d(256, 256, kernel_size=3, padding=1)
+
+        self.pool5 = nn.MaxPool2d(kernel_size=3, stride=2)
+
 
         self.features = nn.Sequential(
             nn.Conv2d(3, 64, kernel_size=11, stride=4),
@@ -125,7 +139,21 @@ class AlexNet(nn.Module):
         # self.final_layer = nn.Linear(dim_last_layer, num_classes)
 
     def forward(self, data):
-        x = self.features(data.to(DEVICE))
+        #x = self.features(data.to(DEVICE))
+        x = self.conv1(data.to(DEVICE))
+        x = self.relu(x)
+        x = self.pool1(x)
+        x = self.conv2(x)
+        x = self.relu(x)
+        x = self.conv3(x)
+        x = self.relu(x)
+        x = self.pool3(x)
+        x = self.conv4(x)
+        x = self.relu(x)
+        x = self.conv5(x)
+        x = self.relu(x)
+        x = self.pool5(x)
+
         if WITH_GNAP: x = self.gnap(x)
         x = x.view(x.size(0), 512) #16384 /32 = 512.0
 

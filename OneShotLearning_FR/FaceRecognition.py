@@ -1,6 +1,6 @@
 import matplotlib
 
-matplotlib.use('Agg')  # TkAgg
+matplotlib.use('TkAgg')  # TkAgg
 import matplotlib.pyplot as plt
 
 import torch
@@ -20,16 +20,18 @@ from Main import WITH_PROFILE, load_model
 #                      (BUT not in the gallery)
 # =====================================================================================================================
 
-NB_PROBES = 20
-SIZE_GALLERY = 20  # Nb of people to consider
-TOLERANCE = 5  # 3 Max nb of times the model can make mistake in comparing p_test and the pictures of 1 person
-NB_REPET = 6  # Nb of times test is repeated (over different probes)
-THRESHOLDS_LIST = list(np.arange(0, 5, 0.05))  # For MeanSquare
-DETAILED_PRINT = False
-NB_IM_PER_PERS = 8
-WITH_SYNTHETIC_DATA = False
+NB_PROBES = 30
 NB_INST_PROBES = 1
 
+SIZE_GALLERY = 20  # Nb of people to consider
+NB_IM_PER_PERS = 8
+TOLERANCE = 5  # 3 Max nb of times the model can make mistake in comparing p_test and the pictures of 1 person
+NB_REPET = 6  # Nb of times test is repeated (over a different set of probes)
+THRESHOLDS_LIST = list(np.arange(0, 5, 0.05))  # For MeanSquare
+WITH_LATENT_REPRES = False
+DETAILED_PRINT = False
+
+WITH_SYNTHETIC_DATA = False
 if WITH_SYNTHETIC_DATA:
     NB_IM_PER_PERS = None  # No restriction, otherwise you may not get the synth images in face_dic
 
@@ -42,7 +44,7 @@ class Probe:
     def __init__(self, person, pictures, index_pict):
         self.person = person
         self.pictures = pictures  # list of pictures (basic + synthetic / basic + extra)
-        self.index = index_pict  # list of indice(s)
+        self.index = index_pict   # list of indice(s)
 
         self.dist_pers = {}  # dic where the key is the person's name and the value is the list of distances from probe
         self.dist_avg_pers = {}
@@ -64,26 +66,47 @@ class Probe:
                 print("KEYERR in median dist: " + person + " not found as key in " + str(self.dist_pers) + "\n")
 
     def predict_from_dist(self, res_acc_dist):
-        pred_pers_dist = sorted(self.dist_avg_pers.items(), key=lambda x: x[1])[0][0]
+        ordered_people = sorted(self.dist_avg_pers.items(), key=lambda x: x[1])
+        pred_pers_dist = ordered_people[0][0]
+        dist_diff = ordered_people[1][1] - ordered_people[0][1]
+        #print("DELETE: The distances are: " + str(self.dist_avg_pers))
         if self.person == pred_pers_dist:
             res_acc_dist["nb_correct_dist"] += 1
+            #print("DELETE: Correct and dist diff is " + str(dist_diff))
         else:
             res_acc_dist["nb_mistakes_dist"] += 1
+            #print("DELETE: Not correct and dist diff is " + str(dist_diff))
+
 
     def pred_from_vote(self, DETAILED_PRINT, res_vote):
-        if DETAILED_PRINT:
-            print("\n ------------- The current probe is: " + str(self.person) + " ----------------------- ")
-            print("Voting system is represented by: " + str(self.vote_pers) + "\n")
 
         if 0 < len(self.vote_pers):
-            pred_person = max(self.vote_pers, key=lambda k: self.vote_pers[k])
-            if DETAILED_PRINT: print("The predicted person is: " + pred_person + "\n")
-            if self.person == pred_person:
-                res_vote["nb_correct"] += 1
+            sorted_vote = sorted(self.vote_pers.items(), key=lambda x: x[1], reverse=True)
+            if DETAILED_PRINT:
+                print("\n ------------- The current probe is: " + str(self.person) + " ----------------------- ")
+                print("Voting system is represented by: " + str(sorted_vote) + "\n")
+
+            # Check if there's any equality in the votes
+            nb_equal_vote = -1
+            for i, (person, score) in enumerate(sorted_vote):
+                if score == sorted_vote[0][1]:
+                    nb_equal_vote += 1
+                else:
+                    break
+
+            if 0 < nb_equal_vote:
+                print("There are " + str(nb_equal_vote) + " equalities in the voting system")
+                print("The person is " + str(person) + " and the sorted_vote is " + str(sorted_vote))
+
+            pred_person = [pers for i, (pers, score) in enumerate(sorted_vote) if i < nb_equal_vote+1]
+
+            if self.person in pred_person:
+                res_vote["nb_correct"] += 1/(nb_equal_vote+1)
+                if DETAILED_PRINT: print("The correct predicted person is: " + pred_person + "\n")
             else:
                 res_vote["nb_mistakes"] += 1
         else:
-            if DETAILED_PRINT: print("The person wasn't recognized!\n")
+            if DETAILED_PRINT: print("The person wasn't recognized as belonging to the gallery!\n")
             res_vote["nb_not_recognized"] += 1
 
     def compute_false(self):
@@ -114,7 +137,14 @@ class FaceRecognition:
         # -------- Model Loading ----------------
         if model_path is not None:
             model = load_model(model_path)
-            self.siamese_model = model.network.cuda() if torch.cuda.is_available() else model.network
+            try:
+                self.siamese_model = model.network.cuda() if torch.cuda.is_available() else model.network
+            except AttributeError:
+                self.siamese_model = model.cuda() if torch.cuda.is_available() else model
+
+
+        self.acc_model = [0, 0] # Fisrt element: correct/not (1/0) ; Second element: Counter
+        self.pos_recall = [0, 0]  # Fisrt element: correct/not (1/0) ; Second element: Counter of positives
 
         # ------- Get data (from MAIN_ZIP) --------------
         self.probes = []  # list of NB_REPET lists of lists (person, picture, index_pict)
@@ -162,6 +192,7 @@ class FaceRecognition:
 
         # --- Go through each probe --- #
         for i, probe in enumerate(self.probes[index]):
+            #print("\n-------------------NEW PROBE: " + probe.person + " -----------------------")
 
             # --- Go through each person in the gallery --- #
             for person, pictures in self.gallery.items():
@@ -180,13 +211,12 @@ class FaceRecognition:
 
                     # --- Go through each (synthetic) picture representing the probe --- #
                     for j, pict_probe in enumerate(probe.pictures):
-                        fr_1 = pict_probe.get_feature_repres(self.siamese_model)
+                        fr_1 = pict_probe.get_feature_repres(self.siamese_model) if WITH_LATENT_REPRES else None
 
                         if DETAILED_PRINT: pict_probe.display_im(to_print="The face to identify is: ")
 
                         # --- Distance reasoning for prediction ----
                         dist = picture.get_dist(probe.person, probe.index[j], pict_probe, fr_1)
-                        # dist = get_distance(fr_1, fr_2)
                         if DETAILED_PRINT:
                             picture.display_im(to_print="The compared face is printed and the dist is: " + str(dist))
 
@@ -197,14 +227,33 @@ class FaceRecognition:
                         # --- Classification reasoning for prediction ----
                         if self.siamese_model is not None:
                             same = self.siamese_model.output_from_embedding(fr_1, fr_2)
+                            self.acc_model[1] += 1
 
                             # Check if "useful" to carry on
                             if same == 1:
+                                if pict_probe.person != person:
+                                    self.acc_model[0] += 1
+                                else:
+                                    self.pos_recall[1] += 1
+                                    #print("Mistake: " + str(pict_probe.person) + " not predicted as " + str(person))
+                                    pict_probe.display_im(save=str(index) + str(i) + "_probe_" + pict_probe.person)
+                                    picture.display_im(save=str(index) + str(i) + "_gall_" + person)
+
                                 if DETAILED_PRINT: print("Predicted as different")
                                 nb_pred_diff += 1
                                 if TOLERANCE < nb_pred_diff:
                                     break
                             else:
+                                if pict_probe.person == person:
+                                    self.pos_recall[1] += 1
+                                    self.pos_recall[0] += 1
+                                    self.acc_model[0] += 1
+
+                                else:
+                                    #print("Mistake: " + str(pict_probe.person) + " predicted as " + str(person))
+                                    pict_probe.display_im(save=str(index) + str(i) + "_probe_" + pict_probe.person)
+                                    picture.display_im(save=str(index) + str(i) + "_gall_" + person)
+
                                 probe.vote_pers[person] = 1 if person not in probe.vote_pers else probe.vote_pers[
                                                                                                       person] + 1
 
@@ -224,6 +273,10 @@ class FaceRecognition:
 
         print("\n------------------------------------------------------------------")
         if self.siamese_model is not None:
+            print("The computed Accuracy for the model is: " + str(self.acc_model[0]) + "/" + str(self.acc_model[1])
+                  + " (" + str(round(100.0*self.acc_model[0]/self.acc_model[1], 2)) + "%)")
+            print("The Positive Recall for the model is: " + str(self.pos_recall[0]) + "/" + str(self.pos_recall[1])
+                  + " (" + str(round(100.0*self.pos_recall[0]/self.pos_recall[1], 2)) + "%)")
             print("Report: " + str(res_vote["nb_correct"]) + " correct, " + str(res_vote["nb_mistakes"]) + " wrong, "
                   + str(res_vote["nb_not_recognized"]) + " undefined recognitions")
 
@@ -262,6 +315,7 @@ class FaceRecognition:
         title = "FAR and FRR according to the threshold"
         multi_line_graph(dic, THRESHOLDS_LIST, title, x_label="threshold", y_label="Rate Value", save_name="eer")
         return print_eer(far, frr)
+
 
 
 # ================================================================
@@ -306,7 +360,7 @@ def get_gallery(size_gallery, db_source_list):
             else:
                 face_dic.update(pickle.load(open(FOLDER_DB + FOLDER_DIC + "faceDic_" + db + "with_synth.pkl", "rb")))
 
-        except FileNotFoundError:
+        except (FileNotFoundError, EOFError) as e:
             print("The file " + FOLDER_DB + db + ".zip coundn't be found ... \n")
             fileset = from_zip_to_data(WITH_PROFILE, fname=FOLDER_DB + db + ".zip")
             face_dic = fileset.order_per_personName(TRANS, save=db, max_nb_pict=NB_IM_PER_PERS,
@@ -441,8 +495,8 @@ if __name__ == '__main__':
     # ------------------------------------------------
     if test_id == 1:
         db_source = "testdb"
-        model = "models/dsgbrieven_filteredcfp_humFilteredlfw_filteredfaceScrub_humanFiltered_" \
-                "5694_1default_100_triplet_loss_nonpretrained.PT"
+        model = "models/dsgbrieven_filteredcfp_humFilteredlfw_filteredfaceScrub_humanFiltered_3245_1default_70_" \
+                "triplet_loss_pretautoencoder.pt"
         fr = FaceRecognition(model, db_source=[db_source])
 
         # ------- Accumulators Definition --------------
@@ -478,9 +532,11 @@ if __name__ == '__main__':
 
         size_gallery = [20, 50, 100, 200, 400]  # Nb of people to consider
         db_source_list = ["cfp_humFiltered", "gbrieven_filtered", "testdb_filtered",
-                          "faceScrub_filtered"]
-        model = "models/dsgbrieven_filteredcfp_humFilteredlfw_filteredfaceScrub_humanFiltered_5694_" \
-                "1default_100_triplet_loss_nonpretrained.pt"
+                          "faceScrub_humanFiltered"]
+        #model = "models/dsgbrieven_filteredcfp_humFilteredlfw_filteredfaceScrub_humanFiltered_5694_" \
+               # "1default_100_triplet_loss_nonpretrained.pt"
+        model = "models/dsgbrieven_filteredcfp_humFilteredlfw_filteredfaceScrub_humanFiltered_3245_1default_70_" \
+                "triplet_loss_nonpretrained.pt"
 
         for i, SIZE_GALLERY in enumerate(size_gallery):
 
@@ -522,7 +578,10 @@ if __name__ == '__main__':
             perc_dist_success = str(100 * acc_nb_correct_dist / (NB_PROBES * NB_REPET))
 
             data = [NB_REPET, SIZE_GALLERY, NB_PROBES, NB_IM_PER_PERS, str(db_source_list)]
-            algo = [model.split("models/")[1], TOLERANCE, DIST_METRIC, NB_INST_PROBES, WITH_SYNTHETIC_DATA]
+            acc = round(100.0*fr.acc_model[0]/fr.acc_model[1], 2)
+            recall = round(100.0*fr.pos_recall[0]/fr.pos_recall[1], 2)
+            algo = [model.split("models/")[1], acc, recall, TOLERANCE, WITH_LATENT_REPRES,
+                    DIST_METRIC, NB_INST_PROBES, WITH_SYNTHETIC_DATA]
             result = [perc_vote_success, perc_dist_success, eer, total_time]
             fr_in_csv(data, algo, result)
 
@@ -531,6 +590,8 @@ if __name__ == '__main__':
     # ----------------------------------------------------------------
     if test_id == 3:
         db_source = ["cfp3"]
+        model = "models/dsgbrieven_filteredcfp_humFilteredlfw_filteredfaceScrub_humanFiltered_5694_" \
+                "1default_100_triplet_loss_nonpretrained.pt"
         fr = FaceRecognition(model, db_source=db_source)
         # ------- Accumulators Definition --------------
         acc_nb_correct_dist = 0

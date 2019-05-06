@@ -1,5 +1,5 @@
 import pandas as pd
-from Visualization import bar_chart
+from Visualization import bar_chart, line_graph
 import numpy as np
 
 #########################################
@@ -42,8 +42,6 @@ def to_dic(csv_name, crit_key_list, crit_value, lower_bound=0):
     # Store all values of crit_value to the corresponding crit_key
     # ------------------------------------------------------------------------
     for i, row in df.iterrows():
-        if i == 0:
-            continue
         if lower_bound < row[crit_value]:
             try:
                 if type(crit_key_list) is list:
@@ -73,7 +71,11 @@ def to_dic(csv_name, crit_key_list, crit_value, lower_bound=0):
 
     return dic
 
-
+"""
+This function returns a dictionary (of dictionaries) built from dic 
+where the keys are the elements of the list keys1 and the values are 
+the values in dic 
+"""
 def key_restiction(dic, keys1, keys2=None):
     filtered_dic = {}
     for key, value in dic.items():
@@ -214,6 +216,7 @@ def print_with_best_scenarios(csv_name, restriction_min, restriction_equal, to_v
             for j, crit in enumerate(to_visualize):
                 print("Value of " + crit + " is " + str(row[crit]))
 
+
 def is_not_nb(nb):
     return not (float('-inf') < float(nb) < float('inf'))
 
@@ -224,15 +227,21 @@ def is_not_nb(nb):
 
 if __name__ == "__main__":
 
-    csv_name = "test.csv"
-    test_id = 5
+    csv_name = "result/fr_model_evaluation.csv"
+    test_id = 2
 
     if test_id == 1:
+        print(" -------------------------- TEST 1 --------------------------------")
+        print("Visualize the best value for to_return according to the eval crit")
+        print(" ------------------------------------------------------------------")
         eval_crit = ["nb_correct_vote", "nb_correct_dist", "EER"]
         to_return = "thresh"  # "distance metric" #"im_per_pers"   # "thresh"
         print("The optimal value is " + str(find_optimal_val(csv_name, to_return, eval_crit)) + " for " + to_return)
 
     if test_id == 2:
+        print(" -------------------------- TEST 2 --------------------------------")
+        print("Visualize the criterion having the highest value on average")
+        print(" ------------------------------------------------------------------")
         crits = ["nb_correct_vote", "nb_correct_dist"]
         print("The optimal crit is " + str(find_highest(csv_name, crits)))
 
@@ -240,7 +249,7 @@ if __name__ == "__main__":
         print(" -------------------------- TEST 3 --------------------------------")
         print("Visualize the f1 measure for different architectures and losses")
         print(" ------------------------------------------------------------------")
-        csv_name = "model_evaluation_test.csv"
+        csv_name = "result/model_evaluation_test.csv"
         title = "Comparison between different architectures and losses"
         # Compare architectures
         di1 = to_dic(csv_name, ["LossType - Weighted Classes", "Archit"], "best_f1_score", lower_bound=0)
@@ -267,7 +276,7 @@ if __name__ == "__main__":
         # -------------------------------------------------------
         # Compare the scenarios with and without synthetic data
         # -------------------------------------------------------
-        csv_name = "syntAndReal.csv"
+        csv_name = "result/syntAndReal_old.csv"
         title = "Comparison between different data quantities and nature"
         # Compare architectures
         di1 = to_dic(csv_name, ["Synth", "Total Nb of Images"], "f1_score3", lower_bound=0)
@@ -277,3 +286,27 @@ if __name__ == "__main__":
         bar_chart(di1["real"], di1["real + synth"], title, first_title="real", second_title="real + synth",
                   annotated=False, y_title="f1 measure", save_name="synthVSreal")
 
+    if test_id == 6:
+        print(" -------------------------- TEST 6 --------------------------------")
+        print("Visualize the best distance Metric")
+        print(" ------------------------------------------------------------------")
+        restriction_equal = {"gallery_size": [50], "nb_probes":[20], "thresh": [5]}
+        title = "Accuracy according to the distance metric"
+        di1 = to_dic(csv_name, ["with z=fr", "distance metric"], "nb_correct_dist", lower_bound=0)
+        print(di1)
+        # arch = list(di1.keys())
+        bar_chart(di1["True"], di1["False"], title, first_title="Triplet FR based", second_title="Generator FR based",
+                  annotated=False, y_title="Accuracy", save_name="fr_dist")
+
+    if test_id == 7:
+        print(" -------------------------- TEST 7 --------------------------------")
+        print("Visualize the performance according to the gallery size")
+        print(" ------------------------------------------------------------------")
+        x = [20, 40, 60, 80, 100, 120, 150, 200, 300, 400]
+        di = to_dic(csv_name, ["gallery_size"], "nb_correct_dist", lower_bound=0)
+        y = []
+        for i, gal_size in enumerate(x):
+            y.append(di[gal_size])
+        title = "Accuracy according to the gallery size"
+
+        line_graph(x, y, title, x_label="x", y_label="y", save_name=None)

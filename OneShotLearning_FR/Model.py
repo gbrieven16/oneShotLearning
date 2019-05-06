@@ -18,7 +18,10 @@ MOMENTUM = 0.9
 GAMMA = 0.1  # for the lr_scheduler - default value 0.1
 N_TEST_IMG = 5
 PT_BS = 32  # Batch size for pretraining
-PT_NUM_EPOCHS = 200 # 200
+
+# PT_NUM_EPOCHS = 150  => No normalization included inside the encoder (better visual results)
+# PT_NUM_EPOCHS = 200  => Normalization included inside the encoder (no good visual results)
+PT_NUM_EPOCHS = 150
 EP_SAVE = 30
 ROUND_DEC = 5
 
@@ -54,6 +57,7 @@ class Model:
         self.weighted_classes = train_param["weighted_class"]
 
         if train_param is not None:
+            is_autoencoder = train_param["loss_type"] is None
             # ----------------- Network Definition (depending on the loss) -------------
             if train_param["loss_type"] == "triplet_loss":
                 self.network = Triplet_Net(embedding_net)
@@ -69,7 +73,7 @@ class Model:
                 self.network = Triplet_Net(embedding_net, with_dist_loss=True, with_ce_loss=True)
             elif train_param["loss_type"] == "constrastive_loss":
                 self.network = ContrastiveLoss(embedding_net)
-            elif train_param["loss_type"] is None:
+            elif is_autoencoder:
                 self.network = AutoEncoder_Net(embedding_net)
             elif train_param["loss_type"] == "cross_entropy":
                 self.network = SoftMax_Net(embedding_net)
@@ -81,7 +85,7 @@ class Model:
                 raise Exception
 
             self.loss_type = train_param["loss_type"]
-            self.scheduler, self.optimizer = self.get_optimizer(train_param["hyper_par"])
+            self.scheduler, self.optimizer = self.get_optimizer(train_param["hyper_par"], is_autoencoder=is_autoencoder)
 
             # ----------------- Class Weighting Use -------------
             try:
@@ -94,7 +98,7 @@ class Model:
 
         # For Visualization
         self.eval_dic = {"nb_correct": 0, "nb_labels": 0, "recall_pos": 0,
-                         "recall_neg": 0, "f1_pos": 0, "f1_neg": 0, "prec_pos":0, "prec_neg":0}
+                         "recall_neg": 0, "f1_pos": 0, "f1_neg": 0, "prec_pos":0, "prec_neg":0, "nb_eval": 0}
         self.losses_train = {"Pretrained Model": [], "Non-pretrained Model": []}
         self.losses_validation = {"Pretrained Model": [], "Non-pretrained Model": []}
         self.f1_validation = {"Pretrained Model": [], "Non-pretrained Model": [], "On Training Set": []}
@@ -161,9 +165,8 @@ class Model:
             self.losses_train["Non-pretrained Model"].append(model_comp.losses_train["Pretrained Model"][-1])
             self.f1_detail["Non-pretrained Model"] = model_comp.f1_detail["Pretrained Model"]
 
-
             model_comp.f1_validation["Non-pretrained Model"].append(f1_notPret)
-            model_comp.active_learning(more_data_name=extra_source, mode="Non-pretrained Model")
+            #model_comp.active_learning(more_data_name=extra_source, mode="Non-pretrained Model")
 
             if should_break(self.acc_validation["Non-pretrained Model"], epoch):
                 break
@@ -220,7 +223,7 @@ class Model:
                 else list(self.network.encoder.parameters())[0].data
 
             if torch.equal(a, b):
-                print("!! WARNING: The weights of the model were not updated! \n")
+                print("!! WARNING: The weights of the model were not updated!")
 
             loss_list.append(loss.item())
 
@@ -241,7 +244,6 @@ class Model:
 
         if not autoencoder and self.nb_classes is None and self.weighted_classes: self.update_weights()
         self.losses_train["Pretrained Model"].append(loss_list)
-
 
     '''---------------------------- prediction --------------------------------
      This function tests the given model 
@@ -329,6 +331,7 @@ class Model:
 
         # ----------- Evaluation on the train set ---------------
         else:
+            print("The f1 score evaluated on the training set is " + str((f1_neg_avg + f1_pos_avg) / 2))
             self.f1_validation["On Training Set"].append((f1_neg_avg + f1_pos_avg) / 2)
             return f1_pos_avg, f1_neg_avg
 
@@ -394,7 +397,7 @@ class Model:
 
     def print_eval_model(self, loss_eval, loader="Validation"):
         acc = 100. * self.eval_dic["nb_correct"] / self.eval_dic["nb_labels"]
-        nb_eval = len(self.validation_loader) if loader == "Validation" else len(self.test_loader)
+        nb_eval = self.eval_dic["nb_eval"]
         loss_eval = loss_eval / nb_eval  # avg of the loss
 
         print(" \n----------------------- " + loader + " --------------------------------- ")
@@ -417,7 +420,7 @@ class Model:
 
     '''------------------------- get_optimizer -------------------------------- '''
 
-    def get_optimizer(self, hyper_par):
+    def get_optimizer(self, hyper_par, is_autoencoder=False):
 
         # ----------------------------------
         #       Optimizer Setting
@@ -437,7 +440,7 @@ class Model:
         #  Learning Rate Scheduler Setting
         # ----------------------------------
 
-        if hyper_par["lr_scheduler"] is None:
+        if hyper_par["lr_scheduler"] is None or is_autoencoder:
             return None, optimizer
         else:
             if hyper_par["lr_scheduler"] == "ExponentialLR":
@@ -464,10 +467,11 @@ class Model:
     ------------------------------------------------------------------------------'''
 
     def get_evaluation(self, tp, tn, p, n):
-
+        self.eval_dic["nb_eval"] += 1
         try:
             rec_pos = float(tp) / p
             prec_pos = float(tp) / (float(tp) + (n - float(tn)))
+
             self.eval_dic["prec_pos"] += prec_pos
             self.eval_dic["recall_pos"] += rec_pos
             self.eval_dic["f1_pos"] += (2 * rec_pos * prec_pos) / (prec_pos + rec_pos)
@@ -477,6 +481,7 @@ class Model:
         try:
             rec_neg = float(tn) / n
             prec_neg = float(tn) / (float(tn) + (p - float(tp)))
+
             self.eval_dic["prec_neg"] += prec_neg
             self.eval_dic["recall_neg"] += rec_neg
             self.eval_dic["f1_neg"] += (2 * rec_neg * prec_neg) / (prec_neg + rec_neg)

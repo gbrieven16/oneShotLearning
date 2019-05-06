@@ -16,21 +16,22 @@ from Visualization import store_in_csv, line_graph
 #########################################
 
 
-NUM_EPOCH = 1 if platform.system() == "Darwin" else 100
+NUM_EPOCH = 1 if platform.system() == "Darwin" else 75
 BATCH_SIZE = 32 # TO CHANGE IF BACK TO NORMAL SITUATION
 
 LR_NONPRET = 0.001
-LEARNING_RATE = 0.01 # SOULD BE CHANGED?
+LEARNING_RATE = 0.001 # SOULD BE CHANGED?
 WITH_LR_SCHEDULER = "StepLR" #"StepLR" #"StepLR"  #"StepLR"  # "ExponentialLR" None
 WEIGHT_DECAY = 0.001  # To control regularization
 OPTIMIZER = "Adam" #"Adagrad"  # Adagrad "SGD"
 
+WITH_EVAL_ON_TRAIN = True
 WEIGHTED_CLASS = False
 WITH_EPOCH_OPT = False
-LOSS = "triplet_loss"  # "cross_entropy" "ce_classif"   "constrastive_loss" triplet_and_ce triplet_distdif_loss
+LOSS = "cross_entropy"  # "cross_entropy" "ce_classif"   "constrastive_loss" triplet_and_ce triplet_distdif_loss
 
 MODE = "learn"  # "classifier training"
-PRETRAINING = "autoencoder"  # ""autoencoder"  # "autoencoder_only" "none"
+PRETRAINING = "none"  # ""autoencoder"  # "autoencoder_only" "none"
 WITH_NON_PRET = True
 
 DIFF_FACES = True  # If true, we have different faces in the training and the testing set
@@ -84,7 +85,7 @@ def main(db_train=None, fname=None, nb_classes=0, name_model=None, loss=LOSS):
         #  prediction mode: 1 prediction
         # ==============================================
 
-        dataset = Face_DS(fileset=fileset, to_print=True, device=DEVICE)
+        dataset = Face_DS(fileset=fileset, to_print=True)
 
         model = load_model(name_model)
 
@@ -117,7 +118,7 @@ def main(db_train=None, fname=None, nb_classes=0, name_model=None, loss=LOSS):
         #  Evaluation Mode (where MAIN_ZIP content is used for testing)
         # =====================================================================
         eval_network = load_model("models/siameseFace_ds0123456_diff_100_32_constrastive_loss.pt")
-        eval_test = Face_DS(fileset=fileset, to_print=False, device=DEVICE)
+        eval_test = Face_DS(fileset=fileset, to_print=False)
         pred_loader = torch.utils.data.DataLoader(eval_test, batch_size=BATCH_SIZE, shuffle=True)
 
         eval_model = Model(test_loader=pred_loader, network=eval_network)
@@ -164,9 +165,9 @@ IN: sets_list: list of 3 Datasets (training, validation and testing)
 
 def main_train(sets_list, fname, db_train=None,  name_model=None, scheduler=WITH_LR_SCHEDULER, pret=PRETRAINING,
                loss=LOSS, nb_images=0, with_synt=WITH_SYNTH):
-    visualization = False
+    visualization = True
     num_epoch = NUM_EPOCH
-    save_model = False
+    save_model = True
     db_name, db_title = get_db_name(fname, db_train, with_synt=with_synt)
 
     # -----------------------------------------
@@ -221,6 +222,7 @@ def main_train(sets_list, fname, db_train=None,  name_model=None, scheduler=WITH
                     print("\n------- Retraining of model ----------")
 
                 model_learn.train(epoch)
+                if WITH_EVAL_ON_TRAIN: model_learn.prediction(on_train=True)
                 model_learn.prediction()
 
                 if epoch != 0 and epoch % EP_SAVE == 0:
@@ -229,7 +231,7 @@ def main_train(sets_list, fname, db_train=None,  name_model=None, scheduler=WITH
                 # --------- STOP if no relevant learning after some epoch ----------
                 if should_break(model_learn.f1_validation["Pretrained Model"], epoch) or model_learn.active_learning():
                     visualization = True
-                    save_model = True
+                    save_model = False
                     #num_epoch = epoch # not ok if not pretrained is better because the graph is cut ...
                     break
 
@@ -276,7 +278,7 @@ def main_train(sets_list, fname, db_train=None,  name_model=None, scheduler=WITH
 
 if __name__ == '__main__':
     # main()
-    test = 3 if platform.system() == "Darwin" else 4
+    test = 3 if platform.system() == "Darwin" else 3
 
     # -----------------------------------------------------------------------
     # Test 1: Confusion Matrix with different db for training and testing
@@ -286,7 +288,7 @@ if __name__ == '__main__':
 
         for i, filename in enumerate(["testdb.zip", "lfw.zip", "cfp.zip", "ds0123456.zip"]):
             fileset = from_zip_to_data(WITH_PROFILE, fname=FOLDER_DB + filename)
-            testset = Face_DS(fileset=fileset, to_print=False, device=DEVICE)
+            testset = Face_DS(fileset=fileset, to_print=False)
             predic_loader = torch.utils.data.DataLoader(testset, batch_size=BATCH_SIZE, shuffle=True)
 
             model = Model(test_loader=predic_loader, network=network)
@@ -312,9 +314,9 @@ if __name__ == '__main__':
     # -----------------------------------------------------------------------
     if test == 3 or test is None:
         #db_name_train = [FOLDER_DB + "gbrieven_filtered.zip", FOLDER_DB + "lfw_filtered.zip"]  # "faceScrub", "lfw", "cfp", "gbrieven", "testdb"] #"testCropped"
-        #db_name_train = [FOLDER_DB + "cfp70.zip"]
+        db_name_train = [FOLDER_DB + "cfp70.zip"]
         #db_name_train = [FOLDER_DB + "gbrieven_filtered.zip"]
-        loss_list = ["triplet_loss", "triplet_distdif_loss", "triplet_and_ce", "cross_entropy", "constrastive_loss"]
+        loss_list = ["cross_entropy", "triplet_loss", "triplet_and_ce", "constrastive_loss", "triplet_distdif_loss"]
         for i, loss in enumerate(loss_list):
             main(fname=db_name_train, loss=loss)
 

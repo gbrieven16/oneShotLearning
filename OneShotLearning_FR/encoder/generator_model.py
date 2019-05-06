@@ -1,6 +1,6 @@
 import tensorflow as tf
-from tensorflow.python.client import device_lib
-print(device_lib.list_local_devices())
+#from tensorflow.python.client import device_lib
+#print(device_lib.list_local_devices())
 import numpy as np
 import dnnlib.tflib as tflib
 from functools import partial

@@ -27,7 +27,7 @@ TYPE_ARCH (related to the embedding Network)
 """
 
 TYPE_ARCH = "1default"  # "resnet152"  #"1default" "VGG16" #  "2def_drop" "3def_bathNorm"
-DIM_LAST_LAYER = 1024 if TYPE_ARCH in ["VGG16", "4AlexNet"] else 512 # TO CHANGE?
+DIM_LAST_LAYER = 1024 if TYPE_ARCH in ["VGG16", "4AlexNet", "1default1024"] else 512 # TO CHANGE?
 
 DIST_THRESHOLD = 0.02
 MARGIN = 0.2
@@ -35,6 +35,7 @@ METRIC = "Euclid" # "Cosine" #
 NORMALIZE_DIST = False
 NORMALIZE_FR = True
 WEIGHT_DIST = 0.2
+WITH_DIST_WEIGHT = True
 
 # Specifies where the torch.tensor is allocated
 DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -63,7 +64,7 @@ class DistanceBased_Net(nn.Module):
 
         if embeddingNet is not None:
             self.embedding_net = embeddingNet
-        elif TYPE_ARCH == "1default":
+        elif TYPE_ARCH == "1default" or TYPE_ARCH == "1default1024":
             self.embedding_net = BasicNet(DIM_LAST_LAYER)
         elif TYPE_ARCH == "4AlexNet" or TYPE_ARCH == "4AlexNet2048":
             self.embedding_net = AlexNet(DIM_LAST_LAYER)
@@ -76,6 +77,10 @@ class DistanceBased_Net(nn.Module):
             raise Exception
 
         self.dist_threshold = DIST_THRESHOLD
+
+        # To weights the distance elements
+        self.final_layer = nn.Linear(DIM_LAST_LAYER, DIM_LAST_LAYER)  # .to(DEVICE)
+
         self.metric = metric
         self.to(DEVICE)
 
@@ -122,6 +127,10 @@ class DistanceBased_Net(nn.Module):
             if NORMALIZE_DIST:
                 distance = abs(distance - torch.mean(distance)) / torch.std(distance)
                 disturb = abs(disturb - torch.mean(disturb)) / torch.std(disturb)
+
+            if WITH_DIST_WEIGHT:
+                distance = self.final_layer(distance)
+                disturb = self.final_layer(disturb)
 
             return distance, disturb
 
@@ -453,7 +462,7 @@ class SoftMax_Net(nn.Module):
         if embeddingNet is not None:
             self.embedding_net = embeddingNet
             # DIM_LAST_LAYER = 1024 if embeddingNet.name_arch in ["VGG16", "4AlexNet", "resnet"] else 512
-        elif TYPE_ARCH == "1default":
+        elif TYPE_ARCH == "1default" or TYPE_ARCH == "1default1024":
             self.embedding_net = BasicNet(DIM_LAST_LAYER)
         elif TYPE_ARCH == "4AlexNet" or TYPE_ARCH == "4AlexNet2048":
             self.embedding_net = AlexNet(DIM_LAST_LAYER)

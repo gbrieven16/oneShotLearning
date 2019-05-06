@@ -35,10 +35,10 @@ if GENERATED_IMAGES_DIR is not None:
     except PermissionError:
         print("IN STYLE ENCODER:Directories couldn't be created: do it manually! \n")
 
-URL_FFHQ = 'https://drive.google.com/uc?id=1MEGjdvVpUsu1jB4zrXZN7Y4kBBOzizDQ'  # karras2019stylegan-ffhq-1024x1024.pkl
+URL_FFHQ = 'https://drive.google.com/uc?id=1MEGjdvVpUsu1jB4zrXZN7Y4kBBOzizDQ'
 STYLE_GAN = "models/karras2019stylegan-ffhq-1024x1024.pkl"
+
 BATCH_SIZE = 1  # If more than 1, then mix of faces
-NB_PICTURES = 3
 IMAGE_SIZE = 256
 LR = 1  # CHANGE Was set to 1
 NB_ITERATIONS = 1200  # !!! the higher it is, the more similar to the given input data the generated image is
@@ -50,7 +50,7 @@ COEF = {"smile": [-1.5, 0, 1.3], "age": [-1.5, 0], "gender": [-1, 0]}
 
 # COEF = [-1, 0, 1]  # Coefficient measuring the intensity of change
 
-if False and platform.system() != "Darwin":
+if platform.system() != "Darwin":
     tflib.init_tf()  # Initialization of TensorFlow session
     _, _, GS_NETWORK = pickle.load(open(STYLE_GAN, "rb"))  # generator_network, discriminator_network
     GENERATOR = Generator(GS_NETWORK, BATCH_SIZE, randomize_noise=RANDOMIZE_NOISE)
@@ -121,7 +121,7 @@ IN: latent_representation: numpy.ndarray resulting from a face picture
 
 def move_and_show(latent_vector, direction, coeff, save_result):
     new_latent_vector = latent_vector.copy()
-    new_latent_vector[:8] = (latent_vector + coeff * direction)[:8]
+    new_latent_vector[:8] = (latent_vector + coeff * direction)[:8]   # Pq seulement 8 premiers elements ???
     synthetic_image = generate_image(new_latent_vector)
     try:
         plt.imshow(synthetic_image)
@@ -163,7 +163,7 @@ OUT: list of the dlatent representation of the pictures contained in src dir
 def get_encoding(db_source, filename, generated_images_dir=None, dlatent_name=None, with_save=False):
     try:
         return np.load(DLATENT_DIR + dlatent_name)
-    except FileNotFoundError:
+    except (FileNotFoundError, TypeError) as e:
         time_init = time.time()
         print("\nOptimize (only) dlatents by minimizing perceptual loss between reference and generated images in "
               "feature space... ")
@@ -188,7 +188,7 @@ def get_encoding(db_source, filename, generated_images_dir=None, dlatent_name=No
             if with_save:
                 if generated_images_dir is not None:
                     img = PIL.Image.fromarray(generated_images, 'RGB')
-                    img.save(os.path.join(generated_images_dir, f'{filename}.jpeg'), 'jpeg')
+                    img.save(os.path.join(generated_images_dir, filename), 'jpeg')
                 if dlatent_name is not None:
                     np.save(DLATENT_DIR + dlatent_name, generated_dlatents)
                     print(dlatent_name + " has been saved!")
@@ -259,4 +259,8 @@ def data_augmentation(face_dic=None, nb_add_instances=3, save_generated_im=False
 
 
 if __name__ == "__main__":
-    pass
+    # Test image generation
+    z = get_encoding("data/gbrieven/" + "testdb_filtered.zip", "testdb__0000107__2.jpg")
+    print(z)
+    apply_latent_direction(z, direction="smile")
+
