@@ -405,9 +405,7 @@ class FaceImage():
             return self.feature_repres
         else:
             data = torch.unsqueeze(self.trans_img, 0)
-            #self.feature_repres = f.normalize(model.embedding_net(data), p=2, dim=1)
-            self.feature_repres = model.embedding_net(data)
-
+            self.feature_repres = f.normalize(model.embedding_net(data), p=2, dim=1)
             return self.feature_repres
 
     def get_latent_repr(self):
@@ -423,12 +421,13 @@ class FaceImage():
             return self.latent_repres
 
     """
-    IN: picture: faceImage object corresponding to the current probe 
+    IN: 
+        picture: faceImage object corresponding to the other picture (of type FaceImage)  
     """
 
-    def get_dist(self, person, index, picture, fr):
+    def get_dist(self, index, picture, fr):
         try:
-            return self.dist[person][index]
+            return self.dist[picture.person][index]
         except KeyError:
             # ----------------------------------------------------
             # CASE 1: Feature representation from pytorch model
@@ -480,9 +479,8 @@ class FaceImage():
 
 
 class Face_DS(torch.utils.data.Dataset):
-    def __init__(self, fileset=None, face_set=None, transform=TRANS, to_print=False,
-                 triplet_version=True, save=None, faces_dic=None, nb_triplet=NB_TRIPLET_PER_PICT, nb_people=None,
-                 with_synt=WITH_SYNTH):
+    def __init__(self, fileset=None, face_set=None, transform=TRANS, to_print=False, triplet_version=True, save=None,
+                 faces_dic=None, nb_triplet=NB_TRIPLET_PER_PICT, nb_people=None, with_synt=WITH_SYNTH, model=None):
 
         self.to_print = to_print
         self.transform = transforms.ToTensor() if transform is None else transform
@@ -520,7 +518,7 @@ class Face_DS(torch.utils.data.Dataset):
         # ------------------------------------------------------------------------
         if triplet_version:
             self.train_not_formatted_data = []
-            self.build_triplet(faces_dic)
+            self.build_triplet(faces_dic, model)
 
         # ------------------------------------------------
         # CASE 3: Build training set composed of faces
@@ -571,15 +569,20 @@ class Face_DS(torch.utils.data.Dataset):
             self.train_data.extend(ds.train_data)
             self.train_labels.extend(ds.train_labels)
 
-    def build_triplet(self, faces_dic):
-        """ ---------------------------------------------------
-        Define the training set composed of (ref, pos, neg)
+    def build_triplet(self, faces_dic, model):
+        """ -------------------------------------------------------------------
+        Define the training set composed of (A, P, N)
         List of 3 lists, each containing tensors
 
         !! Convention !!:
             Label = 0 if same people
             Label = 1 if different people
-        --------------------------------------------------- """
+        IN: face_dic: dictionary where the key is the person's name and the
+                      value is the list of their pictures
+            model: embedding network
+                   if not None: the triplets are constrained such that
+                            d(F(A),F(N)) < d(F(A),F(P))
+        ------------------------------------------------------------------------ """
 
         all_labels = list(faces_dic.keys())
         nb_labels = len(all_labels)
@@ -595,6 +598,7 @@ class Face_DS(torch.utils.data.Dataset):
                 pos_pict_list = []
                 pic_ind_pos = [j for j in range(len(pictures_list)) if j != i]
                 nb_same_db = 0
+                fr1 = picture_ref.get_feature_repres(model) if model is not None else None
 
                 # ================= Consider several times the ref picture =================
                 for j in range(self.nb_triplets):  # !! TO CHECK with very small db
@@ -612,6 +616,7 @@ class Face_DS(torch.utils.data.Dataset):
                         # (empty sequence of available index)
                         break
                     picture_positive = pictures_list[curr_index_pos]
+                    d_pos = picture_positive.get_dist(picture_ref.index, picture_ref, fr1) if model is None else 1
                     pic_ind_pos.remove(curr_index_pos)
                     pos_pict_list.append(curr_index_pos)  # Remember the pairs that are defined to avoid redundancy
 
@@ -643,8 +648,15 @@ class Face_DS(torch.utils.data.Dataset):
                                 curr_index_neg = random.choice(labels_indexes_neg)
                                 label_neg = all_labels[curr_index_neg]
                                 picture_negative = random.choice(faces_dic[label_neg])
+
                         except IndexError:
                             break
+
+                    d_neg = picture_negative.get_dist(picture_ref.index, picture_ref, fr1) if model is None else 0
+
+                    # Check if the triplet is "relevant" (i.e d(a,n) < d(a,p))
+                    if d_pos < d_neg:
+                        continue
 
                     # To keep track of the image itself in order to potentially print it
                     try:
@@ -757,7 +769,7 @@ OUT: list of 3 sets of type FACE_DS
 -------------------------------------------------------------- '''
 
 
-def load_sets(db_name, dev, nb_classes, sets_list, save=True):
+def load_sets(db_name, dev, nb_classes, sets_list, model=None, save=True):
     type_ds = "triplet_" if nb_classes == 0 else "class" + str(nb_classes) + "_"
     result_sets_list = []
     save_names_list = ["trainset_ali_", "validationset_ali", "testset_ali"]
@@ -787,7 +799,7 @@ def load_sets(db_name, dev, nb_classes, sets_list, save=True):
         # ------------------------------------------------------------------------
         except (ValueError, IOError) as e:  # EOFError  IOError FileNotFoundError
             print("\nThe set " + name_file + " couldn't be loaded...\n" + "Building Process ...")
-            result_sets_list.append(Face_DS(fileset=set, triplet_version=(nb_classes == 0), save=name_file))
+            result_sets_list.append(Face_DS(fileset=set, triplet_version=(nb_classes == 0), save=name_file, model=model))
 
         # ------- Classification Case: no testset -------
         if nb_classes != 0 and i == 1:

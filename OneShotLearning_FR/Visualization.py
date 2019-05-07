@@ -148,7 +148,8 @@ def bar_chart(dictionary1, dictionary2, title, dictionary3=None, first_title='Av
 
     ax.set_ylabel(y_title)
     ax.set_xticks(range(len(dictionary1)))
-    ax.set_xticklabels(format_label_bar(dictionary1.keys()))
+    x_labels = ["BasicNet"] + list(dictionary1.keys())[1:]
+    ax.set_xticklabels(format_label_bar(x_labels))
 
     plt.title(title)
     if save_name is not None:

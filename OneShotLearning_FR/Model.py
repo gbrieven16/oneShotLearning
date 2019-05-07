@@ -22,6 +22,7 @@ PT_BS = 32  # Batch size for pretraining
 # PT_NUM_EPOCHS = 150  => No normalization included inside the encoder (better visual results)
 # PT_NUM_EPOCHS = 200  => Normalization included inside the encoder (no good visual results)
 PT_NUM_EPOCHS = 150
+AUTOENCODER_LR = 0.005
 EP_SAVE = 30
 ROUND_DEC = 5
 
@@ -431,7 +432,7 @@ class Model:
         # ----------------------------------
 
         optimizer = None
-        lr = hyper_par["lr"]
+        lr = hyper_par["lr"] if not is_autoencoder else AUTOENCODER_LR
         wd = hyper_par["wd"]
         if hyper_par["opt_type"] == "Adam":
             optimizer = optim.Adam(self.network.parameters(), lr=lr, weight_decay=wd)

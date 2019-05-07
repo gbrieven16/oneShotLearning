@@ -20,7 +20,7 @@ from Main import WITH_PROFILE, load_model
 #                      (BUT not in the gallery)
 # =====================================================================================================================
 
-NB_PROBES = 30
+NB_PROBES = 20
 NB_INST_PROBES = 1
 
 SIZE_GALLERY = 20  # Nb of people to consider
@@ -30,6 +30,8 @@ NB_REPET = 6  # Nb of times test is repeated (over a different set of probes)
 THRESHOLDS_LIST = list(np.arange(0, 5, 0.05))  # For MeanSquare
 WITH_LATENT_REPRES = False
 DETAILED_PRINT = False
+TRESH_DIST_SEP_PRED_PERC = 0.6
+MAX_NB_PERS = 3 # Maximum nb of predicted people
 
 WITH_SYNTHETIC_DATA = False
 if WITH_SYNTHETIC_DATA:
@@ -53,9 +55,17 @@ class Probe:
         self.fn_list = [0] * len(THRESHOLDS_LIST)  # Number of false negative (i.e. incorrect rejection)
         self.fp_list = [0] * len(THRESHOLDS_LIST)  # Number of false positive (i.e incorrect acceptance)
 
+    """ ============================= 
+        avg_dist 
+    ================================= """
+
     def avg_dist(self, person, nb_pictures):
         if 1 < nb_pictures:
             self.dist_avg_pers[person] = sum(self.dist_pers[person]) / nb_pictures
+
+    """ ============================= 
+        median_dist 
+    ================================= """
 
     def median_dist(self, person, nb_pictures):
         if 1 < nb_pictures:
@@ -65,17 +75,41 @@ class Probe:
             except KeyError:
                 print("KEYERR in median dist: " + person + " not found as key in " + str(self.dist_pers) + "\n")
 
+    """ ============================= 
+        predict_from_dist 
+    ================================= """
+
     def predict_from_dist(self, res_acc_dist):
         ordered_people = sorted(self.dist_avg_pers.items(), key=lambda x: x[1])
-        pred_pers_dist = ordered_people[0][0]
-        dist_diff = ordered_people[1][1] - ordered_people[0][1]
+
+        # ------------- Build List of predicted people ---------------------
+        avg_dist_sep = get_avg_sep(ordered_people)
+        i = 1
+        pred_pers_dist = [ordered_people[0][0]]
+        dist_diff = ordered_people[i][1] - ordered_people[0][1]
         # print("DELETE: The distances are: " + str(self.dist_avg_pers))
-        if self.person == pred_pers_dist:
-            res_acc_dist["nb_correct_dist"] += 1
+        while i < len(ordered_people) - 1 and dist_diff < avg_dist_sep - TRESH_DIST_SEP_PRED_PERC * avg_dist_sep\
+                and len(pred_pers_dist) < MAX_NB_PERS:
+            pred_pers_dist.append(ordered_people[i][0])
+            dist_diff = ordered_people[i+1][1] - ordered_people[i][1]
+            i += 1
+
+        if 1 < len(pred_pers_dist):
+            print("pred_pers_dist " + str(pred_pers_dist) + " and " + str(self.person in pred_pers_dist))
+        if self.person not in pred_pers_dist:
+            print("Person is " + self.person + " and ordered_people[:5] " + str(ordered_people[:5]))
+
+        # ------------- Check correctness ---------------------
+        if self.person in pred_pers_dist:
+            res_acc_dist["nb_correct_dist"] += 1 / len(pred_pers_dist)
             # print("DELETE: Correct and dist diff is " + str(dist_diff))
         else:
             res_acc_dist["nb_mistakes_dist"] += 1
             # print("DELETE: Not correct and dist diff is " + str(dist_diff))
+
+    """ ============================= 
+        pred_from_vote 
+    ================================= """
 
     def pred_from_vote(self, DETAILED_PRINT, res_vote):
 
@@ -88,25 +122,29 @@ class Probe:
             # Check if there's any equality in the votes
             nb_equal_vote = -1
             for i, (person, score) in enumerate(sorted_vote):
-                if score == sorted_vote[0][1]:
+                if score == sorted_vote[0][1] and nb_equal_vote < MAX_NB_PERS:
                     nb_equal_vote += 1
                 else:
                     break
 
             if 0 < nb_equal_vote:
                 print("There are " + str(nb_equal_vote) + " equalities in the voting system")
-                print("The person is " + str(person) + " and the sorted_vote is " + str(sorted_vote))
+                print("The person is " + str(self.person) + " and the sorted_vote is " + str(sorted_vote))
 
             pred_person = [pers for i, (pers, score) in enumerate(sorted_vote) if i < nb_equal_vote + 1]
 
             if self.person in pred_person:
                 res_vote["nb_correct"] += 1 / (nb_equal_vote + 1)
-                if DETAILED_PRINT: print("The correct predicted person is: " + pred_person + "\n")
+                if DETAILED_PRINT: print("The correct predicted person is: " + str(pred_person) + "\n")
             else:
                 res_vote["nb_mistakes"] += 1
         else:
             if DETAILED_PRINT: print("The person wasn't recognized as belonging to the gallery!\n")
             res_vote["nb_not_recognized"] += 1
+
+    """ ============================= 
+        compute_false 
+    ================================= """
 
     def compute_false(self):
         for i, thresh in enumerate(THRESHOLDS_LIST):
@@ -143,6 +181,7 @@ class FaceRecognition:
 
         self.acc_model = [0, 0]  # First element: correct/not (1/0) ; Second element: Counter
         self.pos_recall = [0, 0]  # First element: correct/not (1/0) ; Second element: Counter of positives
+        self.neg_recall = [0, 0]  # First element: correct/not (1/0) ; Second element: Counter of positives
 
         # ------- Get data (from MAIN_ZIP) --------------
         self.probes = []  # list of NB_REPET lists of lists (person, picture, index_pict)
@@ -190,6 +229,7 @@ class FaceRecognition:
 
         self.acc_model = [0, 0]
         self.pos_recall = [0, 0]
+        self.neg_recall = [0, 0]
 
         # --- Go through each probe --- #
         for i, probe in enumerate(self.probes[index]):
@@ -211,12 +251,12 @@ class FaceRecognition:
 
                     # --- Go through each (synthetic) picture representing the probe --- #
                     for j, pict_probe in enumerate(probe.pictures):
-                        fr_1 = pict_probe.get_feature_repres(self.siamese_model) if WITH_LATENT_REPRES else None
+                        fr_1 = pict_probe.get_feature_repres(self.siamese_model) if not WITH_LATENT_REPRES else None
 
-                        if DETAILED_PRINT: pict_probe.display_im(to_print="The face to identify is: ")
+                        #if DETAILED_PRINT: pict_probe.display_im(to_print="The face to identify is: ")
 
                         # --- Distance reasoning for prediction ----
-                        dist = picture.get_dist(probe.person, probe.index[j], pict_probe, fr_1)
+                        dist = picture.get_dist(probe.index[j], pict_probe, fr_1)
                         if DETAILED_PRINT:
                             picture.display_im(to_print="The compared face is printed and the dist is: " + str(dist))
 
@@ -233,13 +273,14 @@ class FaceRecognition:
                             if same == 1:
                                 if pict_probe.person != person:
                                     self.acc_model[0] += 1
+                                    self.neg_recall[0] += 1
+                                    self.neg_recall[1] += 1
                                 else:
                                     self.pos_recall[1] += 1
                                     # print("Mistake: " + str(pict_probe.person) + " not predicted as " + str(person))
                                     pict_probe.display_im(save=str(index) + str(i) + "_probe_" + pict_probe.person)
                                     picture.display_im(save=str(index) + str(i) + "_gall_" + person)
 
-                                if DETAILED_PRINT: print("Predicted as different")
                                 nb_pred_diff += 1
                                 if TOLERANCE < nb_pred_diff:
                                     break
@@ -250,6 +291,7 @@ class FaceRecognition:
                                     self.acc_model[0] += 1
 
                                 else:
+                                    self.neg_recall[1] += 1
                                     # print("Mistake: " + str(pict_probe.person) + " predicted as " + str(person))
                                     pict_probe.display_im(save=str(index) + str(i) + "_probe_" + pict_probe.person)
                                     picture.display_im(save=str(index) + str(i) + "_gall_" + person)
@@ -277,6 +319,8 @@ class FaceRecognition:
                   + " (" + str(round(100.0 * self.acc_model[0] / self.acc_model[1], 2)) + "%)")
             print("The Positive Recall for the model is: " + str(self.pos_recall[0]) + "/" + str(self.pos_recall[1])
                   + " (" + str(round(100.0 * self.pos_recall[0] / self.pos_recall[1], 2)) + "%)")
+            print("The Negative Recall for the model is: " + str(self.neg_recall[0]) + "/" + str(self.neg_recall[1])
+                  + " (" + str(round(100.0 * self.neg_recall[0] / self.neg_recall[1], 2)) + "%)")
             print("Report: " + str(res_vote["nb_correct"]) + " correct, " + str(res_vote["nb_mistakes"]) + " wrong, "
                   + str(res_vote["nb_not_recognized"]) + " undefined recognitions")
 
@@ -402,6 +446,22 @@ def get_balance_list(person_gall, pictures_gall, probe):
     return pictures_gallery
 
 
+"""
+This function returns the avg distance separating 2 consecutive "second value" 
+in a list of items 
+"""
+
+
+def get_avg_sep(ordered_items):
+    dist = 0
+    for i, (val1, val2) in enumerate(ordered_items):
+        if i == len(ordered_items) - 1:
+            break
+        dist += ordered_items[i + 1][1] - val2
+
+    return dist / (len(ordered_items) - 1)
+
+
 '''-------------- get_index_synth_pers --------------------------
 IN: list of FaceImage objects
 OUT: String representing the index of the real picture synthetic
@@ -486,14 +546,14 @@ def remove_real_data(gallery):
 if __name__ == '__main__':
 
     test_id = 2
+    model = "models/dsgbrieven_filteredcfp_humFilteredlfw_filteredfaceScrub_humanFiltered_3245_1default_70_triplet_loss_pretautoencoder.pt"
 
     # ------------------------------------------------
     #       Test 1: Set with_synt to true
     # ------------------------------------------------
     if test_id == 1:
         db_source = "testdb"
-        model = "models/dsgbrieven_filteredcfp_humFilteredlfw_filteredfaceScrub_humanFiltered_3245_1default_70_" \
-                "triplet_loss_pretautoencoder.pt"
+
         fr = FaceRecognition(model, db_source=[db_source])
 
         # ------- Accumulators Definition --------------
@@ -527,17 +587,13 @@ if __name__ == '__main__':
     # --------------------
     if test_id == 2:
 
-        size_gallery = [20, 50, 100, 200, 400]  # Nb of people to consider
+        size_gallery = [10, 20, 50, 100, 200, 400]  # Nb of people to consider
         db_source_list = ["cfp_humFiltered", "gbrieven_filtered", "testdb_filtered",
                           "faceScrub_humanFiltered"]
-        # model = "models/dsgbrieven_filteredcfp_humFilteredlfw_filteredfaceScrub_humanFiltered_5694_" \
-        # "1default_100_triplet_loss_nonpretrained.pt"
-        model = "models/dsgbrieven_filteredcfp_humFilteredlfw_filteredfaceScrub_humanFiltered_3245_1default_70_" \
-                "triplet_loss_nonpretrained.pt"
 
         for i, SIZE_GALLERY in enumerate(size_gallery):
 
-            print("The size of the gallery is " + str(SIZE_GALLERY))
+            print("\n--------- The size of the gallery is " + str(SIZE_GALLERY) + " -----\n")
 
             fr = FaceRecognition(model, db_source=db_source_list)
 

@@ -174,10 +174,10 @@ if __name__ == "__main__":
         w = run(weights, optimizer)
         w_id = dir_name + "_" + "1"
 
-        # -------- Store the latent direction ----------
-        fname = DIRECTION_DIR + dir_name + ".npy"
-        np.save(fname, w.eval())
-        print("The latent direction after training has been saved as " + fname)
+    # -------- Store the latent direction ----------
+    fname = DIRECTION_DIR + dir_name + ".npy"
+    np.save(fname, w.eval())
+    print("The latent direction after training has been saved as " + fname)
 
     if test_id in [0, 1]:
         # -----------------------------------------

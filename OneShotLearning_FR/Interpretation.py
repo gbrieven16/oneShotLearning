@@ -228,7 +228,7 @@ def is_not_nb(nb):
 if __name__ == "__main__":
 
     csv_name = "result/fr_model_evaluation.csv"
-    test_id = 2
+    test_id = 3
 
     if test_id == 1:
         print(" -------------------------- TEST 1 --------------------------------")

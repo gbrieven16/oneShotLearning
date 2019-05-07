@@ -44,6 +44,7 @@ NB_PREDICTIONS = 1
 #                                   FUNCTION main
 # fname: list of the zip files to use to support the training and the validation sets (VS)
 # db_train: list of the db to use for training (and then the other(s) are used to support the VS)
+# name_model: if not None: retraining on and triplets built such that d(A,N) < d(A,P)
 ##################################################################################################
 
 def main(db_train=None, fname=None, nb_classes=0, name_model=None, loss=LOSS):
@@ -75,7 +76,8 @@ def main(db_train=None, fname=None, nb_classes=0, name_model=None, loss=LOSS):
         # ------------------- Data Loading -----------------
         db_name, db_title = get_db_name(fname, db_train)
         training_set, validation_set = fileset.get_sets(DIFF_FACES, db_set1=db_train, nb_classes=nb_classes)
-        sets_list = load_sets(db_name, DEVICE, nb_classes, [training_set, validation_set, test_set])
+        embeddingNet = None if name_model is None else load_model(name_model).embedding_net
+        sets_list = load_sets(db_name, DEVICE, nb_classes, [training_set, validation_set, test_set], model=embeddingNet)
 
         # ------------------- Model Definition and Training  -----------------
         main_train(sets_list, fname, db_train=db_train, name_model=name_model, loss=loss, nb_images=len(training_set.data_list))
@@ -353,12 +355,13 @@ if __name__ == '__main__':
         main(name_model=name_model)
 
     # -----------------------------------------------------------------------
-    # Test 7: Retrain the model which has been registered
+    # Test 7: Retrain the model which has been registered on triplets such
+    # that d(A,N) < d(A,P)
     # -----------------------------------------------------------------------
     if test == 7 or test is None:
         MODE = "learn"
         name_model = "models/THEmodel_VGG16_triplet_loss_ep8.pt"
         db_name_train = [FOLDER_DB + "cfp.zip"]  # , FOLDER_DB + "cfp.zip", FOLDER_DB + "lfw.zip",
         # FOLDER_DB + "faceScrub.zip"]
-        main(name_model=name_model, fname=db_name_train, loss="cross_entropy")
+        main(name_model=name_model, fname=db_name_train)
 

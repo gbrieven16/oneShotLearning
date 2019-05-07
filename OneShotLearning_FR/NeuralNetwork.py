@@ -1,11 +1,7 @@
 import torch
 from torch import nn
 import torch.nn.functional as f
-import torchvision.transforms as transforms
-from scipy.misc import toimage
 import numpy as np
-import pickle
-from PIL import Image
 
 from Dataprocessing import CENTER_CROP, Face_DS, from_zip_to_data
 from EmbeddingNetwork import AlexNet, BasicNet, VGG16, ResNet
@@ -635,7 +631,6 @@ class AutoEncoder_Net(nn.Module):
         #im = Image.fromarray(dec_as_np).convert("RGB")
 
         #im.save("result_autoencoder_" + TYPE_ARCH + "_THEIMG" + ".png")
-        toimage(dec_as_np).save("resAutNew_" + TYPE_ARCH + ".png", "png")
         print("Autoencoder Result is: " + str(np.reshape(dec_as_np, [200, 150, 3]))) # .squeeze()
         plt.imshow(np.reshape(dec_as_np, [200, 150, 3]))
         print("The picture representing the result from the decoder is saved")
