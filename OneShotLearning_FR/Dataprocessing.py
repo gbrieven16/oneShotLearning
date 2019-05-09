@@ -19,16 +19,15 @@ from io import BytesIO
 
 import matplotlib
 
-matplotlib.use("TkAgg")  # ('TkAgg')
+matplotlib.use("Agg")  # ('TkAgg')
 import matplotlib.pyplot as plt
 
-if platform.system() != "Darwin": torch.cuda.set_device(0)
+#if platform.system() != "Darwin": torch.cuda.set_device(0)
 from StyleEncoder import data_augmentation, get_encoding, generate_synth_face, DLATENT_DIR
 
 from Face_alignment import align_faces, ALIGNED_IMAGES_DIR
 
 import warnings
-
 warnings.filterwarnings('ignore')
 
 #########################################
@@ -37,8 +36,9 @@ warnings.filterwarnings('ignore')
 
 
 # if the 2th db not used, replace "yalefaces" by ""
-FOLDER_DIC = "face_dic/"
-FOLDER_DB = "data/gbrieven/" if platform.system() == "Darwin" else "/data/gbrieven/"
+FROM_ROOT = "" if platform.system() == "Darwin" else "/home/gbrieven/oneShotLearning/OneShotLearning_FR/"
+FOLDER_DIC = "face_dic/" if platform.system() == "Darwin" else "/home/gbrieven/datasets/face_dic/"
+FOLDER_DB = "data/gbrieven/" if platform.system() == "Darwin" else "/home/gbrieven/datasets/"
 MAIN_ZIP = FOLDER_DB + 'cfp.zip'  # cfp.zip "testdb.zip"  CASIA-WebFace.zip'
 TEST_ZIP = FOLDER_DB + 'testdb.zip'
 

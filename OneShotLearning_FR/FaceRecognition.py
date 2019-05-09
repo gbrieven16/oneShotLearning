@@ -1,7 +1,5 @@
 import matplotlib
-
-matplotlib.use('TkAgg')  # TkAgg
-import matplotlib.pyplot as plt
+matplotlib.use('Agg')  # TkAgg
 
 import torch
 import random
@@ -546,7 +544,8 @@ def remove_real_data(gallery):
 if __name__ == '__main__':
 
     test_id = 2
-    model = "models/dsgbrieven_filteredcfp_humFilteredlfw_filteredfaceScrub_humanFiltered_3245_1default_70_triplet_loss_pretautoencoder.pt"
+    model = "models/dsgbrieven_filteredcfp_humFilteredlfw_filteredfaceScrub_humanFiltered_3245_1default_70_" \
+            "triplet_loss_nonpretrained.pt"
 
     # ------------------------------------------------
     #       Test 1: Set with_synt to true

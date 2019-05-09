@@ -71,11 +71,14 @@ def to_dic(csv_name, crit_key_list, crit_value, lower_bound=0):
 
     return dic
 
+
 """
 This function returns a dictionary (of dictionaries) built from dic 
 where the keys are the elements of the list keys1 and the values are 
 the values in dic 
 """
+
+
 def key_restiction(dic, keys1, keys2=None):
     filtered_dic = {}
     for key, value in dic.items():
@@ -192,7 +195,7 @@ def print_with_best_scenarios(csv_name, restriction_min, restriction_equal, to_v
         to_add = True
         # ----------- Restriction MIN Check -----------
         for crit, min_val in restriction_min.items():
-            if row[crit] < min_val or is_not_nb(row[crit]): # np.isnan(row[crit]):
+            if row[crit] < min_val or is_not_nb(row[crit]):  # np.isnan(row[crit]):
                 to_add = False
                 break
 
@@ -219,6 +222,7 @@ def print_with_best_scenarios(csv_name, restriction_min, restriction_equal, to_v
 
 def is_not_nb(nb):
     return not (float('-inf') < float(nb) < float('inf'))
+
 
 # ================================================================
 #                    MAIN
@@ -266,7 +270,7 @@ if __name__ == "__main__":
         print("Visualize the \"best\" scenarios")
         print(" ------------------------------------------------------------------")
         csv_name = "model_evaluation.csv"
-        restriction_min = {"Nb of triplets (train)": 1000, "NbEpoches": 40, "best_f1_score": 88} #, "f1_test": 60}
+        restriction_min = {"Nb of triplets (train)": 1000, "NbEpoches": 40, "best_f1_score": 88}  # , "f1_test": 60}
         restriction_equal = {"Optimizer": ["Adam"]}
         to_visualize = ["Archit", "LossType - Weighted Classes", "best_f1_score", "With Pretraining", "Name BD",
                         "Nb of triplets (train)", "NbEpoches"]
@@ -290,7 +294,7 @@ if __name__ == "__main__":
         print(" -------------------------- TEST 6 --------------------------------")
         print("Visualize the best distance Metric")
         print(" ------------------------------------------------------------------")
-        restriction_equal = {"gallery_size": [50], "nb_probes":[20], "thresh": [5]}
+        restriction_equal = {"gallery_size": [50], "nb_probes": [20], "thresh": [5]}
         title = "Accuracy according to the distance metric"
         di1 = to_dic(csv_name, ["with z=fr", "distance metric"], "nb_correct_dist", lower_bound=0)
         print(di1)

@@ -24,9 +24,10 @@ To generate new data, 2 approaches can be used:
 #       GLOBAL VARIABLES                #
 #########################################
 
-GENERATED_IMAGES_DIR = "/data/gbrieven/synth_im/"
-DIRECTION_DIR = 'ffhq_dataset/latent_directions/'
-DLATENT_DIR = "/data/gbrieven/latent_repres/" if platform.system() != "Darwin" else "data/gbrieven/latent_repres/"
+GENERATED_IMAGES_DIR = "/home/gbrieven/datasets/synth_im/"
+FROM_ROOT = "" if platform.system() == "Darwin" else "/home/gbrieven/oneShotLearning/OneShotLearning_FR/"
+DIRECTION_DIR = FROM_ROOT + 'ffhq_dataset/latent_directions/'
+DLATENT_DIR = "/home/gbrieven/datasets/latent_repres/" if platform.system() != "Darwin" else "data/gbrieven/latent_repres/"
 
 if GENERATED_IMAGES_DIR is not None:
     try:
@@ -37,7 +38,7 @@ if GENERATED_IMAGES_DIR is not None:
         print("IN STYLE ENCODER:Directories couldn't be created: do it manually! \n")
 
 URL_FFHQ = 'https://drive.google.com/uc?id=1MEGjdvVpUsu1jB4zrXZN7Y4kBBOzizDQ'
-STYLE_GAN = "models/karras2019stylegan-ffhq-1024x1024.pkl"
+STYLE_GAN = FROM_ROOT + "models/karras2019stylegan-ffhq-1024x1024.pkl"
 
 BATCH_SIZE = 1  # If more than 1, then mix of faces
 IMAGE_SIZE = 256
@@ -49,7 +50,8 @@ CHANGES = ["smile", "age", "gender"]
 COEF = {"smile": [-1.5, 0, 1.3], "age": [-1.5, 0], "gender": [-1, 0]}
 
 
-if platform.system() != "Darwin":
+if False and platform.system() != "Darwin":
+    print('Memory assigned to STYLE GAN! \n')
     tflib.init_tf()  # Initialization of TensorFlow session
     _, _, GS_NETWORK = pickle.load(open(STYLE_GAN, "rb"))  # generator_network, discriminator_network
     GENERATOR = Generator(GS_NETWORK, BATCH_SIZE, randomize_noise=RANDOMIZE_NOISE)
@@ -263,7 +265,7 @@ def data_augmentation(face_dic=None, nb_add_instances=3, save_generated_im=False
 
 if __name__ == "__main__":
     # Test image generation
-    z = get_encoding("data/gbrieven/" + "testdb_filtered.zip", "testdb__0000107__2.jpg")
+    z = get_encoding("/home/gbrieven/datasets/" + "testdb_filtered.zip", "testdb__0000107__2.jpg")
     print(z)
     apply_latent_direction(z, direction="smile")
 

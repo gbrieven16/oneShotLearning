@@ -30,7 +30,7 @@ MARGIN = 0.2
 METRIC = "Euclid" # "Cosine" #
 NORMALIZE_DIST = False
 NORMALIZE_FR = True
-WEIGHT_DIST = 0.2
+WEIGHT_DIST = 0.2 # for dist_loss
 WITH_DIST_WEIGHT = True
 
 # Specifies where the torch.tensor is allocated
@@ -100,33 +100,40 @@ class DistanceBased_Net(nn.Module):
             embedded_neg = negative
 
         # --- Computation of the distance between them ---
-        #print("\nTODELETE: embedded_anchor is " + str(embedded_anchor))
-
-        distance = f.pairwise_distance(embedded_anchor, embedded_neg, 2) if self.metric == "Euclid" \
+        distance = None
+        if not WITH_DIST_WEIGHT:
+            distance = f.pairwise_distance(embedded_anchor, embedded_neg, 2) if self.metric == "Euclid" \
               else f.cosine_similarity(embedded_anchor, embedded_neg)
 
-        #print("TODELETE: distance is " + str(distance))
-
+        # ------------------------------------------------------
+        # CASE 1: Just get the distance between 2 input
+        # ------------------------------------------------------
         if positive is None:
             if NORMALIZE_DIST:
                 distance = abs(distance - distance.mean) / distance.std
             return distance, None
+
+        # ---------------------------------------------------------------------
+        # CASE 2: Get the distance and the disturbance related to (A,P,N)
+        # ---------------------------------------------------------------------
         else:
             embedded_pos = self.embedding_net(positive)
             if NORMALIZE_FR:
                 embedded_pos = f.normalize(self.embedding_net(positive), p=2, dim=1)
 
+            if WITH_DIST_WEIGHT:
+                disturb = torch.abs(embedded_anchor - embedded_pos)
+                distance = torch.abs(embedded_anchor - embedded_neg)
+                distance = self.final_layer(distance).mean(-1)
+                disturb = self.final_layer(disturb).mean(-1)
+                return distance, disturb
+
             disturb = f.pairwise_distance(embedded_anchor, embedded_pos, 2) if self.metric == "Euclid" \
                  else f.cosine_similarity(embedded_anchor, embedded_pos)
-            #distance += f.pairwise_distance(embedded_neg, embedded_pos, 2)
 
             if NORMALIZE_DIST:
                 distance = abs(distance - torch.mean(distance)) / torch.std(distance)
                 disturb = abs(disturb - torch.mean(disturb)) / torch.std(disturb)
-
-            if WITH_DIST_WEIGHT:
-                distance = self.final_layer(distance)
-                disturb = self.final_layer(disturb)
 
             return distance, disturb
 
@@ -625,15 +632,8 @@ class AutoEncoder_Net(nn.Module):
 
     def visualize_dec(self):
         dec_as_np = self.last_decoded[0].detach().cpu().numpy()
-        print("Autoencoder Result is: " + str(dec_as_np))
-        #dec_as_np = self.last_decoded[0].detach().cpu().numpy()
-        #im = Image.fromarray(dec_as_np, "RGB") # donne ligne bizarre
-        #im = Image.fromarray(dec_as_np).convert("RGB")
-
-        #im.save("result_autoencoder_" + TYPE_ARCH + "_THEIMG" + ".png")
-        print("Autoencoder Result is: " + str(np.reshape(dec_as_np, [200, 150, 3]))) # .squeeze()
         plt.imshow(np.reshape(dec_as_np, [200, 150, 3]))
-        print("The picture representing the result from the decoder is saved")
+        print("The picture representing the result from the decoder is saved as " + "resAut_" + TYPE_ARCH)
         plt.savefig("resAut_" + TYPE_ARCH) #.squeeze()
         plt.show()
 

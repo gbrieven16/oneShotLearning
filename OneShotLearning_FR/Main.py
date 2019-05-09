@@ -1,37 +1,39 @@
-import platform
-import torch
-
-if platform.system() != "Darwin": torch.cuda.set_device(0)
 import time
 import pickle
 from functools import partial
+import platform
+import torch
+
+# if platform.system() != "Darwin": torch.cuda.set_device(0)
+
 from NeuralNetwork import TYPE_ARCH
 from Model import Model, DEVICE, should_break, EP_SAVE
-
-from Dataprocessing import Face_DS, from_zip_to_data, MAIN_ZIP, CENTER_CROP, load_sets, FOLDER_DB, TEST_ZIP, WITH_SYNTH
 from Visualization import store_in_csv, line_graph
+
+from Dataprocessing import Face_DS, from_zip_to_data, MAIN_ZIP, CENTER_CROP, load_sets, FOLDER_DB, TEST_ZIP, \
+    WITH_SYNTH, FROM_ROOT
 
 #########################################
 #       GLOBAL VARIABLES                #
 #########################################
 
 
-NUM_EPOCH = 1 if platform.system() == "Darwin" else 75
-BATCH_SIZE = 32 # TO CHANGE IF BACK TO NORMAL SITUATION
+NUM_EPOCH = 1 if platform.system() == "Darwin" else 60  # TOCHANGE
+BATCH_SIZE = 32
 
 LR_NONPRET = 0.001
-LEARNING_RATE = 0.001 # SOULD BE CHANGED?
-WITH_LR_SCHEDULER = "StepLR" #"StepLR" #"StepLR"  #"StepLR"  # "ExponentialLR" None
+LEARNING_RATE = 0.001
+WITH_LR_SCHEDULER = "StepLR"  # "ExponentialLR" None
 WEIGHT_DECAY = 0.001  # To control regularization
-OPTIMIZER = "Adam" #"Adagrad"  # Adagrad "SGD"
+OPTIMIZER = "Adam"  # "Adagrad" "SGD"
 
 WITH_EVAL_ON_TRAIN = True
 WEIGHTED_CLASS = False
 WITH_EPOCH_OPT = False
-LOSS = "cross_entropy"  # "cross_entropy" "ce_classif"   "constrastive_loss" triplet_and_ce triplet_distdif_loss
+LOSS = "triplet_loss"  # "ce_classif" "constrastive_loss" triplet_and_ce triplet_distdif_loss
 
 MODE = "learn"  # "classifier training"
-PRETRAINING = "none"  # ""autoencoder"  # "autoencoder_only" "none"
+PRETRAINING = "autoencoder"  # ""autoencoder"  # "autoencoder_only" "none"
 WITH_NON_PRET = True
 
 DIFF_FACES = True  # If true, we have different faces in the training and the testing set
@@ -48,7 +50,6 @@ NB_PREDICTIONS = 1
 ##################################################################################################
 
 def main(db_train=None, fname=None, nb_classes=0, name_model=None, loss=LOSS):
-
     # -----------------------------------------
     # Train and Validation Sets Definition
     # -----------------------------------------
@@ -80,7 +81,8 @@ def main(db_train=None, fname=None, nb_classes=0, name_model=None, loss=LOSS):
         sets_list = load_sets(db_name, DEVICE, nb_classes, [training_set, validation_set, test_set], model=embeddingNet)
 
         # ------------------- Model Definition and Training  -----------------
-        main_train(sets_list, fname, db_train=db_train, name_model=name_model, loss=loss, nb_images=len(training_set.data_list))
+        main_train(sets_list, fname, db_train=db_train, name_model=name_model, loss=loss,
+                   nb_images=len(training_set.data_list))
 
     elif MODE == "prediction":
         # ==============================================
@@ -183,7 +185,8 @@ def main_train(sets_list, fname, db_train=None, name_model=None, scheduler=WITH_
         ds_info += "with_synt"
 
     if name_model is None:
-        name_model = "models/" + ds_info + TYPE_ARCH + "_" + str(NUM_EPOCH) + "_" + loss + "_pret" + pret + ".pt"
+        name_model = FROM_ROOT + "models/" + ds_info + TYPE_ARCH + "_" + str(
+            NUM_EPOCH) + "_" + loss + "_pret" + pret + ".pt"
 
     # ----------------- Data Loaders definition ------------------------
     train_loader = torch.utils.data.DataLoader(sets_list[0], batch_size=BATCH_SIZE, shuffle=True)
@@ -235,7 +238,7 @@ def main_train(sets_list, fname, db_train=None, name_model=None, scheduler=WITH_
                 if should_break(model_learn.f1_validation["Pretrained Model"], epoch) or model_learn.active_learning():
                     visualization = True
                     save_model = False
-                    #num_epoch = epoch # not ok if not pretrained is better because the graph is cut ...
+                    # num_epoch = epoch # not ok if not pretrained is better because the graph is cut ...
                     break
 
         raise KeyboardInterrupt
@@ -250,7 +253,6 @@ def main_train(sets_list, fname, db_train=None, name_model=None, scheduler=WITH_
 
         # ------- Visualization: Evolution of the performance ---------
         if visualization:
-
             # ------- Record: Evolution of the performance ---------
             info_data = [db_name if fname is not None else MAIN_ZIP, str(nb_images), len(sets_list[0].train_data),
                          DIFF_FACES, CENTER_CROP, db_title]
@@ -281,13 +283,13 @@ def main_train(sets_list, fname, db_train=None, name_model=None, scheduler=WITH_
 
 if __name__ == '__main__':
     # main()
-    test = 3 if platform.system() == "Darwin" else 3
+    test = 3 if platform.system() == "Darwin" else 4
 
     # -----------------------------------------------------------------------
     # Test 1: Confusion Matrix with different db for training and testing
     # -----------------------------------------------------------------------
     if test == 1 or test is None:
-        network = load_model("models/siameseFace_ds0123456_diff_100_32_triplet_loss.pt")
+        network = load_model(FROM_ROOT + "models/siameseFace_ds0123456_diff_100_32_triplet_loss.pt")
 
         for i, filename in enumerate(["testdb.zip", "lfw.zip", "cfp.zip", "ds0123456.zip"]):
             fileset = from_zip_to_data(WITH_PROFILE, fname=FOLDER_DB + filename)
@@ -312,26 +314,26 @@ if __name__ == '__main__':
 
         line_graph(nb_classes_list, f1, "f1 measure according to the number of classes")
 
-    # -----------------------------------------------------------------------
-    # "Test 3": Train Model from different db
-    # -----------------------------------------------------------------------
+    print("----------------------------------------------------------------------- ")
+    print("MAIN: Test 3: Train Model from different db")
+    print("----------------------------------------------------------------------- ")
     if test == 3 or test is None:
-        #db_name_train = [FOLDER_DB + "gbrieven_filtered.zip", FOLDER_DB + "lfw_filtered.zip"]  # "faceScrub", "lfw", "cfp", "gbrieven", "testdb"] #"testCropped"
+        # db_name_train = [FOLDER_DB + "gbrieven_filtered.zip", FOLDER_DB + "lfw_filtered.zip"]  # "faceScrub", "lfw", "cfp", "gbrieven", "testdb"] #"testCropped"
         db_name_train = [FOLDER_DB + "cfp70.zip"]
-        #db_name_train = [FOLDER_DB + "gbrieven_filtered.zip"]
-        loss_list = ["cross_entropy", "triplet_loss", "triplet_and_ce", "constrastive_loss", "triplet_distdif_loss"]
+        # db_name_train = [FOLDER_DB + "gbrieven_filtered.zip"]
+        loss_list = ["triplet_loss", "cross_entropy", "triplet_and_ce", "constrastive_loss", "triplet_distdif_loss"]
         for i, loss in enumerate(loss_list):
             main(fname=db_name_train, loss=loss)
 
-    # -----------------------------------------------------------------------
-    # "Test 4": Train Model from all db
-    # -----------------------------------------------------------------------
+    print("----------------------------------------------------------------------- ")
+    print("MAIN: Test 4: Train Model from all db")
+    print("----------------------------------------------------------------------- ")
     if test == 4 or test is None:
         print("Test 4: Training on all db ... \n")
-        #db_name_train = [FOLDER_DB + "gbrieven.zip", FOLDER_DB + "cfp.zip", FOLDER_DB + "lfw.zip",
-                       #  FOLDER_DB + "faceScrub.zip"]
+        # db_name_train = [FOLDER_DB + "gbrieven.zip", FOLDER_DB + "cfp.zip", FOLDER_DB + "lfw.zip",
+        #  FOLDER_DB + "faceScrub.zip"]
         db_name_train = [FOLDER_DB + "cfp_humFiltered.zip", FOLDER_DB + "gbrieven_filtered.zip",
-                        FOLDER_DB + "lfw_filtered.zip", FOLDER_DB + "faceScrub_humanFiltered.zip"]
+                         FOLDER_DB + "lfw_filtered.zip", FOLDER_DB + "faceScrub_humanFiltered.zip"]
         loss_list = ["triplet_loss", "triplet_and_ce", "cross_entropy", "constrastive_loss", "triplet_distdif_loss"]
         for i, loss in enumerate(loss_list):
             main(fname=db_name_train, loss=loss)
@@ -349,19 +351,18 @@ if __name__ == '__main__':
     # -----------------------------------------------------------------------
     if test == 6 or test is None:
         MODE = "prediction"
-        name_model = "models/THEmodel_VGG16_triplet_loss_ep8.pt"
+        name_model = FROM_ROOT + "models/THEmodel_VGG16_triplet_loss_ep8.pt"
         db_name_train = [FOLDER_DB + "cfp70.zip"]  # , FOLDER_DB + "cfp.zip", FOLDER_DB + "lfw.zip",
         # FOLDER_DB + "faceScrub.zip"]
         main(name_model=name_model)
 
     # -----------------------------------------------------------------------
-    # Test 7: Retrain the model which has been registered on triplets such
+    # Test 6: Retrain the model which has been registered on triplets such
     # that d(A,N) < d(A,P)
     # -----------------------------------------------------------------------
     if test == 7 or test is None:
         MODE = "learn"
-        name_model = "models/THEmodel_VGG16_triplet_loss_ep8.pt"
+        name_model = FROM_ROOT + "models/THEmodel_VGG16_triplet_loss_ep8.pt"
         db_name_train = [FOLDER_DB + "cfp.zip"]  # , FOLDER_DB + "cfp.zip", FOLDER_DB + "lfw.zip",
         # FOLDER_DB + "faceScrub.zip"]
         main(name_model=name_model, fname=db_name_train)
-

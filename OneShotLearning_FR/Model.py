@@ -5,7 +5,7 @@ import math
 import numpy as np
 from NeuralNetwork import Triplet_Net, ContrastiveLoss, SoftMax_Net, AutoEncoder_Net, TYPE_ARCH, Classif_Net
 from Visualization import visualization_validation, visualization_train
-from Dataprocessing import from_zip_to_data, Face_DS
+from Dataprocessing import from_zip_to_data, Face_DS, FROM_ROOT
 from torch import nn
 from torch import optim
 
@@ -13,15 +13,15 @@ from torch import optim
 #       GLOBAL VARIABLES                #
 #########################################
 
-ENCODER_DIR = "encoders/"
+ENCODER_DIR = FROM_ROOT + "encoders/"
 MOMENTUM = 0.9
 GAMMA = 0.1  # for the lr_scheduler - default value 0.1
 N_TEST_IMG = 5
 PT_BS = 32  # Batch size for pretraining
 
-# PT_NUM_EPOCHS = 150  => No normalization included inside the encoder (better visual results)
-# PT_NUM_EPOCHS = 200  => Normalization included inside the encoder (no good visual results)
-PT_NUM_EPOCHS = 150
+# PT_NUM_EPOCHS = 180  => default: No normalization included inside the encoder (better visual results)
+# PT_NUM_EPOCHS = 200  => default: Normalization included inside the encoder (no good visual results)
+PT_NUM_EPOCHS = 180
 AUTOENCODER_LR = 0.005
 EP_SAVE = 30
 ROUND_DEC = 5
@@ -99,7 +99,7 @@ class Model:
 
         # For Visualization
         self.eval_dic = {"nb_correct": 0, "nb_labels": 0, "recall_pos": 0,
-                         "recall_neg": 0, "f1_pos": 0, "f1_neg": 0, "prec_pos":0, "prec_neg":0, "nb_eval": 0}
+                         "recall_neg": 0, "f1_pos": 0, "f1_neg": 0, "prec_pos": 0, "prec_neg": 0, "nb_eval": 0}
 
         self.losses_train = {"Pretrained Model": [], "Non-pretrained Model": []}
         self.losses_validation = {"Pretrained Model": [], "Non-pretrained Model": []}
@@ -171,7 +171,7 @@ class Model:
             self.pos_recall["Non-pretrained Model"] = model_comp.pos_recall["Pretrained Model"]
 
             model_comp.f1_validation["Non-pretrained Model"].append(f1_notPret)
-            #model_comp.active_learning(more_data_name=extra_source, mode="Non-pretrained Model")
+            # model_comp.active_learning(more_data_name=extra_source, mode="Non-pretrained Model")
 
             if should_break(self.acc_validation["Non-pretrained Model"], epoch):
                 break
@@ -187,7 +187,6 @@ class Model:
 
         self.f1_test["Non-pretrained Model"] = self.prediction(validation=False) \
             if self.loss_type != "ce_classif" else "None"
-
 
     '''---------------------------- train --------------------------------
      This function trains the network attached to the model  
@@ -219,6 +218,9 @@ class Model:
                 print("ERR: An IO error occured in train! ")
                 break
 
+            # -----------------------
+            #   Backpropagation
+            # -----------------------
             a = torch.tensor(list(self.network.embedding_net.parameters())[0].data) if not autoencoder \
                 else torch.tensor(list(self.network.encoder.parameters())[0].data)
 
@@ -364,7 +366,7 @@ class Model:
      This function detects overfitting and potentially sets the train_loader 
      to new training data if there's any that is available
      IN: more_data: name of zip file where to take new data 
-     OUT: False if the training should stop because of overfitting and lack of new training data 
+     OUT: False if the training should stop because of overfitting and lacks of new training data 
      ---------------------------------------------------------------------------------------------------'''
 
     def active_learning(self, more_data_name=None, mode="Pretrained Model", batch_size=32, nb_people=200):
@@ -421,7 +423,8 @@ class Model:
                   "          f1 Neg is: " + str(round(100. * self.eval_dic["f1_neg"] / nb_eval, ROUND_DEC)))
             print(" ------------------------------------------------------------------\n ")
 
-            return round(100. * 0.5 * (self.eval_dic["f1_neg"] + self.eval_dic["f1_pos"]) / nb_eval, ROUND_DEC), acc.item()
+            return round(100. * 0.5 * (self.eval_dic["f1_neg"] + self.eval_dic["f1_pos"]) / nb_eval,
+                         ROUND_DEC), acc.item()
 
     '''------------------------- get_optimizer -------------------------------- '''
 
@@ -532,7 +535,7 @@ class Model:
 
     def visualization(self, num_epoch, db, size_train):
 
-        name_fig = "graphs/ds" + db + "_" + str(size_train) + "_" + str(num_epoch) + "_" \
+        name_fig = FROM_ROOT + "graphs/" + db + "_" + str(size_train) + "_" + str(num_epoch) + "_" \
                    + self.loss_type + "_arch" + TYPE_ARCH
 
         # TOCHANGE int(round(num_epoch / 5))

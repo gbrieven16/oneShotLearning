@@ -12,9 +12,9 @@ from keras.utils import get_file
 #########################################
 
 LANDMARKS_MODEL_URL = 'http://dlib.net/files/shape_predictor_68_face_landmarks.dat.bz2'
-RAW_IMAGES_DIR = "/data/gbrieven/FFHQ500"  # "/data/gbrieven/FFHQ500"
+RAW_IMAGES_DIR = "/home/gbrieven/datasets/FFHQ500"  # "/data/gbrieven/FFHQ500"
 
-ALIGNED_IMAGES_DIR = "/data/gbrieven/FFHQ500_aligned/" #TO ADD FOR LINUX : "/"
+ALIGNED_IMAGES_DIR = "/home/gbrieven/datasets/FFHQ500_aligned/" #TO ADD FOR LINUX : "/"
 ZIP_FILE = None  # "/data/gbrieven/FFHQ500.zip"
 
 

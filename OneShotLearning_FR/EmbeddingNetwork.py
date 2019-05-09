@@ -98,18 +98,6 @@ class AlexNet(nn.Module):
         if WITH_GNAP: print("The GNAP module is used\n")
         self.dim_last_layer = dim_last_layer
 
-        self.conv1 = nn.Conv2d(3, 64, kernel_size=11, stride=4)
-        self.relu = nn.ReLU(inplace=True)
-        self.pool1 = nn.MaxPool2d(kernel_size=3, stride=2)
-        self.conv2 = nn.Conv2d(64, 192, kernel_size=5, padding=2)
-        self.conv3 = nn.Conv2d(192, 384, kernel_size=7, padding=1)
-        self.pool3 = nn.MaxPool2d(kernel_size=5, stride=2)
-        self.conv4 = nn.Conv2d(384, 256, kernel_size=5, padding=1)
-        self.conv5 = nn.Conv2d(256, 256, kernel_size=3, padding=1)
-
-        self.pool5 = nn.MaxPool2d(kernel_size=3, stride=2)
-
-
         self.features = nn.Sequential(
             nn.Conv2d(3, 64, kernel_size=11, stride=4),
             nn.ReLU(inplace=True),
@@ -139,20 +127,7 @@ class AlexNet(nn.Module):
         # self.final_layer = nn.Linear(dim_last_layer, num_classes)
 
     def forward(self, data):
-        #x = self.features(data.to(DEVICE))
-        x = self.conv1(data.to(DEVICE))
-        x = self.relu(x)
-        x = self.pool1(x)
-        x = self.conv2(x)
-        x = self.relu(x)
-        x = self.conv3(x)
-        x = self.relu(x)
-        x = self.pool3(x)
-        x = self.conv4(x)
-        x = self.relu(x)
-        x = self.conv5(x)
-        x = self.relu(x)
-        x = self.pool5(x)
+        x = self.features(data.to(DEVICE))
 
         if WITH_GNAP: x = self.gnap(x)
         x = x.view(x.size(0), 512) #16384 /32 = 512.0
@@ -165,6 +140,7 @@ class AlexNet(nn.Module):
 # ================================================================
 
 
+
 class VGG16(nn.Module):
     def __init__(self, dim_last_layer, init_weights=True):  # num_class potentially to modify
 
@@ -175,6 +151,7 @@ class VGG16(nn.Module):
         cfg = [64, 64, 'M', 128, 128, 'M', 256, 256, 256, 'M', 512, 512, 512, 'M', 512, 512, 512, 'M']
 
         self.features = make_layers(cfg, batch_norm=WITH_NORM_BATCH)
+
         self.gnap = GNAP()
         self.avgpool = nn.AdaptiveAvgPool2d((7, 7))
         self.linearization = nn.Sequential(
@@ -186,6 +163,7 @@ class VGG16(nn.Module):
             nn.Dropout(),
             nn.Linear(1024, dim_last_layer),
         )
+
         if init_weights:
             self._initialize_weights()
 
@@ -193,9 +171,11 @@ class VGG16(nn.Module):
 
     def forward(self, data):
         x = self.features(data.to(DEVICE))
+
         if WITH_GNAP: x = self.gnap(x)
         x = self.avgpool(x)
         x = x.view(x.size(0), -1)
+
         return self.linearization(x)
 
     def _initialize_weights(self):

@@ -1,7 +1,10 @@
+import platform
 import matplotlib
 
-matplotlib.use('TkAgg')
-import matplotlib.pyplot as plt
+matplotlib.use('Agg')
+
+if platform.system() == "Darwin":
+    import matplotlib.pyplot as plt
 
 import math
 import random
@@ -13,8 +16,9 @@ import numpy as np
 #                       GLOBAL VARIABLES
 # ================================================================
 
-CSV_NAME = "model_evaluation.csv"
-FR_CSV_NAME = "result/fr_model_evaluation.csv"
+FROM_ROOT = "" if platform.system() == "Darwin" else "/home/gbrieven/oneShotLearning/OneShotLearning_FR/"
+CSV_NAME = FROM_ROOT + "model_evaluation.csv"
+FR_CSV_NAME = FROM_ROOT + "result/fr_model_evaluation.csv"
 NB_DATA_GRAPH = 1000
 MAX_NB_KEYS = 12
 WIDTH_BAR = 0.2
@@ -67,7 +71,7 @@ def multi_line_graph(dictionary, x_elements, title, x_label="x", y_label="Score"
         except ValueError:
             print("Different dimensions in visualisation...\n")
 
-   # --------- Legend -----------------------------
+    # --------- Legend -----------------------------
     legend = plt.legend(loc=loc, shadow=True)
     frame = legend.get_frame()
     frame.set_facecolor('0.90')
@@ -103,8 +107,8 @@ def bar_chart(dictionary1, dictionary2, title, dictionary3=None, first_title='Av
         return None
 
     fig = plt.figure()
-    #plt.grid(True, linewidth=0.5, color='#DCDCDC', linestyle='-')
-    #plt.rc('axes', axisbelow=True)
+    # plt.grid(True, linewidth=0.5, color='#DCDCDC', linestyle='-')
+    # plt.rc('axes', axisbelow=True)
     ax = fig.add_subplot(111)
     ind = np.arange(len(dictionary1))  # 2 bars to consider
     width = WIDTH_BAR
@@ -203,7 +207,6 @@ IN: List of information to record about:
 
 
 def store_in_csv(data, training, result, train_time):
-
     # Merge the loss and the weight info
     training[-2] = training[-2] + "_" + str(training[-1])
     training.pop()
@@ -212,22 +215,24 @@ def store_in_csv(data, training, result, train_time):
     param["Non-pretrained Model"] = [("ds_" + data[0])] + data[1:] + ["not_pret"] + training[1:]
     param["Pretrained Model"] = [("ds_" + data[0])] + data[1:] + training
 
-    lines = ["Non-pretrained Model", "Pretrained Model"] if 0 < len(result[0]["Non-pretrained Model"]) else ["Pretrained Model"]
-    best_f1=0
+    lines = ["Non-pretrained Model", "Pretrained Model"] if 0 < len(result[0]["Non-pretrained Model"]) else [
+        "Pretrained Model"]
+    best_f1 = 0
 
     with open(CSV_NAME, 'a') as f:
         writer = csv.writer(f, delimiter=";")
         for i, line in enumerate(lines):
             curr_eval = [float(result[0][line][0]), float(result[0][line][int(round(len(result[0][line])) / 2)]),
-                                float(result[0][line][-1]),
-                                float(result[1][line][0]), float(result[1][line][int(round(len(result[1]) / 2))]),
-                                float(result[1][line][-1])]
+                         float(result[0][line][-1]),
+                         float(result[1][line][0]), float(result[1][line][int(round(len(result[1]) / 2))]),
+                         float(result[1][line][-1])]
 
             best_f1 = float(max(result[1][line]))
             best_epoch = [str(result[1][line].index(best_f1))]
             best_f1 = [str(best_f1)]
             writer.writerow(param[line] + curr_eval + best_f1 + best_epoch + [result[2][line][0], result[2][line][1],
-                result[3][line], result[4][line]] + [str(train_time)] + [str(result[0][line])] + [str(result[1][line])])
+                                                                              result[3][line], result[4][line]] + [
+                                str(train_time)] + [str(result[0][line])] + [str(result[1][line])])
 
     return best_f1
 
@@ -263,9 +268,8 @@ IN: epoch_list: list of specific epochs
 
 
 def visualization_train(num_epoch, losses_dic, save_name=None):
-
-    key0 = list(losses_dic.keys())[0] # pretrained
-    key1 = list(losses_dic.keys())[1] # non-pretrained
+    key0 = list(losses_dic.keys())[0]  # pretrained
+    key1 = list(losses_dic.keys())[1]  # non-pretrained
     print("Lossedic is " + str(losses_dic))
     print("Key1 is " + str(key1))
 
@@ -279,7 +283,7 @@ def visualization_train(num_epoch, losses_dic, save_name=None):
         perc_train = [float(x) / len(losses_dic[key1][0]) for x in range(0, len(losses_dic[key1][0]))]
         dictionary = {}
         for i, epoch in enumerate(epoch_list):
-                dictionary["epoch " + str(epoch)] = losses_dic[key1][epoch]
+            dictionary["epoch " + str(epoch)] = losses_dic[key1][epoch]
         multi_line_graph(dictionary, perc_train, title, x_label="percentage of data", y_label="Loss",
                          save_name=save_name + ".png", loc='upper right')
     except IndexError:

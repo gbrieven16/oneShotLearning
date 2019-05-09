@@ -105,35 +105,6 @@ def put_synth_first(face_dic):
 
 """
 Training of models using different data quantities AND sources: 
-(HYP: min 1000 triplets to get some results) 
-
-Total Quantity I can have: 28 595 - 688 = 27902 => less because min 2 pictures was imposed 
-Real quantity of pictures: 21939 => Use 20 000 for training and the rest for validation 
-
-
-Model1: Only real Picture: all filtered db with 200 pictures => 1000 triplets (2-3 triplets / person)
-Model2: Only real Picture: all filtered db with 500 pictures => 1000 triplets (2 triplets / person)
-Model3: Only real Picture: all filtered db with 1000 pictures => 4000 triplets (2 triplets / person)
-Model4: Only real Picture: all filtered db with 2000 pictures => 8000 triplets (2 triplets / person)
-Model5: Only real Picture: all filtered db with 4000 pictures => 8000 triplets (1 triplet / person)
-Model6: Only real Picture: all filtered db with 8000 pictures => 16000 triplets (1 triplet / person)
-
-Generate 1 big ds from *_filtered containing all data => Open all face_dics
-Mix all people 
-
-Take about 30 people (+200 pictures) and build 1000 triplets from 
-Train on
-Save the model => Model1
-
-Take about 45 people (+300 pictures) and build 1000 triplets from 
-Train Model1 on 
-Save the model => Model2 
-
-Take about 80 people (+500 pictures) and build 4000 triplets from 
-Train Model2 on 
-Save the model => Model3
-... 
-
 OUT: a list of 4 datasets if synth = True: [trainset_real, trainset_realSynth, validset, test_set]
                           else: [trainset_real, None, validset, test_set]
 """
