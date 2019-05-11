@@ -101,7 +101,7 @@ class DistanceBased_Net(nn.Module):
 
         # --- Computation of the distance between them ---
         distance = None
-        if not WITH_DIST_WEIGHT:
+        if not WITH_DIST_WEIGHT or positive is None:
             distance = f.pairwise_distance(embedded_anchor, embedded_neg, 2) if self.metric == "Euclid" \
               else f.cosine_similarity(embedded_anchor, embedded_neg)
 
@@ -247,7 +247,7 @@ class Triplet_Net(DistanceBased_Net):
             #
             diff_dist_loss_obj = torch.nn.L1Loss()
             diff_dist_loss = diff_dist_loss_obj(distance, disturb)
-            #print("diff_dist_loss " + str(diff_dist_loss.item()))
+            # ("diff_dist_loss " + str(diff_dist_loss.item()))
 
             # Distance = Disturbance Case Detection
             if diff_dist_loss.item() < 0.01:
@@ -586,8 +586,10 @@ class DecoderNet(nn.Module):
 
         self.linear1 = nn.Linear(DIM_LAST_LAYER, self.nb_channels * self.dim1 * self.dim2)
         self.conv3 = nn.ConvTranspose2d(self.nb_channels, self.out_nb_channels, CENTER_CROP[0] - (self.dim1 - 1))
-        # self.conv4 = nn.ConvTranspose2d(self.out_nb_channels, self.out_nb_channels, 5)#, stride=2) #, padding=1)
-        # self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
+        self.conv4 = nn.ConvTranspose2d(self.out_nb_channels, self.out_nb_channels, 6, stride=2, padding=2)
+        self.conv5 = nn.ConvTranspose2d(self.out_nb_channels, self.out_nb_channels, 6, stride=2, padding=2)
+
+        self.maxpool = nn.MaxPool2d(kernel_size=5, stride=2, padding=2)
         self.relu = nn.ReLU(True)
 
         self.sig = nn.Sigmoid()  # compress to a range (0, 1)
@@ -597,7 +599,17 @@ class DecoderNet(nn.Module):
         x = self.linear1(data)
         x = x.view(x.size(0), self.nb_channels, self.dim1, self.dim2)
         x = self.conv3(x)
-        # x = self.relu(x)
+        x = self.relu(x)
+
+        x = self.maxpool(x)
+
+        x = self.conv4(x)
+        x = self.relu(x)
+        x = self.maxpool(x)
+
+        x = self.conv5(x)
+        x = self.relu(x)
+
         x = self.sig(x)
 
         x = x.view(x.size(0), self.out_nb_channels, CENTER_CROP[0],

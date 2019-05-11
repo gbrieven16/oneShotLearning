@@ -616,7 +616,7 @@ class Face_DS(torch.utils.data.Dataset):
                         # (empty sequence of available index)
                         break
                     picture_positive = pictures_list[curr_index_pos]
-                    d_pos = picture_positive.get_dist(picture_ref.index, picture_ref, fr1) if model is None else 1
+                    d_pos = picture_positive.get_dist(picture_ref.index, picture_ref, fr1) if model is not None else 1
                     pic_ind_pos.remove(curr_index_pos)
                     pos_pict_list.append(curr_index_pos)  # Remember the pairs that are defined to avoid redundancy
 
@@ -652,7 +652,7 @@ class Face_DS(torch.utils.data.Dataset):
                         except IndexError:
                             break
 
-                    d_neg = picture_negative.get_dist(picture_ref.index, picture_ref, fr1) if model is None else 0
+                    d_neg = picture_negative.get_dist(picture_ref.index, picture_ref, fr1) if model is not None else 0
 
                     # Check if the triplet is "relevant" (i.e d(a,n) < d(a,p))
                     if d_pos < d_neg:

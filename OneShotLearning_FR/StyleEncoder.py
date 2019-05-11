@@ -34,7 +34,7 @@ if GENERATED_IMAGES_DIR is not None:
         # ----- Define Directories if they don't exist ----------
         os.makedirs(GENERATED_IMAGES_DIR, exist_ok=True)
         os.makedirs(DLATENT_DIR, exist_ok=True)
-    except PermissionError:
+    except (PermissionError, OSError) as e:
         print("IN STYLE ENCODER:Directories couldn't be created: do it manually! \n")
 
 URL_FFHQ = 'https://drive.google.com/uc?id=1MEGjdvVpUsu1jB4zrXZN7Y4kBBOzizDQ'

@@ -314,10 +314,10 @@ if __name__ == '__main__':
 
         line_graph(nb_classes_list, f1, "f1 measure according to the number of classes")
 
-    print("----------------------------------------------------------------------- ")
-    print("MAIN: Test 3: Train Model from different db")
-    print("----------------------------------------------------------------------- ")
     if test == 3 or test is None:
+        print("----------------------------------------------------------------------- ")
+        print("MAIN: Test 3: Train Model from different db")
+        print("----------------------------------------------------------------------- ")
         # db_name_train = [FOLDER_DB + "gbrieven_filtered.zip", FOLDER_DB + "lfw_filtered.zip"]  # "faceScrub", "lfw", "cfp", "gbrieven", "testdb"] #"testCropped"
         db_name_train = [FOLDER_DB + "cfp70.zip"]
         # db_name_train = [FOLDER_DB + "gbrieven_filtered.zip"]

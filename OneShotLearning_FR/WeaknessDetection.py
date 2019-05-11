@@ -31,7 +31,6 @@ SIZE_VALID = 100
 NB_EPOCHS = 100
 LR = 0.003
 
-
 # =================================================
 # Weakness Detector Training
 # =================================================
@@ -65,7 +64,6 @@ def compose_pair(face_dic, diff=True):
 
 def get_initial_direction(dir_name):
     return np.load(DIRECTION_DIR + dir_name + ".npy")
-
 
 
 """ ------------------ main_wd ------------------------------------------------
@@ -157,13 +155,14 @@ if __name__ == "__main__":
     model = "models/dsgbrieven_filteredcfp_humFilteredlfw_filteredfaceScrub_humanFiltered_3245_1default_" \
             "70_triplet_loss_nonpretrained.pt"
 
-    db_source_list = ["cfp_humFiltered"] #, "lfw_filtered", "gbrieven_filtered", "faceScrub_humanFiltered"]
+    db_source_list = ["cfp_humFiltered"]  # , "lfw_filtered", "gbrieven_filtered", "faceScrub_humanFiltered"]
 
     if test_id == 0:
         # -------------------------------------
         # Find consistent initial directions
         # -------------------------------------
-        w = np.random.rand(18, 512)
+        #w = np.random.rand(18, 512)
+        w = np.random.normal(0, 0.1, (18, 512))
         dir_name = str(NB_CONSISTENT_W + 1)
 
     if test_id == 1:
@@ -176,12 +175,13 @@ if __name__ == "__main__":
 
     # -------- Store the latent direction ----------
     fname = DIRECTION_DIR + dir_name + ".npy"
-    np.save(fname, w.eval())
+    w = w.eval() if test_id else w
+    np.save(fname, w)
     print("The latent direction after training has been saved as " + fname)
 
     if test_id in [0, 1]:
         # -----------------------------------------
-        # Check consistency of the synthetic image
+        # Check consistency of the synthetic images
         # -----------------------------------------
 
         # Take some latent representation

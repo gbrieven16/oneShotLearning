@@ -24,7 +24,7 @@ NB_INST_PROBES = 1
 SIZE_GALLERY = 20  # Nb of people to consider
 NB_IM_PER_PERS = 8
 TOLERANCE = 5  # 3 Max nb of times the model can make mistake in comparing p_test and the pictures of 1 person
-NB_REPET = 6  # Nb of times test is repeated (over a different set of probes)
+NB_REPET = 3  # Nb of times test is repeated (over a different set of probes)
 THRESHOLDS_LIST = list(np.arange(0, 5, 0.05))  # For MeanSquare
 WITH_LATENT_REPRES = False
 DETAILED_PRINT = False
@@ -164,7 +164,7 @@ class Probe:
 
 class FaceRecognition:
     def __init__(self, model_path, db_source=None):
-
+        time_in = time.time()
         db_source = ["testdb"] if db_source is None else db_source
         self.k_considered = []
         self.distances = {}
@@ -213,6 +213,7 @@ class FaceRecognition:
             self.probes.append(probes_k)
 
         remove_synth_data(self.gallery)
+        print("The time to initialize the gallery and the probe lists is " + str(time.time() - time_in) + "\n")
 
     '''---------------- recognition ---------------------------
      This function identifies the person on each test picture
@@ -229,32 +230,38 @@ class FaceRecognition:
         self.pos_recall = [0, 0]
         self.neg_recall = [0, 0]
 
-        # --- Go through each probe --- #
+        # -----------------------
+        # Go through each probe
+        # ----------------------- #
         for i, probe in enumerate(self.probes[index]):
 
-            # --- Go through each person in the gallery --- #
+            # -------------------------------------------
+            #  Go through each person in the gallery
+            # ------------------------------------------- #
             for person, pictures in self.gallery.items():
 
-                nb_pred_diff = 0  # Nb times the person is predicted as diffent from the current probe
+                nb_pred_diff = 0  # Nb times the person is predicted as different from the current probe
 
                 # -------- Ensure balance in the gallery ------------
                 pictures_gallery = get_balance_list(person, pictures, probe)
 
-                # print("\nSize pictures_gallery: " + str(len(pictures_gallery)) + " for person " + str(person))
-
-                # --- Go through each picture of the current person of the gallery --- #
+                # ------- Go through each picture of the current person of the gallery
                 for l, picture in enumerate(pictures_gallery):
-
+                    fr2_init = time.time()
                     fr_2 = picture.get_feature_repres(self.siamese_model)
+                    print("The time to perform the fr2 is= " + str(time.time() - fr2_init))
 
                     # --- Go through each (synthetic) picture representing the probe --- #
                     for j, pict_probe in enumerate(probe.pictures):
+                        fr1_init = time.time()
                         fr_1 = pict_probe.get_feature_repres(self.siamese_model) if not WITH_LATENT_REPRES else None
+                        print("The time to perform the fr1 is= " + str(time.time() - fr1_init))
 
                         #if DETAILED_PRINT: pict_probe.display_im(to_print="The face to identify is: ")
 
                         # --- Distance reasoning for prediction ----
                         dist = picture.get_dist(probe.index[j], pict_probe, fr_1)
+
                         if DETAILED_PRINT:
                             picture.display_im(to_print="The compared face is printed and the dist is: " + str(dist))
 
@@ -303,10 +310,14 @@ class FaceRecognition:
 
             # Predicted Person with class prediction reasoning
             if self.siamese_model is not None:
+                vote_init = time.time()
                 probe.pred_from_vote(DETAILED_PRINT, res_vote)
+                print("The time to perform the vote is= " + str(time.time() - vote_init))
 
             # Predicted Person with distance reasoning
+            dist_init = time.time()
             probe.predict_from_dist(res_dist)
+            print("The time to perform the dist based is= " + str(time.time() - dist_init))
 
             # Computation of the nb of false positives and false negatives
             probe.compute_false()
@@ -419,14 +430,13 @@ def get_gallery(size_gallery, db_source_list):
 
 
 '''---------------------------- get_balance_list ------------------------------------------------------
-This function removes from the current pictures list related 
-to the current person in the gallery:
+This function removes from the current pictures list related to the current person in the gallery:
     - all the pictures attached to the current probe if the current gallery person is the current probe
     - random pictures from the pictures_gall so that it contains the same number of pictures
 --------------------------------------------------------------------------------------------------------- '''
 
 
-def get_balance_list(person_gall, pictures_gall, probe):
+def get_balance_list(person_gall, pictures_gall, probe): #REM: May take time!!
     # -------- Ensure balance in the gallery ------------
     if person_gall == probe.person:
         indexes = list(probe.index)
@@ -628,6 +638,7 @@ if __name__ == '__main__':
             eer = fr.compute_far_frr()
             perc_vote_success = str(100 * acc_nb_correct / (NB_PROBES * NB_REPET))
             perc_dist_success = str(100 * acc_nb_correct_dist / (NB_PROBES * NB_REPET))
+            print("perc_vote_success " + str(perc_vote_success) + " and perc_dist_success " + str(perc_dist_success))
 
             data = [NB_REPET, SIZE_GALLERY, NB_PROBES, NB_IM_PER_PERS, str(db_source_list)]
             acc = round(100.0 * fr.acc_model[0] / fr.acc_model[1], 2)

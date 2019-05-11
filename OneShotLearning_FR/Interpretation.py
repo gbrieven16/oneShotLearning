@@ -232,7 +232,7 @@ def is_not_nb(nb):
 if __name__ == "__main__":
 
     csv_name = "result/fr_model_evaluation.csv"
-    test_id = 3
+    test_id = 8
 
     if test_id == 1:
         print(" -------------------------- TEST 1 --------------------------------")
@@ -314,3 +314,18 @@ if __name__ == "__main__":
         title = "Accuracy according to the gallery size"
 
         line_graph(x, y, title, x_label="x", y_label="y", save_name=None)
+
+    if test_id == 8:
+        print(" -------------------------- TEST 8 --------------------------------")
+        print("Visualize the performance according to the gallery size")
+        print(" ------------------------------------------------------------------")
+        csv_name = "result/fr_model_evaluation_g.csv"
+        title = "Accuracy of the face recognition task for different gallery sizes"
+        # Compare architectures
+        di1 = to_dic(csv_name, ["Nb_inst_probes", "gallery_size"], "nb_correct_dist", lower_bound=0)
+
+        print(di1)
+        # arch = list(di1.keys())
+        bar_chart(di1[1], di1[2], title,
+                  first_title="1 probe instance", second_title="2 probe instances",
+                  annotated=True, y_title="Accuracy (%)", save_name="fr_gallerySize")

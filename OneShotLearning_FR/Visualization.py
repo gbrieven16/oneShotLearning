@@ -21,7 +21,7 @@ CSV_NAME = FROM_ROOT + "model_evaluation.csv"
 FR_CSV_NAME = FROM_ROOT + "result/fr_model_evaluation.csv"
 NB_DATA_GRAPH = 1000
 MAX_NB_KEYS = 12
-WIDTH_BAR = 0.2
+WIDTH_BAR = 0.4
 
 INDEX_BEGIN_GRAPH_LABEL = 0
 INDEX_END_GRAPH_LABEL = 9
@@ -50,7 +50,9 @@ def line_graph(x, y, title, x_label="x", y_label="y", save_name=None):
         print("Graph saved as " + save_name)
     plt.close()
 
-
+"""
+IN: dictionary: dictionary where each key is represented by one line
+"""
 def multi_line_graph(dictionary, x_elements, title, x_label="x", y_label="Score", save_name=None, loc='lower right'):
     plt.figure()
     plt.grid(True)
@@ -152,7 +154,8 @@ def bar_chart(dictionary1, dictionary2, title, dictionary3=None, first_title='Av
 
     ax.set_ylabel(y_title)
     ax.set_xticks(range(len(dictionary1)))
-    x_labels = ["BasicNet"] + list(dictionary1.keys())[1:]
+    x_labels = list(dictionary1.keys())
+    #x_labels = ["BasicNet"] + list(dictionary1.keys())[1:]
     ax.set_xticklabels(format_label_bar(x_labels))
 
     plt.title(title)
