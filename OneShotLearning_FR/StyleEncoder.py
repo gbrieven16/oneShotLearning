@@ -50,7 +50,7 @@ CHANGES = ["smile", "age", "gender"]
 COEF = {"smile": [-1.5, 0, 1.3], "age": [-1.5, 0], "gender": [-1, 0]}
 
 
-if False and platform.system() != "Darwin":
+if platform.system() != "Darwin":
     print('Memory assigned to STYLE GAN! \n')
     tflib.init_tf()  # Initialization of TensorFlow session
     _, _, GS_NETWORK = pickle.load(open(STYLE_GAN, "rb"))  # generator_network, discriminator_network
@@ -121,18 +121,18 @@ IN: latent_representation: numpy.ndarray resulting from a face picture
 
 
 def move_and_show(latent_vector, direction, coeff, save_result):
-    new_latent_vector = latent_vector.copy()
-    new_latent_vector[:8] = (latent_vector + coeff * direction)[:8]   # Pq seulement 8 premiers elements ???
+    #new_latent_vector = latent_vector.copy()
+    new_latent_vector = (latent_vector + coeff * direction) #[:8]   # Pq seulement 8 premiers elements ???
     synthetic_image = generate_image(new_latent_vector)
-    try:
-        plt.imshow(synthetic_image)
-        plt.title('Coeff: %0.1f' % coeff)
-        plt.show()
-        if save_result is not None:
-            plt.savefig(save_result)
-            print("The set of synthetic images has been saved!")
-    except:
-        pass
+    #try:
+    plt.imshow(synthetic_image)
+    plt.title('Coeff: %0.1f' % coeff)
+    plt.show()
+    if save_result is not None:
+        plt.savefig(save_result)
+        print("The set of synthetic images has been saved!")
+    #except:
+        #pass
     return synthetic_image
 
 

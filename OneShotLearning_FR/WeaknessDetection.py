@@ -23,13 +23,19 @@ SEED = 8
 TRAINING_SIZE = 500
 DIFFERENT = True
 COEF = 1
-NB_CONSISTENT_W = 2
+NB_CONSISTENT_W = len(os.listdir(DIRECTION_DIR))
 FOLDER_SYNTH_IM = "/data/gbrieven/train_synt_im/"
 SIZE_SYNTH_TS = 200
 SIZE_VALID = 100
 
 NB_EPOCHS = 100
 LR = 0.003
+
+MEAN = 0
+STD = 0.05
+PROP_NO_VARIATION = 0.4
+W_DIM1 = 18
+W_DIM2 = 512
 
 # =================================================
 # Weakness Detector Training
@@ -142,6 +148,20 @@ def run(w, optim):
         return w
 
 
+"""
+This function randomly sets perc_O % of the element of x to 0 
+x: np array of dimensions (18, 512)
+"""
+
+
+def set_to_zero(x, prop_O=PROP_NO_VARIATION):
+    for i in range(W_DIM1):
+        # Pick randomly indices for the first dimension
+        indices_2 = np.random.choice(np.arange(W_DIM2), replace=False, size=int(prop_O*W_DIM2))
+        x[i][indices_2] = 0
+    return x
+
+
 # ================================================================
 #                    MAIN
 # ================================================================
@@ -150,8 +170,10 @@ def run(w, optim):
 if __name__ == "__main__":
 
     test_id = 0
-    dir_name = "smile"
-    w = None
+    set_to_zero(np.random.normal(MEAN, STD, (W_DIM1, W_DIM2)))
+    dir_name_list = ["smile"]
+    w_list = []
+    nb_directions = 10
     model = "models/dsgbrieven_filteredcfp_humFilteredlfw_filteredfaceScrub_humanFiltered_3245_1default_" \
             "70_triplet_loss_nonpretrained.pt"
 
@@ -161,23 +183,28 @@ if __name__ == "__main__":
         # -------------------------------------
         # Find consistent initial directions
         # -------------------------------------
-        #w = np.random.rand(18, 512)
-        w = np.random.normal(0, 0.1, (18, 512))
-        dir_name = str(NB_CONSISTENT_W + 1)
+        # w = np.random.rand(18, 512)
+        dir_name_list = []
+        for i in range(nb_directions):
+            w_list.append(set_to_zero(np.random.normal(MEAN, STD, (W_DIM1, W_DIM2))))
+            dir_name_list.append(str(NB_CONSISTENT_W + i + 1))
+            fname = DIRECTION_DIR + dir_name_list[-1] + ".npy"
+            np.save(fname, w_list[-1])
+
+            print("The latent direction after training has been saved as " + fname)
 
     if test_id == 1:
         # -------------------------
         # Train weakness detector
         # -------------------------
         weights, optimizer = main_wd(db_source_list, model, dir_name=dir_name)
-        w = run(weights, optimizer)
-        w_id = dir_name + "_" + "1"
+        w_list = [run(weights, optimizer)]
+        w_id = dir_name_list[-1] + "_" + "1"
 
-    # -------- Store the latent direction ----------
-    fname = DIRECTION_DIR + dir_name + ".npy"
-    w = w.eval() if test_id else w
-    np.save(fname, w)
-    print("The latent direction after training has been saved as " + fname)
+        # -------- Store the latent direction ----------
+        fname = DIRECTION_DIR + dir_name_list[-1] + ".npy"
+        np.save(fname, w_list[-1].eval())
+        print("The latent direction after training has been saved as " + fname)
 
     if test_id in [0, 1]:
         # -----------------------------------------
@@ -185,13 +212,15 @@ if __name__ == "__main__":
         # -----------------------------------------
 
         # Take some latent representation
-        nb_test = 10
-        dlatent_name_list = os.listdir(DLATENT_DIR)
+        nb_test = 5
+        dlatent_name_list = os.listdir(DLATENT_DIR)[10:]
 
-        for i in range(nb_test):
-            latent_vector = np.load(DLATENT_DIR + dlatent_name_list[i])
-            save_result = GENERATED_IMAGES_DIR + dir_name + "/" + dlatent_name_list[i].split(".")[0] + ".jpg"
-            move_and_show(latent_vector, w, COEF, save_result)
+        for j, w in enumerate(w_list):
+            for i in range(nb_test):
+                latent_vector = np.load(DLATENT_DIR + dlatent_name_list[i])
+                save_result = GENERATED_IMAGES_DIR + dir_name_list[j] + "_" + dlatent_name_list[i].split(".")[
+                    0] + ".jpg"
+                move_and_show(latent_vector, w, COEF, save_result)
 
     if test_id == 2:
         # ------------------------------------------------

@@ -5,6 +5,10 @@ import numpy as np
 
 from Dataprocessing import CENTER_CROP, Face_DS, from_zip_to_data
 from EmbeddingNetwork import AlexNet, BasicNet, VGG16, ResNet
+
+import torchvision.transforms as transforms
+from scipy.misc import toimage
+
 import matplotlib
 
 matplotlib.use('Agg')
@@ -600,18 +604,14 @@ class DecoderNet(nn.Module):
         x = x.view(x.size(0), self.nb_channels, self.dim1, self.dim2)
         x = self.conv3(x)
         x = self.relu(x)
-
         x = self.maxpool(x)
 
         x = self.conv4(x)
         x = self.relu(x)
         x = self.maxpool(x)
-
         x = self.conv5(x)
-        x = self.relu(x)
 
         x = self.sig(x)
-
         x = x.view(x.size(0), self.out_nb_channels, CENTER_CROP[0],
                    CENTER_CROP[1])  # 3 * 200 * 150 = 90 000  * 32 = 2 880 000
 
@@ -620,11 +620,6 @@ class DecoderNet(nn.Module):
 
 # ================================================================
 #                    CLASS: AutoEncoder_Net
-# 4, 4, stride=2, padding=1) => 15 360 000
-# 4, 4, stride=2, padding=1) => 11 520 000
-#                            => 2 981 664
-# 4: torch.Size([32, 3, 203, 153])
-
 # ================================================================
 class AutoEncoder_Net(nn.Module):
     def __init__(self, embeddingNet):
@@ -642,12 +637,14 @@ class AutoEncoder_Net(nn.Module):
 
         return encoded, decoded
 
-    def visualize_dec(self):
+    def visualize_dec(self, epoch=180):
         dec_as_np = self.last_decoded[0].detach().cpu().numpy()
+
         plt.imshow(np.reshape(dec_as_np, [200, 150, 3]))
         print("The picture representing the result from the decoder is saved as " + "resAut_" + TYPE_ARCH)
-        plt.savefig("resAut_" + TYPE_ARCH) #.squeeze()
-        plt.show()
+        plt.savefig("resAutNoRelu_" + TYPE_ARCH + "_" + str(epoch)) #.squeeze()
+
+        toimage(dec_as_np).save("resAutScip_" + TYPE_ARCH + "_" + str(epoch) + ".png", "png")
 
 
 # ================================================================

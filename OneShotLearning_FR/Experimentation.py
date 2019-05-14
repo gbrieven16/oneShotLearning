@@ -104,7 +104,7 @@ def put_synth_first(face_dic):
 
 
 """
-Training of models using different data quantities AND sources: 
+Training of models using different data quantities AND sources:
 OUT: a list of 4 datasets if synth = True: [trainset_real, trainset_realSynth, validset, test_set]
                           else: [trainset_real, None, validset, test_set]
 """

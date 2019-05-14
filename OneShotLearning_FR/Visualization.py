@@ -1,10 +1,8 @@
 import platform
+
 import matplotlib
-
 matplotlib.use('Agg')
-
-if platform.system() == "Darwin":
-    import matplotlib.pyplot as plt
+import matplotlib.pyplot as plt
 
 import math
 import random
@@ -273,8 +271,6 @@ IN: epoch_list: list of specific epochs
 def visualization_train(num_epoch, losses_dic, save_name=None):
     key0 = list(losses_dic.keys())[0]  # pretrained
     key1 = list(losses_dic.keys())[1]  # non-pretrained
-    print("Lossedic is " + str(losses_dic))
-    print("Key1 is " + str(key1))
 
     # --------------------------------------------------------------------
     # Visualization of losses over iterations for different epochs

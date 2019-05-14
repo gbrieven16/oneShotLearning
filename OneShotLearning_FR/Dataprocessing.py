@@ -46,6 +46,7 @@ ZIP_TO_PROCESS = FOLDER_DB + 'initTestCropped.zip'  # aber&GTdb_crop.zip'
 NB_DIGIT_IN_ID = 1
 
 SEED = 4  # When data is shuffled
+CONSTRAINT_SAME_TRIPLETS = True
 EXTENSION = ".jpg"
 SEPARATOR = "__"  # !!! Format of the dabase: name[!]__id !!! & No separators in name!
 RATION_TRAIN_SET = 0.75
@@ -63,8 +64,8 @@ TRANS = transforms.Compose([transforms.CenterCrop(CENTER_CROP), transforms.ToTen
                             transforms.Normalize((0.5, 0.5, 0.5), (1.0, 1.0, 1.0))])
 
 Q_DATA_AUGM = 4
-BATCH_SIZE_DA = 15  # Batch size of data augmentation (so that images are registered)
-DIST_METRIC = "Manhattan" #"MeanSquare" "Cosine_Sym"
+BATCH_SIZE_DA = 10  # Batch size of data augmentation (so that images are registered)
+DIST_METRIC = "MeanSquare" #"Manhattan" "Cosine_Sym"
 
 
 # ================================================================
@@ -584,6 +585,9 @@ class Face_DS(torch.utils.data.Dataset):
                             d(F(A),F(N)) < d(F(A),F(P))
         ------------------------------------------------------------------------ """
 
+        if CONSTRAINT_SAME_TRIPLETS:
+            random.seed(SEED)
+
         all_labels = list(faces_dic.keys())
         nb_labels = len(all_labels)
 
@@ -1046,7 +1050,7 @@ def register_aligned(db):
 
 if __name__ == "__main__":
 
-    test_id = 3
+    test_id = 2
     # ----------------- Galleries Generation and saving ----------------
     if test_id == 1:
         db_list = ["cfp_humFiltered", "lfw_filtered", "gbrieven_filtered", "faceScrub_humanFiltered"]
@@ -1057,8 +1061,8 @@ if __name__ == "__main__":
 
     # ----------------- Synthetic Images Generation and saving ----------------
     if test_id == 2:
-        db_list = ["gbrieven_filtered.zip", "lfw_filtered.zip", "faceScrub_filtered.zip",
-                   "testdb_filtered.zip"] #"cfp_humFiltered.zip",
+        db_list = ["cfp_humFiltered.zip", "gbrieven_filtered.zip", "lfw_filtered.zip", "faceScrub_filtered.zip",
+                   "testdb_filtered.zip"]
 
         for i, db in enumerate(db_list):
             print("Current db is " + str(FOLDER_DB + db) + "...\n")

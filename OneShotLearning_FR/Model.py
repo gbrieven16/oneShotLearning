@@ -22,7 +22,7 @@ PT_BS = 32  # Batch size for pretraining
 # PT_NUM_EPOCHS = 180  => default: No normalization included inside the encoder (better visual results)
 # PT_NUM_EPOCHS = 200  => default: Normalization included inside the encoder (no good visual results)
 PT_NUM_EPOCHS = 180
-AUTOENCODER_LR = 0.005
+AUTOENCODER_LR = 0.001
 EP_SAVE = 30
 ROUND_DEC = 5
 
@@ -138,7 +138,7 @@ class Model:
                 autoencoder.train(epoch, autoencoder=True)
                 if epoch != 0 and epoch % EP_SAVE == 0:
                     torch.save(autoencoder.network.state_dict(), ENCODER_DIR + "auto_{0:03d}.pwf".format(epoch))
-                    autoencoder.network.visualize_dec()
+                    autoencoder.network.visualize_dec(epoch=epoch)
 
             torch.save(self.network.embedding_net.state_dict(), name_trained_net)
             print("The encoder has been saved as " + name_trained_net + "!\n")
@@ -157,9 +157,7 @@ class Model:
                            train_loader=self.train_loader)
 
         for epoch in range(num_epochs):
-            print("---------- Not pretrained Model with arch " + TYPE_ARCH + " and loss " + self.loss_type
-                  + " -----------")
-
+            print("------ Not pretrained Model with arch " + TYPE_ARCH + " and loss " + self.loss_type + " -----------")
             model_comp.train(epoch)
             loss_notPret, f1_notPret, accuracy = model_comp.prediction()
 
@@ -319,8 +317,8 @@ class Model:
                     print("ERR: A runtime error occured in prediction!")
                     break
 
-        f1_neg_avg = self.eval_dic["f1_neg"] / len(data_loader)
-        f1_pos_avg = self.eval_dic["f1_pos"] / len(data_loader)
+        f1_neg_avg = self.eval_dic["f1_neg"] / self.eval_dic["nb_eval"]
+        f1_pos_avg = self.eval_dic["f1_pos"] / self.eval_dic["nb_eval"]
 
         # ----------- Evaluation on the validation set (over epochs) ---------------
         if not on_train and validation:
@@ -347,6 +345,7 @@ class Model:
      ---------------------------------------------------------------------------'''
 
     def update_weights(self):
+        print("Loss Weights are updated")
         f1_pos_avg, f1_neg_avg = self.prediction(on_train=True)  # To get f1_measures
         self.train_f1 = (f1_pos_avg + f1_neg_avg) / 2
         print("f1 score of train: " + str(f1_pos_avg) + " and " + str(f1_neg_avg))
@@ -506,7 +505,10 @@ class Model:
     -------------------------------- '''
 
     def reset_eval(self):
-        self.pos_recall["Pretrained Model"] = self.eval_dic["recall_pos"] / self.eval_dic["nb_eval"]
+        try:
+            self.pos_recall["Pretrained Model"] = self.eval_dic["recall_pos"] / self.eval_dic["nb_eval"]
+        except ZeroDivisionError:
+            pass
         for metric, value in self.eval_dic.items():
             self.eval_dic[metric] = 0
 

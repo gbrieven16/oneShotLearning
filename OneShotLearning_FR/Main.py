@@ -6,7 +6,7 @@ import torch
 
 # if platform.system() != "Darwin": torch.cuda.set_device(0)
 
-from NeuralNetwork import TYPE_ARCH
+from NeuralNetwork import TYPE_ARCH, NORMALIZE_FR, WITH_DIST_WEIGHT
 from Model import Model, DEVICE, should_break, EP_SAVE
 from Visualization import store_in_csv, line_graph
 
@@ -18,7 +18,7 @@ from Dataprocessing import Face_DS, from_zip_to_data, MAIN_ZIP, CENTER_CROP, loa
 #########################################
 
 
-NUM_EPOCH = 1 if platform.system() == "Darwin" else 60  # TOCHANGE
+NUM_EPOCH = 1 if platform.system() == "Darwin" else 70
 BATCH_SIZE = 32
 
 LR_NONPRET = 0.001
@@ -27,7 +27,6 @@ WITH_LR_SCHEDULER = "StepLR"  # "ExponentialLR" None
 WEIGHT_DECAY = 0.001  # To control regularization
 OPTIMIZER = "Adam"  # "Adagrad" "SGD"
 
-WITH_EVAL_ON_TRAIN = True
 WEIGHTED_CLASS = False
 WITH_EPOCH_OPT = False
 LOSS = "triplet_loss"  # "ce_classif" "constrastive_loss" triplet_and_ce triplet_distdif_loss
@@ -228,7 +227,7 @@ def main_train(sets_list, fname, db_train=None, name_model=None, scheduler=WITH_
                     print("\n------- Retraining of model ----------")
 
                 model_learn.train(epoch)
-                if WITH_EVAL_ON_TRAIN: model_learn.prediction(on_train=True)
+                #if WITH_EVAL_ON_TRAIN: model_learn.prediction(on_train=True) Included in active_learning
                 model_learn.prediction()
 
                 if epoch != 0 and epoch % EP_SAVE == 0:
@@ -256,6 +255,7 @@ def main_train(sets_list, fname, db_train=None, name_model=None, scheduler=WITH_
             # ------- Record: Evolution of the performance ---------
             info_data = [db_name if fname is not None else MAIN_ZIP, str(nb_images), len(sets_list[0].train_data),
                          DIFF_FACES, CENTER_CROP, db_title]
+            loss += "_normFeat" + str(NORMALIZE_FR) + "_distWeight" + str(WITH_DIST_WEIGHT)
             info_training = [pret, NUM_EPOCH, BATCH_SIZE, WEIGHT_DECAY, str((LEARNING_RATE, scheduler)),
                              TYPE_ARCH, OPTIMIZER, loss, WEIGHTED_CLASS]
 
@@ -283,7 +283,7 @@ def main_train(sets_list, fname, db_train=None, name_model=None, scheduler=WITH_
 
 if __name__ == '__main__':
     # main()
-    test = 3 if platform.system() == "Darwin" else 4
+    test = 3 if platform.system() == "Darwin" else 3
 
     # -----------------------------------------------------------------------
     # Test 1: Confusion Matrix with different db for training and testing
@@ -318,8 +318,8 @@ if __name__ == '__main__':
         print("----------------------------------------------------------------------- ")
         print("MAIN: Test 3: Train Model from different db")
         print("----------------------------------------------------------------------- ")
-        # db_name_train = [FOLDER_DB + "gbrieven_filtered.zip", FOLDER_DB + "lfw_filtered.zip"]  # "faceScrub", "lfw", "cfp", "gbrieven", "testdb"] #"testCropped"
-        db_name_train = [FOLDER_DB + "cfp70.zip"]
+        db_name_train = [FOLDER_DB + "gbrieven_filtered.zip", FOLDER_DB + "lfw_filtered.zip"]  # "faceScrub", "lfw", "cfp", "gbrieven", "testdb"] #"testCropped"
+        #db_name_train = [FOLDER_DB + "cfp70.zip"]
         # db_name_train = [FOLDER_DB + "gbrieven_filtered.zip"]
         loss_list = ["triplet_loss", "cross_entropy", "triplet_and_ce", "constrastive_loss", "triplet_distdif_loss"]
         for i, loss in enumerate(loss_list):
