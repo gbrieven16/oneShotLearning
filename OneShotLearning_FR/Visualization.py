@@ -1,6 +1,7 @@
 import platform
 
 import matplotlib
+
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
@@ -19,7 +20,7 @@ CSV_NAME = FROM_ROOT + "model_evaluation.csv"
 FR_CSV_NAME = FROM_ROOT + "result/fr_model_evaluation.csv"
 NB_DATA_GRAPH = 1000
 MAX_NB_KEYS = 12
-WIDTH_BAR = 0.4
+WIDTH_BAR = 0.37
 
 INDEX_BEGIN_GRAPH_LABEL = 0
 INDEX_END_GRAPH_LABEL = 9
@@ -48,9 +49,12 @@ def line_graph(x, y, title, x_label="x", y_label="y", save_name=None):
         print("Graph saved as " + save_name)
     plt.close()
 
+
 """
 IN: dictionary: dictionary where each key is represented by one line
 """
+
+
 def multi_line_graph(dictionary, x_elements, title, x_label="x", y_label="Score", save_name=None, loc='lower right'):
     plt.figure()
     plt.grid(True)
@@ -101,7 +105,7 @@ def multi_line_graph(dictionary, x_elements, title, x_label="x", y_label="Score"
 # ---------------------------------------------
 
 def bar_chart(dictionary1, dictionary2, title, dictionary3=None, first_title='Average', second_title='Std',
-              third_title="3e title", annotated=True, y_title="Response time (ms)", save_name=None):
+              third_title="3e title", annotated=True, y_title="Response time (ms)", save_name=None, loc='lower right'):
     if len(dictionary1) == 0:
         print("INFO: In Visualization: Empty dictionaries")
         return None
@@ -119,12 +123,12 @@ def bar_chart(dictionary1, dictionary2, title, dictionary3=None, first_title='Av
 
     if dictionary3 is not None:
         third_vals = []
-        col1 = '#306998'
-        col2 = '#FFD43B'
-        col3 = '#646464'
+        col1 = "#686158" #'#306998'
+        col2 = "#BB8F55" # '#FFD43B'
+        col3 = "#E18C18" #'#646464'
     else:
-        col1 = "#28d9c2"
-        col2 = "#FF9933"
+        col1 = "#E8E540"  #"#70615D" # "#28d9c2"
+        col2 = "#39380F"  #"#E04625" #"#FF9933"
         col3 = None
 
     for key in dictionary1.keys():
@@ -137,11 +141,11 @@ def bar_chart(dictionary1, dictionary2, title, dictionary3=None, first_title='Av
     rects1 = ax.bar(ind, first_vals, width, color=col1)
     if dictionary2 is not None:
         rects2 = ax.bar(ind + width, second_vals, width, color=col2)
-        ax.legend((rects1[0], rects2[0]), (first_title, second_title), loc='lower right')
+        ax.legend((rects1[0], rects2[0]), (first_title, second_title), loc=loc)
 
     if dictionary3 is not None:
         rects3 = ax.bar(ind + 2 * width, third_vals, width, color=col3)
-        ax.legend((rects1[0], rects2[0], rects3[0]), (first_title, second_title, third_title), loc='lower right')
+        ax.legend((rects1[0], rects2[0], rects3[0]), (first_title, second_title, third_title), loc=loc)
 
     if annotated:
         autolabel(rects1, ax)
@@ -308,9 +312,6 @@ def visualization_train(num_epoch, losses_dic, save_name=None):
 
     # ------------- CASE 2: both non-pretrained and pretrained scenario to expose --------------------
     else:
-        print("losses_dic[pretrained]: " + str(losses_dic[key0]))
-        print("\nlosses_dic[nonpretrained]: " + str(losses_dic[key1]))
-
         multi_line_graph(losses_dic, epoches, title_loss, x_label="epoch", y_label="Loss",
                          save_name=save_name + "_loss.png", loc='upper right')
 
@@ -361,5 +362,4 @@ def visualization_validation(loss, f1, acc, num_ep, save_name=None):
 
 
 if __name__ == '__main__':
-    dic = {'a': 193, 'b': 48, 'c': 933, 'd': 9888}
-    random.shuffle()
+    pass

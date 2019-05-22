@@ -1,5 +1,5 @@
+import os
 import matplotlib
-
 matplotlib.use('Agg')  # TkAgg
 
 import torch
@@ -9,7 +9,8 @@ import pickle
 from random import shuffle, Random
 import numpy as np
 
-from Dataprocessing import from_zip_to_data, extract_randomly_elem, TRANS, FOLDER_DB, FaceImage, DIST_METRIC, FOLDER_DIC
+from Dataprocessing import from_zip_to_data, extract_randomly_elem, TRANS, FOLDER_DB, FaceImage, \
+    DIST_METRIC, FOLDER_DIC, DLATENT_DIR, SEPARATOR
 from Visualization import multi_line_graph, fr_in_csv
 from Main import WITH_PROFILE, load_model
 
@@ -19,23 +20,23 @@ from Main import WITH_PROFILE, load_model
 #                      (BUT not in the gallery)
 # =====================================================================================================================
 
-NB_PROBES = 20
+NB_PROBES = 35
 NB_INST_PROBES = 1
 
-WITH_VOTE = False
+WITH_VOTE = True
 SIZE_GALLERY = 20  # Nb of people to consider
 NB_IM_PER_PERS = 8
 TOLERANCE = 5  # 3 Max nb of times the model can make mistake in comparing p_test and the pictures of 1 person
-NB_REPET = 3  # Nb of times test is repeated (over a different set of probes)
-THRESHOLDS_LIST = list(np.arange(0, 5, 0.05))  # For MeanSquare
+NB_REPET = 7  # Nb of times test is repeated (over a different set of probes)
+THRESHOLDS_LIST = list(np.arange(0, 0.05, 0.0005))  # For MeanSquare
 WITH_LATENT_REPRES = False
 DETAILED_PRINT = False
 TRESH_DIST_SEP_PRED_PERC = 0.5
 MAX_NB_PERS = 3  # Maximum nb of predicted people
-N = [1, 3, 5, 8, 10, 20, 30]
+N = [1, 3, 5, 10, 20, 30]
 
 WITH_SYNTHETIC_DATA = False
-if WITH_SYNTHETIC_DATA:
+if WITH_SYNTHETIC_DATA or WITH_LATENT_REPRES:
     NB_IM_PER_PERS = None  # No restriction, otherwise you may not get the synth images in face_dic
 
 
@@ -129,10 +130,6 @@ class Probe:
                 else:
                     break
 
-            if 0 < nb_equal_vote:
-                print("There are " + str(nb_equal_vote) + " equalities in the voting system")
-                print("The person is " + str(self.person) + " and the sorted_vote is " + str(sorted_vote))
-
             pred_person = [pers for i, (pers, score) in enumerate(sorted_vote) if i < nb_equal_vote + 1]
 
             if self.person in pred_person:
@@ -168,7 +165,12 @@ class Probe:
 
 class FaceRecognition:
     def __init__(self, model_path, db_source=None):
-        time_in = time.time()
+        self.acc_model = [0, 0]  # First element: correct/not (1/0) ; Second element: Counter
+        self.pos_recall = [0, 0]  # First element: correct/not (1/0) ; Second element: Counter of positives
+        self.neg_recall = [0, 0]  # First element: correct/not (1/0) ; Second element: Counter of positives
+
+        self.probes = []  # list of NB_REPET lists of lists (person, picture, index_pict)
+
         db_source = ["testdb"] if db_source is None else db_source
         self.k_considered = []
         self.distances = {}
@@ -181,16 +183,9 @@ class FaceRecognition:
             except AttributeError:
                 self.siamese_model = model.cuda() if torch.cuda.is_available() else model
 
-        self.acc_model = [0, 0]  # First element: correct/not (1/0) ; Second element: Counter
-        self.pos_recall = [0, 0]  # First element: correct/not (1/0) ; Second element: Counter of positives
-        self.neg_recall = [0, 0]  # First element: correct/not (1/0) ; Second element: Counter of positives
-
-        # ------- Get data (from MAIN_ZIP) --------------
-        self.probes = []  # list of NB_REPET lists of lists (person, picture, index_pict)
-
         # ------- Gallery Definition --------------
         self.gallery = get_gallery(SIZE_GALLERY, db_source)
-        self.nb_sim = len(self.gallery[next(iter(self.gallery))]) - 1  # nb of pictures "similar" to a probe
+        self.nb_sim = max(len(self.gallery[next(iter(self.gallery))]) - 1, 1)  # nb of pictures "similar" to a probe
         self.nb_dif = self.nb_sim * (len(self.gallery) - 1)  # nb of pictures "different" from a probe
 
         people_gallery = list(self.gallery.keys())
@@ -210,14 +205,16 @@ class FaceRecognition:
 
                 # ---------- Pick one picture having stored synthetised version ------------
                 else:
-                    probe_pict, indexes_probe = get_synth_pict(self.gallery[person])
+                    try:
+                        probe_pict, indexes_probe = get_synth_pict(self.gallery[person])
+                    except TypeError: # No synthetic data was found
+                        return
 
                 probes_k.append(Probe(person, probe_pict, indexes_probe))
 
             self.probes.append(probes_k)
 
         remove_synth_data(self.gallery)
-        print("The time to initialize the gallery and the probe lists is " + str(time.time() - time_in) + "\n")
 
     '''---------------- recognition ---------------------------
      This function identifies the person on each test picture
@@ -229,7 +226,7 @@ class FaceRecognition:
 
         res_vote = {"nb_not_recognized": 0, "nb_mistakes": 0, "nb_correct": 0}
         res_dist = {"nb_mistakes_dist": 0, "nb_correct_dist": 0}
-        res_dist_topn = [0 for i in range(len(N))]
+        res_dist_topn = [0 for _ in range(len(N))]
 
         self.acc_model = [0, 0]
         self.pos_recall = [0, 0]
@@ -244,6 +241,7 @@ class FaceRecognition:
             #  Go through each person in the gallery
             # ------------------------------------------- #
             for person, pictures in self.gallery.items():
+                #print("The number of pictures for " + str(person) + " is " + str(len(pictures)))
 
                 nb_pred_diff = 0  # Nb times the person is predicted as different from the current probe
 
@@ -251,18 +249,15 @@ class FaceRecognition:
                 pictures_gallery = get_balance_list(person, pictures, probe)
 
                 # ------- Go through each picture of the current person of the gallery
-                for l, picture in enumerate(pictures_gallery):
+                for _, picture in enumerate(pictures_gallery):
                     fr2_init = time.time()
-                    fr_2 = picture.get_feature_repres(self.siamese_model)
+                    fr_2 = picture.get_feature_repres(self.siamese_model) if not WITH_LATENT_REPRES else None
                     # print("The time to perform the fr2 is= " + str(time.time() - fr2_init))
 
                     # --- Go through each (synthetic) picture representing the probe --- #
                     for j, pict_probe in enumerate(probe.pictures):
-                        fr1_init = time.time()
-                        fr_1 = pict_probe.get_feature_repres(self.siamese_model) if not WITH_LATENT_REPRES else None
-                        # print("The time to perform the fr1 is= " + str(time.time() - fr1_init))
 
-                        # if DETAILED_PRINT: pict_probe.display_im(to_print="The face to identify is: ")
+                        fr_1 = pict_probe.get_feature_repres(self.siamese_model) if not WITH_LATENT_REPRES else None
 
                         # --- Distance reasoning for prediction ----
                         dist = picture.get_dist(probe.index[j], pict_probe, fr_1)
@@ -288,8 +283,8 @@ class FaceRecognition:
                                 else:
                                     self.pos_recall[1] += 1
                                     # print("Mistake: " + str(pict_probe.person) + " not predicted as " + str(person))
-                                    pict_probe.display_im(save=str(index) + str(i) + "_probe_" + pict_probe.person)
-                                    picture.display_im(save=str(index) + str(i) + "_gall_" + person)
+                                    #pict_probe.display_im(save=str(index) + str(i) + "_probe_" + pict_probe.person)
+                                    #picture.display_im(save=str(index) + str(i) + "_gall_" + person)
 
                                 nb_pred_diff += 1
                                 if TOLERANCE < nb_pred_diff:
@@ -303,8 +298,8 @@ class FaceRecognition:
                                 else:
                                     self.neg_recall[1] += 1
                                     # print("Mistake: " + str(pict_probe.person) + " predicted as " + str(person))
-                                    pict_probe.display_im(save=str(index) + str(i) + "_probe_" + pict_probe.person)
-                                    picture.display_im(save=str(index) + str(i) + "_gall_" + person)
+                                    #pict_probe.display_im(save=str(index) + str(i) + "_probe_" + pict_probe.person)
+                                    #picture.display_im(save=str(index) + str(i) + "_gall_" + person)
 
                                 probe.vote_pers[person] = 1 if person not in probe.vote_pers else probe.vote_pers[
                                                                                                       person] + 1
@@ -343,7 +338,7 @@ class FaceRecognition:
               str(res_dist["nb_mistakes_dist"]) + " wrong")
         for i, res_topn in enumerate(res_dist_topn):
             print("Report with Distance with top-" + str(N[i]) + " metric: " + str(res_topn) + " correct and " +
-                  str(len(self.gallery) - res_topn) + " wrong")
+                  str(NB_PROBES - res_topn) + " wrong")
         print("------------------------------------------------------------------\n")
 
         return res_vote, res_dist, res_dist_topn
@@ -406,35 +401,98 @@ def print_eer(far, frr):
 '''-------------------------- get_gallery ---------------------------------
 The function returns a gallery with size_gallery people from the database 
 IN: db_source_list: list of db 
-OUT: dic where the key is the name of a person and the value
+OUT: dic where the key is the name of a person and the value 
 is a list of FaceImage objects
 -------------------------------------------------------------------------- '''
 
 
 def get_gallery(size_gallery, db_source_list):
     face_dic = {}
-    for i, db in enumerate(db_source_list):
-        try:
-            if not WITH_SYNTHETIC_DATA:
-                face_dic.update(pickle.load(open(FOLDER_DB + FOLDER_DIC + "faceDic_" + db + ".pkl", "rb")))
-            else:
-                face_dic.update(pickle.load(open(FOLDER_DB + FOLDER_DIC + "faceDic_" + db + "with_synth.pkl", "rb")))
+    if not WITH_LATENT_REPRES:
+        # ---------------------------------------------------------------------------
+        # COMMON CASE: the face recognition task is based on the Siamese Network
+        # ---------------------------------------------------------------------------
+        for i, db in enumerate(db_source_list):
+            try:
+                if not WITH_SYNTHETIC_DATA:
+                    face_dic.update(pickle.load(open(FOLDER_DIC + "faceDic_" + db + ".pkl", "rb")))
+                else:
+                    face_dic.update(pickle.load(open(FOLDER_DIC + "faceDic_" + db + "with_synth.pkl", "rb")))
 
-        except (FileNotFoundError, EOFError) as e:
-            print("The file " + FOLDER_DB + db + ".zip coundn't be found ... \n")
-            fileset = from_zip_to_data(WITH_PROFILE, fname=FOLDER_DB + db + ".zip")
-            face_dic = fileset.order_per_personName(TRANS, save=db, max_nb_pict=NB_IM_PER_PERS,
-                                                    min_nb_pict=NB_IM_PER_PERS,
-                                                    with_synth=WITH_SYNTHETIC_DATA)
+            except (FileNotFoundError, EOFError) as e:
+                print("The file " + FOLDER_DB + db + ".zip coundn't be found ... \n")
+                fileset = from_zip_to_data(WITH_PROFILE, fname=FOLDER_DB + db + ".zip")
+                face_dic = fileset.order_per_personName(TRANS, save=db, max_nb_pict=NB_IM_PER_PERS,
+                                                        min_nb_pict=NB_IM_PER_PERS,
+                                                        with_synth=WITH_SYNTHETIC_DATA)
+
+    else:
+
+        # ------------------------------------------------------------------------------------------------
+        # PARTICULAR CASE: the face recognition task is based on the encoding derived from Style GAN
+        # For saving time, in this case, use all the encoding that were already computed
+        # ------------------------------------------------------------------------------------------------
+        filenames = os.listdir(DLATENT_DIR)  # Each fn being like: dbname__person__index.npy
+
+        # Go through the folder containing all the z
+        for i, fn in enumerate(filenames):
+
+            personName = fn.split(SEPARATOR)[1]
+            index = fn.split(SEPARATOR)[2]
+            img = FaceImage(fn, None, pers=personName, i=index)
+
+            # ---------------------- Order z per person ----------------------
+            try:
+                face_dic[personName].append(img)
+            except KeyError:
+                face_dic[personName] = [img]
 
     if NB_IM_PER_PERS is not None:
         face_dic = {label: pictures for label, pictures in face_dic.items() if NB_IM_PER_PERS <= len(pictures)}
         face_dic = {label: pictures[:NB_IM_PER_PERS] for label, pictures in face_dic.items()}
 
     # Return "size_gallery" people
-    people = list(face_dic)
-    Random().shuffle(people)
-    return {k: v for k, v in face_dic.items() if k in people[:size_gallery]}
+    if not WITH_SYNTHETIC_DATA:
+        people = list(face_dic)
+        Random().shuffle(people)
+        return {k: v for k, v in face_dic.items() if k in people[:size_gallery]}
+    else:
+        face_dic = put_synth_first(face_dic)
+        return {k: face_dic[k] for i, k in enumerate(face_dic) if i < size_gallery}
+
+
+
+""" -------------------- put_synth_first --------------------
+This function creates a new dictionary from the input one
+ where all the people having synthetic images are put first in
+---------------------------------------------------------------- """
+
+
+def put_synth_first(face_dic):
+    # ----------------------------------------------------------
+    # 1. Extract all items where the person has synth images
+    # ----------------------------------------------------------
+
+    people_with_synt = {}
+    people_without_synt = {}
+
+    for person, pictures in face_dic.items():
+        with_synt = False
+        for i, picture in enumerate(pictures):
+            if picture.is_synth:
+                with_synt = True
+                break
+
+        if with_synt:
+            people_with_synt.update({person: pictures})
+        else:
+            people_without_synt.update({person: pictures})
+
+    # ----------------------------------------------------------
+    # 2. Build dic where the extracted items are put first
+    # ----------------------------------------------------------
+    people_with_synt.update(people_without_synt)
+    return people_with_synt
 
 
 '''---------------------------- get_balance_list ------------------------------------------------------
@@ -497,10 +555,10 @@ def get_index_synth_pers(faceIm_list):
             return i, index_str
 
 
-'''------------------------- get_synth_pict --------------------------------
+'''--------------------------- get_synth_pict -------------------------------------
 This function returns the list of real + corresponding synthetic pictures 
 and a list of one element corresponding to the index of the real selected picture
---------------------------------------------------------------------------- '''
+----------------------------------------------------------------------------------- '''
 
 
 def get_synth_pict(faceIm_list):
@@ -563,29 +621,36 @@ def remove_real_data(gallery):
 if __name__ == '__main__':
 
     test_id = 2
-    model = "models/dsgbrieven_filteredcfp_humFilteredlfw_filteredfaceScrub_humanFiltered_3245_1default_70_" \
-            "triplet_loss_nonpretrained.pt"
+    #model = "models/dsgbrieven_filteredcfp_humFilteredlfw_filteredfaceScrub_humanFiltered_3245_1default_70_" \
+            #"triplet_loss_nonpretrained.pt"
+    #model = "models/dsgbrieven_filteredlfw_filtered_8104_1default_70_cross_entropy_pretautoencoder.pt"
+    #model = "models/dscfp_humFilteredgbrieven_filteredlfw_filteredfaceScrub_humanFiltered_15880_1default_70_" \
+            #"triplet_loss_pretautoencoder.pt"
+    model = "models/dsgbrieven_filteredcfp_humFilteredlfw_filteredfaceScrub_humanFiltered_3731_1default_100_" \
+            "triplet_loss_pretautoencoder.pt"
 
     # --------------------
     #       Test 2
     # --------------------
     if test_id == 2:
 
-        size_gallery = [10, 50, 100, 200, 400]  # Nb of people to consider
-        db_source_list = ["testdb_filtered", "faceScrub_humanFiltered"]
+        size_gallery = [20, 50, 100, 200]  # Nb of people to consider 20, 50, 100, 200,
+        db_source_list = ["cfp_humFiltered"] #"testdb_filtered", "faceScrub_humanFiltered"] #
 
         for i, SIZE_GALLERY in enumerate(size_gallery):
 
-            print("\n--------- The size of the gallery is " + str(SIZE_GALLERY) + " -----\n")
+            print("\n--------- The size of the gallery is " + str(SIZE_GALLERY) + " -----")
 
             fr = FaceRecognition(model, db_source=db_source_list)
-
+            print("--------- The effective size of the gallery is " + str(len(fr.gallery)) + " -----\n")
+            print("--------- The effective nb of probes is is " + str(len(fr.probes)) + " -----\n")
+d
             # ------- Accumulators Definition --------------
             acc_nb_correct = 0
             acc_nb_mistakes = 0
             acc_nb_correct_dist = 0
             acc_nb_mistakes_dist = 0
-            acc_nb_corr_dist_topN = [0 for i in range(len(N))]
+            acc_nb_corr_dist_topN = [[] for i in range(len(N))]
 
             t_init = time.time()
 
@@ -597,11 +662,14 @@ if __name__ == '__main__':
                 acc_nb_mistakes += res_vote["nb_mistakes"]
                 acc_nb_correct_dist += res_dist["nb_correct_dist"]
                 acc_nb_mistakes_dist += res_dist["nb_mistakes_dist"]
-                for j, res_topn in enumerate(res_dist_topN):  acc_nb_corr_dist_topN[j] += res_topn
+                for j, res_topn in enumerate(res_dist_topN):  acc_nb_corr_dist_topN[j].append(res_topn)
 
-            for j, res_topn in enumerate(acc_nb_corr_dist_topN):  acc_nb_corr_dist_topN[j] += res_topn / NB_REPET
+            for j, res_topn_list in enumerate(acc_nb_corr_dist_topN):
+                std = 0
+                for i, res_topn in enumerate(res_topn_list):
+                    std += abs(sum(res_topn_list)/ NB_REPET-res_topn)
+                acc_nb_corr_dist_topN[j] = (min(sum(res_topn_list) / NB_REPET, NB_PROBES), std/NB_REPET)
 
-            # ------ Print the average over all the different tests -------
             print("\n ------------------------------ Global Report ---------------------------------")
             if WITH_VOTE:
                 print("Report: " + str(acc_nb_correct / NB_REPET) + " correct, " + str(
@@ -611,7 +679,7 @@ if __name__ == '__main__':
                   + str(acc_nb_mistakes_dist / NB_REPET) + " wrong recognitions")
             for i, res_topn in enumerate(acc_nb_corr_dist_topN):
                 print("Report with Distance with top-" + str(N[i]) + " metric: " + str(res_topn) +
-                      " correct and " + str(SIZE_GALLERY - res_topn) + " wrong")
+                      " correct and " + str(NB_PROBES - res_topn[0]) + " wrong")
             print(" -------------------------------------------------------------------------------\n")
 
             # ------ Print Time -------
@@ -625,7 +693,7 @@ if __name__ == '__main__':
             perc_dist_success = str(100 * acc_nb_correct_dist / (NB_PROBES * NB_REPET))
             print("perc_vote_success " + str(perc_vote_success) + " and perc_dist_success " + str(perc_dist_success))
 
-            data = [NB_REPET, SIZE_GALLERY, NB_PROBES, NB_IM_PER_PERS, str(db_source_list)]
+            data = [NB_REPET, len(fr.gallery), NB_PROBES, NB_IM_PER_PERS, str(db_source_list)]
 
             acc = round(100.0 * fr.acc_model[0] / fr.acc_model[1], 2) if WITH_VOTE else 0
             recall = round(100.0 * fr.pos_recall[0] / fr.pos_recall[1], 2) if WITH_VOTE else 0

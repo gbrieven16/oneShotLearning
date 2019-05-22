@@ -27,7 +27,8 @@ To generate new data, 2 approaches can be used:
 GENERATED_IMAGES_DIR = "/home/gbrieven/datasets/synth_im/"
 FROM_ROOT = "" if platform.system() == "Darwin" else "/home/gbrieven/oneShotLearning/OneShotLearning_FR/"
 DIRECTION_DIR = FROM_ROOT + 'ffhq_dataset/latent_directions/'
-DLATENT_DIR = "/home/gbrieven/datasets/latent_repres/" if platform.system() != "Darwin" else "data/gbrieven/latent_repres/"
+DLATENT_DIR = "/home/gbrieven/datasets/latent_repres/" if platform.system() != "Darwin" \
+    else "data/gbrieven/latent_repres/"
 
 if GENERATED_IMAGES_DIR is not None:
     try:
@@ -50,7 +51,7 @@ CHANGES = ["smile", "age", "gender"]
 COEF = {"smile": [-1.5, 0, 1.3], "age": [-1.5, 0], "gender": [-1, 0]}
 
 
-if platform.system() != "Darwin":
+if False and platform.system() != "Darwin":
     print('Memory assigned to STYLE GAN! \n')
     tflib.init_tf()  # Initialization of TensorFlow session
     _, _, GS_NETWORK = pickle.load(open(STYLE_GAN, "rb"))  # generator_network, discriminator_network

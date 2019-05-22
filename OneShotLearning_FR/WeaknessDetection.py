@@ -1,7 +1,8 @@
 from StyleEncoder import generate_image, get_encoding, move_and_show, DLATENT_DIR, GENERATED_IMAGES_DIR, DIRECTION_DIR
 from Dataprocessing import FOLDER_DB, FOLDER_DIC, from_zip_to_data, TRANS, generate_synthetic_im
-from Main import WITH_PROFILE, main_train
+from Main import WITH_PROFILE, main_train, load_model
 
+import torch
 import os
 import pickle
 import tensorflow as tf
@@ -24,7 +25,7 @@ TRAINING_SIZE = 500
 DIFFERENT = True
 COEF = 1
 NB_CONSISTENT_W = len(os.listdir(DIRECTION_DIR))
-FOLDER_SYNTH_IM = "/data/gbrieven/train_synt_im/"
+#FOLDER_SYNTH_IM = "/data/gbrieven/train_synt_im/"
 SIZE_SYNTH_TS = 200
 SIZE_VALID = 100
 
@@ -32,7 +33,7 @@ NB_EPOCHS = 100
 LR = 0.003
 
 MEAN = 0
-STD = 0.05
+STD = 0.005
 PROP_NO_VARIATION = 0.4
 W_DIM1 = 18
 W_DIM2 = 512
@@ -88,30 +89,27 @@ def main_wd(db_source_list, model, nb_input_pairs=TRAINING_SIZE, dir_name="smile
 
     for i, db in enumerate(db_source_list):
         try:
-            face_dic.update(pickle.load(open(FOLDER_DB + FOLDER_DIC + "faceDic_" + db + ".pkl", "rb")))
+            face_dic.update(pickle.load(open(FOLDER_DIC + "faceDic_" + db + ".pkl", "rb")))
         except (FileNotFoundError, EOFError) as e:
             print("The file " + FOLDER_DB + db + ".zip coundn't be found ... \n")
             fileset = from_zip_to_data(WITH_PROFILE, fname=FOLDER_DB + db + ".zip")
             face_dic = fileset.order_per_personName(TRANS, save=db)
 
+    # -------- Put constraints on the probability distribution of the variable w to optimize -----------------
+    scale = np.full((W_DIM1, W_DIM2), 0.01)
+    direction = tf.distributions.Normal(get_initial_direction(dir_name), scale)
     while len(pairs) < nb_input_pairs:
         pairs.append(compose_pair(face_dic, diff=DIFFERENT))
+        direction = tf.convert_to_tensor(get_initial_direction(dir_name).astype(np.float32))
 
     for i, pair in enumerate(pairs):
         # -----------------------------------------------------------
         # 2. The second elements of the pairs are synthetized
         # -----------------------------------------------------------
         z2 = get_encoding(pair[1].db_path, pair[1].file_path)
-        z2_prime = z2.copy()
-        # direction = tf.Variable(get_initial_direction(dir_index))
-        scale = 1.0  # std
-        direction = tf.distributions.Normal(get_initial_direction(dir_name), scale)
-        coef = tf.convert_to_tensor(COEF)
-        z2_tf = tf.convert_to_tensor(z2)
-        z2_prime[:8] = (z2_tf + coef * direction)[:8]  # Pq seulement 8 premiers éléments ???
 
         # Go back to an image so that the torch transform can be applied on
-        synthetic_image = generate_image(z2_prime)  # PIL.Image
+        synthetic_image = generate_image(z2 + direction.eval())  # PIL.Image
         pair[1].trans_image = TRANS(synthetic_image)
 
         # --------------------------------------------------------------
@@ -121,7 +119,7 @@ def main_wd(db_source_list, model, nb_input_pairs=TRAINING_SIZE, dir_name="smile
 
         embed1 = pair[0].get_feature_repres(model)
         embed2 = pair[1].get_feature_repres(model)
-        distance = f.pairwise_distance(embed1, embed2, 2)
+        distance = f.pairwise_distance(embed1, embed2, 2).data[0].detach().cpu().numpy()
         print("distance: " + str(distance))
 
         # --------------------------------------------------------------
@@ -131,9 +129,9 @@ def main_wd(db_source_list, model, nb_input_pairs=TRAINING_SIZE, dir_name="smile
         mse = tf.losses.mean_squared_error(0, distance)  # the loss function
         adam = tf.train.AdamOptimizer(learning_rate=LR)  # the optimizer
         if DIFFERENT:
-            a = adam.minimize(mse, var_list=direction)  # this runs one step of gradient descent
+            a = adam.minimize(mse, var_list=[direction])  # this runs one step of gradient descent
         else:
-            a = adam.maximize(mse, var_list=direction)
+            a = adam.maximize(mse, var_list=[direction])
         return direction, a
 
 
@@ -168,21 +166,19 @@ def set_to_zero(x, prop_O=PROP_NO_VARIATION):
 
 
 if __name__ == "__main__":
-
-    test_id = 0
+    test_id = 1
     set_to_zero(np.random.normal(MEAN, STD, (W_DIM1, W_DIM2)))
     dir_name_list = ["smile"]
     w_list = []
     nb_directions = 10
-    model = "models/dsgbrieven_filteredcfp_humFilteredlfw_filteredfaceScrub_humanFiltered_3245_1default_" \
-            "70_triplet_loss_nonpretrained.pt"
+    model_name = "models/dsgbrieven_filteredlfw_filtered_8104_1default_70_cross_entropy_pretautoencoder.pt"
 
-    db_source_list = ["cfp_humFiltered"]  # , "lfw_filtered", "gbrieven_filtered", "faceScrub_humanFiltered"]
+    db_source_list = ["cfp_humFiltered"] #lfw_filtered"]  # , , "gbrieven_filtered", "faceScrub_humanFiltered"]
 
     if test_id == 0:
-        # -------------------------------------
-        # Find consistent initial directions
-        # -------------------------------------
+        print("-----------------------------------------")
+        print("TEST0: Find consistent initial directions")
+        print("-----------------------------------------\n")
         # w = np.random.rand(18, 512)
         dir_name_list = []
         for i in range(nb_directions):
@@ -194,22 +190,23 @@ if __name__ == "__main__":
             print("The latent direction after training has been saved as " + fname)
 
     if test_id == 1:
-        # -------------------------
-        # Train weakness detector
-        # -------------------------
-        weights, optimizer = main_wd(db_source_list, model, dir_name=dir_name)
+        print("------------------------------")
+        print("TEST1: Train weakness detector")
+        print("------------------------------\n")
+        model = load_model(model_name)
+        weights, optimizer = main_wd(db_source_list, model, dir_name=dir_name_list[-1])
         w_list = [run(weights, optimizer)]
         w_id = dir_name_list[-1] + "_" + "1"
 
         # -------- Store the latent direction ----------
-        fname = DIRECTION_DIR + dir_name_list[-1] + ".npy"
+        fname = DIRECTION_DIR + dir_name_list[-1] + "afterTrained.npy"
         np.save(fname, w_list[-1].eval())
         print("The latent direction after training has been saved as " + fname)
 
     if test_id in [0, 1]:
-        # -----------------------------------------
-        # Check consistency of the synthetic images
-        # -----------------------------------------
+        print("-----------------------------------------")
+        print("Check consistency of the synthetic images")
+        print("-----------------------------------------")
 
         # Take some latent representation
         nb_test = 5
@@ -223,11 +220,13 @@ if __name__ == "__main__":
                 move_and_show(latent_vector, w, COEF, save_result)
 
     if test_id == 2:
-        # ------------------------------------------------
-        # Generate synthetic images from learnt direction
-        # ------------------------------------------------
+        print("-----------------------------------------------")
+        print("Generate synthetic images from learnt direction")
+        print("-----------------------------------------------")
+        model = load_model(model_name)
+
         db = FOLDER_DB + "cfp_humFiltered.zip"
-        train_fset = generate_synthetic_im(db, nb_additional_images=2, directions=[dir_name])
+        train_fset = generate_synthetic_im(db, nb_additional_images=2, directions=[dir_name_list[-1]])
         val_fileset = from_zip_to_data(False, fname=FOLDER_DB + db_source_list[0] + ".zip", max_nb_entry=SIZE_VALID)
         sets_list = [train_fset, val_fileset]
 
@@ -239,3 +238,4 @@ if __name__ == "__main__":
             fname.append(FOLDER_DB + db_source + "zip")
 
         main_train(sets_list, fname, name_model=model, with_synt=True)
+

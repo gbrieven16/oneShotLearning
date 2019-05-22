@@ -232,7 +232,7 @@ def is_not_nb(nb):
 if __name__ == "__main__":
 
     csv_name = "result/fr_model_evaluation.csv"
-    test_id = 8
+    test_id = 5
 
     if test_id == 1:
         print(" -------------------------- TEST 1 --------------------------------")
@@ -283,7 +283,7 @@ if __name__ == "__main__":
         csv_name = "result/syntAndReal_old.csv"
         title = "Comparison between different data quantities and nature"
         # Compare architectures
-        di1 = to_dic(csv_name, ["Synth", "Total Nb of Images"], "f1_score3", lower_bound=0)
+        di1 = to_dic(csv_name, ["Synth", "Total Nb of Images"], "best_f1_score", lower_bound=0)
 
         print(di1)
         # arch = list(di1.keys())
@@ -303,17 +303,39 @@ if __name__ == "__main__":
                   annotated=False, y_title="Accuracy", save_name="fr_dist")
 
     if test_id == 7:
-        print(" -------------------------- TEST 7 --------------------------------")
-        print("Visualize the performance according to the gallery size")
-        print(" ------------------------------------------------------------------")
-        x = [20, 40, 60, 80, 100, 120, 150, 200, 300, 400]
-        di = to_dic(csv_name, ["gallery_size"], "nb_correct_dist", lower_bound=0)
-        y = []
-        for i, gal_size in enumerate(x):
-            y.append(di[gal_size])
-        title = "Accuracy according to the gallery size"
+        print(" ------------------------------------ TEST 8 ---------------------------------------")
+        print("Visualize the performance according to top-N when comparing synth and non-synth data")
+        print(" -----------------------------------------------------------------------------------")
+        csv_name = "result/fr_model_evaluation.csv"
+        title = "Top-N Accuracy on the FR task using or not synthetic data"
 
-        line_graph(x, y, title, x_label="x", y_label="y", save_name=None)
+        x_axis = ["Top-1", "Top-3", "Top-5", "Top-8", "Top-10", "Top-20"]  # Should be the keys of dic
+        size_gal = 100
+        model = "dscfp_humFilteredgbrieven_filteredlfw_filteredfaceScrub_humanFiltered_15880_1default_70_triplet_loss_pretautoencoder.pt"
+        d_nonSynth = {}
+        d_synth = {}
+        df = pd.read_csv(csv_name, delimiter=";")
+
+        # ------------------------------------------------------------------------
+        # Store all values of crit_value to the corresponding crit_key
+        # ------------------------------------------------------------------------
+        for i, row in df.iterrows():
+            if row["db_test"] != '[\'cfp_humFiltered\']' or row["gallery_size"] != size_gal or row["model name"] != model:
+                continue
+            for i, acc in enumerate(row["topN"].split("),")):
+                if i == 3 or i == 6:
+                    continue
+                print("row[top] type is: " + str(float(acc.split("(")[1].split(",")[0])*5))
+                if row["With_synthet"]:
+                    d_synth[x_axis[i]] = 5*float(acc.split("(")[1].split(",")[0])
+                else:
+                    d_nonSynth[x_axis[i]] = 5*float(acc.split("(")[1].split(",")[0])
+
+        print("d_nonSynth " + str(d_nonSynth))
+        # arch = list(di1.keys())
+        bar_chart(d_nonSynth, d_synth, title,
+                  first_title="Without Synthetic Data", second_title="With Synthetic Data",
+                  annotated=True, y_title="Accuracy (%)", save_name="fr_synth_" + str(size_gal), loc="upper left")
 
     if test_id == 8:
         print(" -------------------------- TEST 8 --------------------------------")
@@ -321,11 +343,10 @@ if __name__ == "__main__":
         print(" ------------------------------------------------------------------")
         csv_name = "result/fr_model_evaluation_g.csv"
         title = "Accuracy of the face recognition task for different gallery sizes"
-        # Compare architectures
         di1 = to_dic(csv_name, ["Nb_inst_probes", "gallery_size"], "nb_correct_dist", lower_bound=0)
 
         print(di1)
         # arch = list(di1.keys())
         bar_chart(di1[1], di1[2], title,
                   first_title="1 probe instance", second_title="2 probe instances",
-                  annotated=True, y_title="Accuracy (%)", save_name="fr_gallerySize")
+                  annotated=True, y_title="Accuracy (%)", save_name="fr_gallerySize", loc="upper right")

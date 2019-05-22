@@ -11,31 +11,30 @@ from Model import Model, DEVICE, should_break, EP_SAVE
 from Visualization import store_in_csv, line_graph
 
 from Dataprocessing import Face_DS, from_zip_to_data, MAIN_ZIP, CENTER_CROP, load_sets, FOLDER_DB, TEST_ZIP, \
-    WITH_SYNTH, FROM_ROOT
+    WITH_SYNTH, FROM_ROOT, DIFF_FACES
 
 #########################################
 #       GLOBAL VARIABLES                #
 #########################################
 
 
-NUM_EPOCH = 1 if platform.system() == "Darwin" else 70
+NUM_EPOCH = 1 if platform.system() == "Darwin" else 80
 BATCH_SIZE = 32
 
 LR_NONPRET = 0.001
 LEARNING_RATE = 0.001
-WITH_LR_SCHEDULER = "StepLR"  # "ExponentialLR" None
+WITH_LR_SCHEDULER = None #"StepLR"  # "ExponentialLR" None
 WEIGHT_DECAY = 0.001  # To control regularization
 OPTIMIZER = "Adam"  # "Adagrad" "SGD"
 
 WEIGHTED_CLASS = False
 WITH_EPOCH_OPT = False
-LOSS = "triplet_loss"  # "ce_classif" "constrastive_loss" triplet_and_ce triplet_distdif_loss
+LOSS = "triplet_loss"  # "ce_classif" "constrastive_loss" triplet_and_ce
 
 MODE = "learn"  # "classifier training"
 PRETRAINING = "autoencoder"  # ""autoencoder"  # "autoencoder_only" "none"
 WITH_NON_PRET = True
 
-DIFF_FACES = True  # If true, we have different faces in the training and the testing set
 WITH_PROFILE = False  # True if both frontally and in profile people
 
 NB_PREDICTIONS = 1
@@ -76,8 +75,8 @@ def main(db_train=None, fname=None, nb_classes=0, name_model=None, loss=LOSS):
         # ------------------- Data Loading -----------------
         db_name, db_title = get_db_name(fname, db_train)
         training_set, validation_set = fileset.get_sets(DIFF_FACES, db_set1=db_train, nb_classes=nb_classes)
-        embeddingNet = None if name_model is None else load_model(name_model).embedding_net
-        sets_list = load_sets(db_name, DEVICE, nb_classes, [training_set, validation_set, test_set], model=embeddingNet)
+        model = None if name_model is None else load_model(name_model)
+        sets_list = load_sets(db_name, DEVICE, nb_classes, [training_set, validation_set, test_set], model=model)
 
         # ------------------- Model Definition and Training  -----------------
         main_train(sets_list, fname, db_train=db_train, name_model=name_model, loss=loss,
@@ -137,7 +136,7 @@ def main(db_train=None, fname=None, nb_classes=0, name_model=None, loss=LOSS):
 def load_model(model_name):
     pickle.load = partial(pickle.load)
     pickle.Unpickler = partial(pickle.Unpickler)
-    return torch.load(model_name, map_location=lambda storage, loc: storage, pickle_module=pickle)  # network
+    return torch.load(model_name, map_location=lambda storage, loc: storage, pickle_module=pickle).to(DEVICE) # network
 
 
 '''----------------------- get_db_name --------------------------------------
@@ -227,7 +226,7 @@ def main_train(sets_list, fname, db_train=None, name_model=None, scheduler=WITH_
                     print("\n------- Retraining of model ----------")
 
                 model_learn.train(epoch)
-                #if WITH_EVAL_ON_TRAIN: model_learn.prediction(on_train=True) Included in active_learning
+                # if WITH_EVAL_ON_TRAIN: model_learn.prediction(on_train=True) Included in active_learning
                 model_learn.prediction()
 
                 if epoch != 0 and epoch % EP_SAVE == 0:
@@ -255,7 +254,8 @@ def main_train(sets_list, fname, db_train=None, name_model=None, scheduler=WITH_
             # ------- Record: Evolution of the performance ---------
             info_data = [db_name if fname is not None else MAIN_ZIP, str(nb_images), len(sets_list[0].train_data),
                          DIFF_FACES, CENTER_CROP, db_title]
-            loss += "_normFeat" + str(NORMALIZE_FR) + "_distWeight" + str(WITH_DIST_WEIGHT)
+            if loss in ["triplet_loss", "contrastive_loss", "triplet_and_ce"]:
+                loss += "_normFeat" + str(NORMALIZE_FR) + "_distWeight" + str(WITH_DIST_WEIGHT)
             info_training = [pret, NUM_EPOCH, BATCH_SIZE, WEIGHT_DECAY, str((LEARNING_RATE, scheduler)),
                              TYPE_ARCH, OPTIMIZER, loss, WEIGHTED_CLASS]
 
@@ -283,7 +283,7 @@ def main_train(sets_list, fname, db_train=None, name_model=None, scheduler=WITH_
 
 if __name__ == '__main__':
     # main()
-    test = 3 if platform.system() == "Darwin" else 3
+    test = 2 if platform.system() == "Darwin" else 3
 
     # -----------------------------------------------------------------------
     # Test 1: Confusion Matrix with different db for training and testing
@@ -305,10 +305,10 @@ if __name__ == '__main__':
     # -------------------------------------------------------------------------
     if test == 2 or test is None:
         MODE = "learn"
-        nb_classes_list = [5, 10, 50, 100, 200, 500, 1000, 5000, 10000]
+        nb_classes_list = [5, 10, 50, 100, 200, 500] #, 1000, 5000, 10000]
         f1 = []
-        db_name_train = [FOLDER_DB + "gbrieven.zip", FOLDER_DB + "cfp.zip", FOLDER_DB + "lfw.zip",
-                         FOLDER_DB + "faceScrub.zip"]
+        db_name_train = [FOLDER_DB + "gbrieven_filtered.zip",
+                         FOLDER_DB + "lfw_filtered.zip"]  # "faceScrub", "lfw", "cfp", "gbrieven", "testdb"]
         for i, nb_classes in enumerate(nb_classes_list):
             f1.append(main(nb_classes=nb_classes, fname=db_name_train))
 
@@ -318,25 +318,23 @@ if __name__ == '__main__':
         print("----------------------------------------------------------------------- ")
         print("MAIN: Test 3: Train Model from different db")
         print("----------------------------------------------------------------------- ")
-        db_name_train = [FOLDER_DB + "gbrieven_filtered.zip", FOLDER_DB + "lfw_filtered.zip"]  # "faceScrub", "lfw", "cfp", "gbrieven", "testdb"] #"testCropped"
-        #db_name_train = [FOLDER_DB + "cfp70.zip"]
+        db_name_train = [FOLDER_DB + "gbrieven_filtered.zip",
+                         FOLDER_DB + "lfw_filtered.zip"]  # "faceScrub", "lfw", "cfp", "gbrieven", "testdb"]
+        # db_name_train = [FOLDER_DB + "cfp70.zip"]
         # db_name_train = [FOLDER_DB + "gbrieven_filtered.zip"]
-        loss_list = ["triplet_loss", "cross_entropy", "triplet_and_ce", "constrastive_loss", "triplet_distdif_loss"]
+        loss_list = ["triplet_loss"] #, "cross_entropy"] #, "constrastive_loss"]
         for i, loss in enumerate(loss_list):
             main(fname=db_name_train, loss=loss)
 
-    print("----------------------------------------------------------------------- ")
-    print("MAIN: Test 4: Train Model from all db")
-    print("----------------------------------------------------------------------- ")
-    if test == 4 or test is None:
-        print("Test 4: Training on all db ... \n")
-        # db_name_train = [FOLDER_DB + "gbrieven.zip", FOLDER_DB + "cfp.zip", FOLDER_DB + "lfw.zip",
-        #  FOLDER_DB + "faceScrub.zip"]
+    if test == 4:  # test is None:
+        print("----------------------------------------------------------------------- ")
+        print("MAIN: Test 4: Train Model from all db")
+        print("-----------------------------------------------------------------------\n ")
+
         db_name_train = [FOLDER_DB + "cfp_humFiltered.zip", FOLDER_DB + "gbrieven_filtered.zip",
                          FOLDER_DB + "lfw_filtered.zip", FOLDER_DB + "faceScrub_humanFiltered.zip"]
-        loss_list = ["triplet_loss", "triplet_and_ce", "cross_entropy", "constrastive_loss", "triplet_distdif_loss"]
-        for i, loss in enumerate(loss_list):
-            main(fname=db_name_train, loss=loss)
+
+        main(fname=db_name_train)
 
     # -----------------------------------------------------------------------
     # Test 5: Train embedding network using an autoencoder and directly test
@@ -356,13 +354,14 @@ if __name__ == '__main__':
         # FOLDER_DB + "faceScrub.zip"]
         main(name_model=name_model)
 
-    # -----------------------------------------------------------------------
-    # Test 6: Retrain the model which has been registered on triplets such
-    # that d(A,N) < d(A,P)
-    # -----------------------------------------------------------------------
-    if test == 7 or test is None:
+    if test == 7:  # test is None:
+        print("-----------------------------------------------------------------------")
+        print("Test 6: Retrain the model which has been registered on triplets")
+        print("        such that d(A,N) < d(A,P)")
+        print("-----------------------------------------------------------------------\n")
         MODE = "learn"
-        name_model = FROM_ROOT + "models/THEmodel_VGG16_triplet_loss_ep8.pt"
-        db_name_train = [FOLDER_DB + "cfp.zip"]  # , FOLDER_DB + "cfp.zip", FOLDER_DB + "lfw.zip",
-        # FOLDER_DB + "faceScrub.zip"]
-        main(name_model=name_model, fname=db_name_train)
+        name_model = FROM_ROOT + "models/dscfp_humFilteredgbrieven_filteredlfw_filteredfaceScrub_humanFiltered_" \
+                                 "15880_1default_70_cross_entropy_nonpretrained.pt"
+        db_name_train = [FOLDER_DB + "cfp_humFiltered.zip", FOLDER_DB + "gbrieven_filtered.zip",
+                         FOLDER_DB + "lfw_filtered.zip", FOLDER_DB + "faceScrub_humanFiltered.zip"]
+        main(name_model=name_model, fname=db_name_train, loss="triplet_loss")

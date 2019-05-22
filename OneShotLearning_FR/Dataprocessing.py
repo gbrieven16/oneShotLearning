@@ -37,10 +37,10 @@ warnings.filterwarnings('ignore')
 
 # if the 2th db not used, replace "yalefaces" by ""
 FROM_ROOT = "" if platform.system() == "Darwin" else "/home/gbrieven/oneShotLearning/OneShotLearning_FR/"
-FOLDER_DIC = "face_dic/" if platform.system() == "Darwin" else "/home/gbrieven/datasets/face_dic/"
+FOLDER_DIC = "data/gbrieven/face_dic/" if platform.system() == "Darwin" else "/home/gbrieven/datasets/face_dic/"
 FOLDER_DB = "data/gbrieven/" if platform.system() == "Darwin" else "/home/gbrieven/datasets/"
 MAIN_ZIP = FOLDER_DB + 'cfp.zip'  # cfp.zip "testdb.zip"  CASIA-WebFace.zip'
-TEST_ZIP = FOLDER_DB + 'testdb.zip'
+TEST_ZIP = FOLDER_DB + 'testdb_filtered.zip'
 
 ZIP_TO_PROCESS = FOLDER_DB + 'initTestCropped.zip'  # aber&GTdb_crop.zip'
 NB_DIGIT_IN_ID = 1
@@ -50,6 +50,9 @@ CONSTRAINT_SAME_TRIPLETS = True
 EXTENSION = ".jpg"
 SEPARATOR = "__"  # !!! Format of the dabase: name[!]__id !!! & No separators in name!
 RATION_TRAIN_SET = 0.75
+
+DIFF_FACES = True  # If true, we have different faces in the training and the testing set
+
 MAX_NB_ENTRY = 500000
 MIN_NB_IM_PER_PERSON = 2
 MAX_NB_IM_PER_PERSON = 20
@@ -65,7 +68,7 @@ TRANS = transforms.Compose([transforms.CenterCrop(CENTER_CROP), transforms.ToTen
 
 Q_DATA_AUGM = 4
 BATCH_SIZE_DA = 10  # Batch size of data augmentation (so that images are registered)
-DIST_METRIC = "MeanSquare" #"Manhattan" "Cosine_Sym"
+DIST_METRIC = "Manhattan"# "Cosine_Sym" "MeanSquare"
 
 
 # ================================================================
@@ -90,8 +93,12 @@ class Data:
 
             extension = ".".join(fn.split(".")[1:])
         else:
-            name_person = fn.split(SEPARATOR)[0] + fn.split(SEPARATOR)[1]  # = dbNamePersonName
-            index = fn.split(SEPARATOR)[2].split(".")[0]
+            try:
+                name_person = fn.split(SEPARATOR)[0] + fn.split(SEPARATOR)[1]  # = dbNamePersonName
+                index = fn.split(SEPARATOR)[2].split(".")[0]
+            except IndexError: #ASSUMPTION: fn = namePerson.zip
+                name_person = fn.split(".")[0]
+                index = "0"
 
             extension = ".".join(fn.split(".")[1:])
 
@@ -287,7 +294,7 @@ class Fileset:
                 original_image.save("Undetected_" + data.filename.replace("/", SEPARATOR))
                 nb_undetected_faces += 1
                 continue
-            #print("data.filename " + str(data.filename))
+
             img = FaceImage(data.filename, formatted_image, db_path=data.db_path, pers=personName, i=data.index)
             if not with_synth and img.synthetic:
                 continue
@@ -303,16 +310,20 @@ class Fileset:
         # --- Remove element where value doesn't contain enough pictures -----
         faces_dic = {label: pictures for label, pictures in faces_dic.items() if min_nb_pict <= len(pictures)}
 
+        # -------------------------------------------------------
+        # Dictionary Saving
+        # -------------------------------------------------------
+
         if save is not None:
             try:
-                pickle.dump(faces_dic, open(FOLDER_DB + FOLDER_DIC + "faceDic_" + save + ".pkl", "wb"))
+                pickle.dump(faces_dic, open(FOLDER_DIC + "faceDic_" + save + ".pkl", "wb"))
             except OSError:
                 mid = int(round(len(faces_dic) / 2))
                 faces_dic1 = {k: v for k, v in faces_dic.items() if k in list(faces_dic)[:mid]}
                 faces_dic2 = {k: v for k, v in faces_dic.items() if k in list(faces_dic)[mid:]}
 
-                pickle.dump(faces_dic1, open(FOLDER_DB + FOLDER_DIC + "faceDic_" + save + "1.pkl", "wb"))
-                pickle.dump(faces_dic2, open(FOLDER_DB + FOLDER_DIC +"faceDic_" + save + "2.pkl", "wb"))
+                pickle.dump(faces_dic1, open(FOLDER_DIC + "faceDic_" + save + "1.pkl", "wb"))
+                pickle.dump(faces_dic2, open(FOLDER_DIC +"faceDic_" + save + "2.pkl", "wb"))
 
         return faces_dic
 
@@ -407,14 +418,15 @@ class FaceImage():
         else:
             data = torch.unsqueeze(self.trans_img, 0)
             self.feature_repres = f.normalize(model.embedding_net(data), p=2, dim=1)
+            #self.feature_repres = model.embedding_net(data)
             return self.feature_repres
 
     def get_latent_repr(self):
         if self.latent_repres is not None:
             return self.latent_repres
-        dlatent_name = self.file_path.split(".")[0] + ".npy"
+        dlatent_name =  self.file_path.split(".")[0] + ".npy"
         try:
-            self.latent_repres = np.load(dlatent_name)
+            self.latent_repres = np.load(DLATENT_DIR +dlatent_name)
             return self.latent_repres
         except FileNotFoundError:
             print(dlatent_name + " couldn't be loaded ...\n")
@@ -452,8 +464,8 @@ class FaceImage():
             # CASE 2: Feature representation from generator
             # ----------------------------------------------------
             else:
-                lr1 = picture.get_latent_repr()
-                lr2 = self.get_latent_repr()
+                lr1 = picture.get_latent_repr().flatten()
+                lr2 = self.get_latent_repr().flatten()
 
                 if DIST_METRIC == "Manhattan":
                     dist = distance.cityblock(lr1, lr2)
@@ -530,7 +542,7 @@ class Face_DS(torch.utils.data.Dataset):
 
         self.print_data_report(faces_dic=faces_dic, triplet=triplet_version)
 
-        if save is not None:
+        if save is not None and model is None:
             with open(save, 'wb') as output:
                 try:
                     torch.save(self, output)  # , protocol=2) #pickle.HIGHEST_PROTOCOL
@@ -620,6 +632,7 @@ class Face_DS(torch.utils.data.Dataset):
                         # (empty sequence of available index)
                         break
                     picture_positive = pictures_list[curr_index_pos]
+                    picture_positive.get_feature_repres(model)
                     d_pos = picture_positive.get_dist(picture_ref.index, picture_ref, fr1) if model is not None else 1
                     pic_ind_pos.remove(curr_index_pos)
                     pos_pict_list.append(curr_index_pos)  # Remember the pairs that are defined to avoid redundancy
@@ -655,10 +668,11 @@ class Face_DS(torch.utils.data.Dataset):
 
                         except IndexError:
                             break
-
+                    picture_negative.get_feature_repres(model)
                     d_neg = picture_negative.get_dist(picture_ref.index, picture_ref, fr1) if model is not None else 0
 
                     # Check if the triplet is "relevant" (i.e d(a,n) < d(a,p))
+                    print("d_pos " + str(d_pos) + " and d_neg " + str(d_neg))
                     if d_pos < d_neg:
                         continue
 
@@ -784,6 +798,7 @@ def load_sets(db_name, dev, nb_classes, sets_list, model=None, save=True):
     for i, set in enumerate(sets_list):
         if save:
             name_file = FOLDER_DB + save_names_list[i]
+            name_file = name_file + "sameFac" if not DIFF_FACES else name_file + ""
             name_file = name_file + ".pkl" if i == 2 else name_file + type_ds + db_name + ".pkl"
         else:
             name_file = "None"
@@ -792,6 +807,8 @@ def load_sets(db_name, dev, nb_classes, sets_list, model=None, save=True):
         # Load the FACE_DS Object (if there's any)
         # ------------------------------------------
         try:
+            if model is not None: #Case where "weak triplets" have to be built
+                raise ValueError
             with open(name_file, "rb") as f:
                 loaded_set = torch.load(f)
                 loaded_set.print_data_report(triplet=(nb_classes == 0))
@@ -816,6 +833,8 @@ def load_sets(db_name, dev, nb_classes, sets_list, model=None, save=True):
 '''--------------------- include_data_to_zip --------------------------------
  This function adds to MAIN_ZIP the processed content of ZIP_TO_PROCESS
  --------------------------------------------------------------------------'''
+
+
 
 
 def include_data_to_zip():
@@ -905,7 +924,10 @@ IN: fn is like db__person__index.jpg
 
 def is_already_synt(already_synt, fn):
     # --------- Check if synthetic image ---------
-    index = fn.split(SEPARATOR)[2].split(".")[0]
+    try:
+        index = fn.split(SEPARATOR)[2].split(".")[0]
+    except IndexError:
+        index = fn.split(".")[0]
     if 1 < len(index.split("_")):
         return True
     else:
@@ -951,8 +973,13 @@ def generate_synthetic_im(db, nb_additional_images=Q_DATA_AUGM, directions=None)
             current_person = fn.split(".png")[0].replace("/", "_")
             index = 0
         else:
-            current_person = fn.split(SEPARATOR)[1]
-            index = fn.split(SEPARATOR)[2].split(".")[0]
+            try:
+                current_person = fn.split(SEPARATOR)[1]
+                index = fn.split(SEPARATOR)[2].split(".")[0]
+            except IndexError:
+                current_person = fn.split(".")[0]
+                index = "0"
+
             if is_already_synt(already_synt, fn) or current_person in face_dic:
                 continue
 
@@ -1061,8 +1088,8 @@ if __name__ == "__main__":
 
     # ----------------- Synthetic Images Generation and saving ----------------
     if test_id == 2:
-        db_list = ["cfp_humFiltered.zip", "gbrieven_filtered.zip", "lfw_filtered.zip", "faceScrub_filtered.zip",
-                   "testdb_filtered.zip"]
+        db_list = ["FFHQ500.zip", "cfp_humFiltered.zip", "gbrieven_filtered.zip", "lfw_filtered.zip",
+                   "faceScrub_filtered.zip", "testdb_filtered.zip"]
 
         for i, db in enumerate(db_list):
             print("Current db is " + str(FOLDER_DB + db) + "...\n")

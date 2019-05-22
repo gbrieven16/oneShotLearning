@@ -4,13 +4,13 @@ import torch
 
 from Main import load_model, WITH_PROFILE, DIFF_FACES, main_train
 from Dataprocessing import FOLDER_DB, FaceImage, Face_DS, from_zip_to_data, TEST_ZIP, TRANS, FOLDER_DIC
-from FaceRecognition import remove_synth_data, remove_real_data
+from FaceRecognition import remove_synth_data, remove_real_data, put_synth_first
 
 #########################################
 #       GLOBAL VARIABLES                #
 #########################################
 
-TEST_ID = 3
+TEST_ID = 4
 PICTURES_NB = [200, 500, 1000, 2000, 4000, 10000, 15000, 20000]
 TRIPLET_NB = [5, 3, 2, 2, 2, 1, 1, 1]
 NB_INST = 2
@@ -68,39 +68,6 @@ def build_ds(db_list, nb_people, nb_pict_per_pers):
 
     # 5. ------------- Return Dataset from ------------------------
     return Face_DS(faces_dic=people_reduced)
-
-
-""" -------------------- put_synth_first --------------------
-This function creates a new dictionary from the input one
- where all the people having synthetic images are put first in
----------------------------------------------------------------- """
-
-
-def put_synth_first(face_dic):
-    # ----------------------------------------------------------
-    # 1. Extract all items where the person has synth images
-    # ----------------------------------------------------------
-
-    people_with_synt = {}
-    people_without_synt = {}
-
-    for person, pictures in face_dic.items():
-        with_synt = False
-        for i, picture in enumerate(pictures):
-            if picture.is_synth:
-                with_synt = True
-                break
-
-        if with_synt:
-            people_with_synt.update({person: pictures})
-        else:
-            people_without_synt.update({person: pictures})
-
-    # ----------------------------------------------------------
-    # 2. Build dic where the extracted items are put first
-    # ----------------------------------------------------------
-    people_with_synt.update(people_without_synt)
-    return people_with_synt
 
 
 """
@@ -204,6 +171,7 @@ def define_datasets(db_list, with_test_set=False, with_synt_first=False, with_sy
 def from_dic_to_ds(face_dic, name_ds_train, nature):
     # Don't empty the dic supposed to support the real dataset just after
     face_dic_to_change = dict(face_dic) if nature == "real and synth" else face_dic
+    #print("\nIn from_dic_to_ds, dic is " + str(face_dic) + "\n")
 
     # ---------------------------------------------------------------------------
     # Define "incremental" dictionaries (with 200, 300, 500... pictures in)
@@ -211,9 +179,9 @@ def from_dic_to_ds(face_dic, name_ds_train, nature):
 
     dict_list = []  # List of 8 dictionaries
     total_nb_pict = 0
-    for j, nb_pict in enumerate(PICTURES_NB):
+    for j, nb_picts in enumerate(PICTURES_NB):
         dict_list.append({})
-        while total_nb_pict < nb_pict:
+        while total_nb_pict < nb_picts:
             try:
                 first_person = list(face_dic_to_change.keys())[0]
             except IndexError:
@@ -264,8 +232,8 @@ def get_nb_synth_data(db_path=None, list_pict=None):
         else:
             nb_real += 1
 
-    print("The total number of real pictures is " + str(nb_real))
-    print("The total number of synthetic pictures in is " + str(nb_synth))
+    #print("The total number of real pictures is " + str(nb_real))
+    #print("The total number of synthetic pictures in is " + str(nb_synth))
     return nb_synth, nb_real
 
 
@@ -312,7 +280,7 @@ if __name__ == "__main__":
 
     db_list = ["gbrieven_filtered", "cfp_humFiltered", "lfw_filtered", "faceScrub_humanFiltered"]
 
-    if test_id < 6:
+    if test_id < 6 and test_id != 4:
         datasets = define_datasets(db_list, with_test_set=True, with_synt_first=True, with_synt=WITH_SYNTH)
     else:
         datasets = None
@@ -379,10 +347,11 @@ if __name__ == "__main__":
                        nb_images=sum(PICTURES_NB[:index_last]))
 
     if test_id == 4:
-        # ============================================================
-        #  Wide vs Deep Dataset (particularity: nb epoch = 90)
-        # ============================================================
-        db = ["cfp_humFiltered", "testdb", "lfw_filtered"]
+        print("============================================================")
+        print("Wide vs Deep Dataset")
+        print("============================================================")
+
+        db = ["cfp_humFiltered", "lfw_filtered", "faceScrub_humanFiltered"]
         print("-------------- Build Wide ds ... --------------------- ")
         wide_ds = build_ds(db, 500, 10)
         print("-------------- Build Deep ds ... --------------------- ")
@@ -390,12 +359,12 @@ if __name__ == "__main__":
         print("-------------- Build Validation ds ... --------------------- ")
         valid_ds = build_ds(["gbrieven_filtered"], 200, 4)
         print("-------------- Build test ds ... --------------------- ")
-        test_ds = build_ds(["faceScrub_humanFiltered"], 200, 4)
+        test_ds = build_ds(["testdb"], 30, 7)
 
         print("=============== TRAINING ON THE WIDE DS ===================== ")
-        main_train([wide_ds, valid_ds, test_ds], db, pret="autoencoder", nb_images=5000)
+        main_train([wide_ds, valid_ds, test_ds], db, pret="none", nb_images=5000)
         print("=============== TRAINING ON THE DEEP DS ===================== ")
-        main_train([deep_ds, valid_ds, test_ds], db, pret="autoencoder", nb_images=5000)
+        main_train([deep_ds, valid_ds, test_ds], db, pret="none", nb_images=5000)
 
     if test_id == 5:
         # ============================================================
@@ -408,9 +377,9 @@ if __name__ == "__main__":
             print("Len dataset is " + str(len(sets_list[0].train_data)))
 
     if test_id == 6:
-        # ============================================================
-        #  Train only on synthetic data
-        # ============================================================
+        print("============================================================")
+        print("Train only on synthetic data")
+        print("============================================================")
 
         dss = define_datasets(db_list, with_test_set=True, with_only_synth=True)
         print("complete ds: " + str(dss))

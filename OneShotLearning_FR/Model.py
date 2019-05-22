@@ -23,6 +23,7 @@ PT_BS = 32  # Batch size for pretraining
 # PT_NUM_EPOCHS = 200  => default: Normalization included inside the encoder (no good visual results)
 PT_NUM_EPOCHS = 180
 AUTOENCODER_LR = 0.001
+RETRAIN_AUTOENCODER = None #"encoders/encoder_al_1default_ep180.pt"  # None
 EP_SAVE = 30
 ROUND_DEC = 5
 
@@ -124,8 +125,14 @@ class Model:
 
         name_trained_net = ENCODER_DIR + "encoder_al_" + TYPE_ARCH + "_ep" + str(num_epochs) + ".pt"
         try:
-            self.network.embedding_net.load_state_dict(torch.load(name_trained_net))
-            print("The encoder has been loaded!\n")
+            if RETRAIN_AUTOENCODER is not None:
+                self.network.embedding_net.load_state_dict(torch.load(RETRAIN_AUTOENCODER))
+                name_trained_net = RETRAIN_AUTOENCODER.split(".")[0] + "retrained" + str(num_epochs) + "pt"
+                print("The encoder has been loaded and will be retrained!\n")
+                raise FileNotFoundError
+            else:
+                self.network.embedding_net.load_state_dict(torch.load(name_trained_net))
+                print("The encoder has been loaded!\n")
         except FileNotFoundError:
             train_data = Face_DS_train.to_single(Face_DS_train) if self.nb_classes is None else Face_DS_train
             train_loader = torch.utils.data.DataLoader(train_data, batch_size=batch_size, shuffle=True)
@@ -183,8 +190,11 @@ class Model:
                 torch.save(model_comp.network, name_model)
             print("Model not pretrained is saved!")
 
-        self.f1_test["Non-pretrained Model"] = self.prediction(validation=False) \
-            if self.loss_type != "ce_classif" else "None"
+        if self.loss_type != "ce_classif":
+            model_comp.prediction(validation=False)
+            self.f1_test["Non-pretrained Model"] = model_comp.f1_test["Pretrained Model"]
+        else:
+            self.f1_test["Non-pretrained Model"] = "None"
 
     '''---------------------------- train --------------------------------
      This function trains the network attached to the model  
@@ -337,7 +347,7 @@ class Model:
         # ----------- Evaluation on the train set ---------------
         else:
             print("The f1 score evaluated on the training set is " + str((f1_neg_avg + f1_pos_avg) / 2))
-            self.f1_validation["On Training Set"].append((f1_neg_avg + f1_pos_avg) / 2)
+            self.f1_validation["On Training Set"].append(round(100. * (f1_neg_avg + f1_pos_avg) / 2))
             return f1_pos_avg, f1_neg_avg
 
     '''---------------------------- update_weights ------------------------------

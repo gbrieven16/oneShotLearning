@@ -26,7 +26,7 @@ TYPE_ARCH (related to the embedding Network)
 4: AlexNet architecture 
 """
 
-TYPE_ARCH = "1default"  # "resnet152"  #"1default" "VGG16" #  "2def_drop" "3def_bathNorm"
+TYPE_ARCH = "1default"  #"4AlexNet" "resnet152" "VGG16" #  "2def_drop" "3def_bathNorm"
 DIM_LAST_LAYER = 1024 if TYPE_ARCH in ["VGG16", "4AlexNet", "1default1024"] else 512 # TO CHANGE?
 
 DIST_THRESHOLD = 0.02
@@ -35,7 +35,11 @@ METRIC = "Euclid" # "Cosine" #
 NORMALIZE_DIST = False
 NORMALIZE_FR = True
 WEIGHT_DIST = 0.2 # for dist_loss
-WITH_DIST_WEIGHT = True
+WITH_DIST_WEIGHT = False
+
+if TYPE_ARCH in ["4AlexNet", "VGG16"]:
+    NORMALIZE_FR = False
+
 
 # Specifies where the torch.tensor is allocated
 DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -199,7 +203,7 @@ class DistanceBased_Net(nn.Module):
         med_dista = get_median(dista) # avg_dista = float(sum(dista)) / dista.size()[0]
         med_distb = get_median(distb) # avg_distb = float(sum(distb)) / dista.size()[0]
 
-        self.dist_threshold = (self.dist_threshold + med_dista + med_distb) / 3
+        self.dist_threshold = (med_dista + med_distb) / 2
         #print("TODELETE New Updated Threshold: " + str(self.dist_threshold))
         return med_dista, med_distb
 
