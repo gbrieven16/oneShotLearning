@@ -21,7 +21,7 @@ Before the data processing phase, additional synthetic data can be generated fro
 - Synthetic people can be defined 
 - Synthetic additional instances related to a real person can be defined 
 
-All this data augmentation part is supported by the StyleEncoder.py script, relying on the encoder, the dnnlib and the ffhq_dataset packages coming directly from the style GAN implementation.
+All this data augmentation part is supported by the <dt>StyleEncoder.py<dt> script, relying on the encoder, the dnnlib and the ffhq_dataset packages coming directly from the style GAN implementation.
 
 ### Data Processing
 During this phase, first, the image data are processed, being aligned, cropped and turned into a pytorch tensor. Then the resulting tensor is normalized. 
