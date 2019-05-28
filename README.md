@@ -42,7 +42,7 @@ Notice that other loss functions are also implemented and can be experimented, l
 
 All the training part is supported by the script Model.py. Besides this, the global structure of the Siamese Network is implemented in NeuralNetwork.py, where the Autoencoder class and different classes related to each loss are defined. Finally, regarding the architecture of the embedding network, all of them are implemented in EmbeddingNetwork.py and implemented with the help of some external code:
 | Architecture | Source |
-| ------ | ------ |
+*********************
 | BasicNet | https://becominghuman.ai/siamese-networks-algorithm-applications-and-pytorch-implementation-4ffa3304c18|
 | AlexNet | https://github.com/pytorch/vision/blob/master/torchvision/models/alexnet.py |
 | VGG16| https://github.com/pytorch/vision/blob/master/torchvision/models/vgg.py  
