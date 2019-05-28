@@ -23,8 +23,8 @@ BATCH_SIZE = 32
 
 LR_NONPRET = 0.001
 LEARNING_RATE = 0.001
-WITH_LR_SCHEDULER = None #"StepLR"  # "ExponentialLR" None
-WEIGHT_DECAY = 0.001  # To control regularization
+WITH_LR_SCHEDULER = "StepLR"
+WEIGHT_DECAY = 0.001
 OPTIMIZER = "Adam"  # "Adagrad" "SGD"
 
 WEIGHTED_CLASS = False
@@ -32,7 +32,7 @@ WITH_EPOCH_OPT = False
 LOSS = "triplet_loss"  # "ce_classif" "constrastive_loss" triplet_and_ce
 
 MODE = "learn"  # "classifier training"
-PRETRAINING = "autoencoder"  # ""autoencoder"  # "autoencoder_only" "none"
+PRETRAINING = "autoencoder" # "autoencoder_only" "none"
 WITH_NON_PRET = True
 
 WITH_PROFILE = False  # True if both frontally and in profile people
@@ -79,8 +79,10 @@ def main(db_train=None, fname=None, nb_classes=0, name_model=None, loss=LOSS):
         sets_list = load_sets(db_name, DEVICE, nb_classes, [training_set, validation_set, test_set], model=model)
 
         # ------------------- Model Definition and Training  -----------------
-        main_train(sets_list, fname, db_train=db_train, name_model=name_model, loss=loss,
+        f1_score, model_name = main_train(sets_list, fname, db_train=db_train, name_model=name_model, loss=loss,
                    nb_images=len(training_set.data_list))
+
+        return f1_score
 
     elif MODE == "prediction":
         # ==============================================
@@ -282,8 +284,8 @@ def main_train(sets_list, fname, db_train=None, name_model=None, scheduler=WITH_
 #########################################
 
 if __name__ == '__main__':
-    # main()
-    test = 2 if platform.system() == "Darwin" else 3
+
+    test = 3 if platform.system() == "Darwin" else 2
 
     # -----------------------------------------------------------------------
     # Test 1: Confusion Matrix with different db for training and testing
@@ -300,17 +302,17 @@ if __name__ == '__main__':
             print("Model Testing on " + filename + " ...")
             model.prediction()
 
-    # -------------------------------------------------------------------------
-    # Test 2: Classification setting with evolving number of different classes
-    # -------------------------------------------------------------------------
     if test == 2 or test is None:
+        print("-------------------------------------------------------------------------")
+        print("Test 2: Classification setting with evolving number of different classes")
+        print("-------------------------------------------------------------------------")
         MODE = "learn"
         nb_classes_list = [5, 10, 50, 100, 200, 500] #, 1000, 5000, 10000]
         f1 = []
         db_name_train = [FOLDER_DB + "gbrieven_filtered.zip",
                          FOLDER_DB + "lfw_filtered.zip"]  # "faceScrub", "lfw", "cfp", "gbrieven", "testdb"]
         for i, nb_classes in enumerate(nb_classes_list):
-            f1.append(main(nb_classes=nb_classes, fname=db_name_train))
+            f1.append(main(nb_classes=nb_classes, fname=db_name_train, loss="ce_classif"))
 
         line_graph(nb_classes_list, f1, "f1 measure according to the number of classes")
 
@@ -356,7 +358,7 @@ if __name__ == '__main__':
 
     if test == 7:  # test is None:
         print("-----------------------------------------------------------------------")
-        print("Test 6: Retrain the model which has been registered on triplets")
+        print("Test 7: Retrain the model which has been registered on triplets")
         print("        such that d(A,N) < d(A,P)")
         print("-----------------------------------------------------------------------\n")
         MODE = "learn"

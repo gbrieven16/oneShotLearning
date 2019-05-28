@@ -2,13 +2,21 @@ from StyleEncoder import generate_image, get_encoding, move_and_show, DLATENT_DI
 from Dataprocessing import FOLDER_DB, FOLDER_DIC, from_zip_to_data, TRANS, generate_synthetic_im
 from Main import WITH_PROFILE, main_train, load_model
 
+# To transform model
+from torch.autograd import Variable
+import torch.onnx as torch_onnx
+import onnx
+from onnx_tf.backend import prepare
+
 import torch
+import torch.nn.functional as f
+
 import os
+import sys
 import pickle
 import tensorflow as tf
 import numpy as np
 import random
-import torch.nn.functional as f
 
 import matplotlib
 
@@ -25,16 +33,21 @@ TRAINING_SIZE = 500
 DIFFERENT = True
 COEF = 1
 NB_CONSISTENT_W = len(os.listdir(DIRECTION_DIR))
-#FOLDER_SYNTH_IM = "/data/gbrieven/train_synt_im/"
 SIZE_SYNTH_TS = 200
 SIZE_VALID = 100
 
 NB_EPOCHS = 100
 LR = 0.003
 
-MEAN = 0
-STD = 0.005
-PROP_NO_VARIATION = 0.4
+try:
+    MEAN = sys.argv[1]
+    STD = sys.argv[2]
+    PROP_NO_VARIATION = sys.argv[3]
+except IndexError:
+    MEAN = 0
+    STD = 0.005
+    PROP_NO_VARIATION = 0.4
+
 W_DIM1 = 18
 W_DIM2 = 512
 
@@ -42,7 +55,7 @@ W_DIM2 = 512
 # Weakness Detector Training
 # =================================================
 
-""" ------------------- compose_pair ------------------------------------------
+""" ------------------- compose_pair ----------------------------------------
 This function returns a pair of pictures
 IN: face_dic: dictionary where the key is the name of the person and the 
 value is a list of pictures of this person 
@@ -147,7 +160,7 @@ def run(w, optim):
 
 
 """
-This function randomly sets perc_O % of the element of x to 0 
+This function randomly sets prop_O of the element of x to 0 
 x: np array of dimensions (18, 512)
 """
 
@@ -155,9 +168,31 @@ x: np array of dimensions (18, 512)
 def set_to_zero(x, prop_O=PROP_NO_VARIATION):
     for i in range(W_DIM1):
         # Pick randomly indices for the first dimension
-        indices_2 = np.random.choice(np.arange(W_DIM2), replace=False, size=int(prop_O*W_DIM2))
+        indices_2 = np.random.choice(np.arange(W_DIM2), replace=False, size=int(prop_O * W_DIM2))
         x[i][indices_2] = 0
     return x
+
+
+"""
+This function converts a pytorch model to a tensorflow one 
+IN: pytorch model (type nn.Module)
+"""
+
+
+def model_convert(model):
+    # ------------------- From Pytorch to ONNX form ------------------------
+    input_shape = (32, 3, 200, 150)
+    model_onnx_path = "torch_model.onnx"
+
+    # Export the model to an ONNX file
+    dummy_input = Variable(torch.randn(1, *input_shape))
+    output = torch_onnx.export(model, dummy_input, model_onnx_path, verbose=False)
+    print("Export of torch_model.onnx complete!")
+
+    # ------------------- From ONNX to Tensorflow form ---------------------
+    onnx_model = onnx.load(model_onnx_path)  # load onnx model
+    tf_rep = prepare(onnx_model)
+    return tf_rep
 
 
 # ================================================================
@@ -166,14 +201,14 @@ def set_to_zero(x, prop_O=PROP_NO_VARIATION):
 
 
 if __name__ == "__main__":
-    test_id = 1
+    test_id = 0
     set_to_zero(np.random.normal(MEAN, STD, (W_DIM1, W_DIM2)))
     dir_name_list = ["smile"]
     w_list = []
-    nb_directions = 10
+    nb_directions = 3
     model_name = "models/dsgbrieven_filteredlfw_filtered_8104_1default_70_cross_entropy_pretautoencoder.pt"
 
-    db_source_list = ["cfp_humFiltered"] #lfw_filtered"]  # , , "gbrieven_filtered", "faceScrub_humanFiltered"]
+    db_source_list = ["cfp_humFiltered"]  # lfw_filtered"]  # , , "gbrieven_filtered", "faceScrub_humanFiltered"]
 
     if test_id == 0:
         print("-----------------------------------------")
@@ -216,7 +251,7 @@ if __name__ == "__main__":
             for i in range(nb_test):
                 latent_vector = np.load(DLATENT_DIR + dlatent_name_list[i])
                 save_result = GENERATED_IMAGES_DIR + dir_name_list[j] + "_" + dlatent_name_list[i].split(".")[
-                    0] + ".jpg"
+                    0] + str(MEAN) + "_" + str(STD) + "_" + str(PROP_NO_VARIATION) + ".jpg"
                 move_and_show(latent_vector, w, COEF, save_result)
 
     if test_id == 2:
@@ -238,4 +273,3 @@ if __name__ == "__main__":
             fname.append(FOLDER_DB + db_source + "zip")
 
         main_train(sets_list, fname, name_model=model, with_synt=True)
-

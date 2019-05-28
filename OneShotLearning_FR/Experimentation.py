@@ -23,7 +23,6 @@ if TEST_ID == 6:
     TRIPLET_NB = [1]
     WITH_SYNTH = True
 
-
 #########################################
 #       FUNCTIONS                       #
 #########################################
@@ -171,7 +170,7 @@ def define_datasets(db_list, with_test_set=False, with_synt_first=False, with_sy
 def from_dic_to_ds(face_dic, name_ds_train, nature):
     # Don't empty the dic supposed to support the real dataset just after
     face_dic_to_change = dict(face_dic) if nature == "real and synth" else face_dic
-    #print("\nIn from_dic_to_ds, dic is " + str(face_dic) + "\n")
+    # print("\nIn from_dic_to_ds, dic is " + str(face_dic) + "\n")
 
     # ---------------------------------------------------------------------------
     # Define "incremental" dictionaries (with 200, 300, 500... pictures in)
@@ -232,8 +231,8 @@ def get_nb_synth_data(db_path=None, list_pict=None):
         else:
             nb_real += 1
 
-    #print("The total number of real pictures is " + str(nb_real))
-    #print("The total number of synthetic pictures in is " + str(nb_synth))
+    # print("The total number of real pictures is " + str(nb_real))
+    # print("The total number of synthetic pictures in is " + str(nb_synth))
     return nb_synth, nb_real
 
 
@@ -321,7 +320,7 @@ if __name__ == "__main__":
 
         for i, nb_pict in enumerate(PICTURES_NB[:4]):
             print("=============== Training on set " + str(i) + " with "
-                  + str(sum(PICTURES_NB[:i + 1])) + " real and synth images... ===================== ")
+                  + str(sum(PICTURES_NB[:i + 1])) + " real and synth images... ================ ")
             train_ds = merge_datasets(datasets[1][:i + 1])  # Explicit Reuse of previous data
             sets_list = [train_ds, datasets[2], datasets[3]]
             main_train(sets_list, db_name_train, name_model=model_name, pret="autoencoder",
@@ -339,7 +338,7 @@ if __name__ == "__main__":
         schedulers = [None, "StepLR", "ExponentialLR"]
         for i, sched in enumerate(schedulers):
             try:
-                print("================ Training with scheduler " + sched + "... ================================= ")
+                print("================ Training with scheduler " + sched + "... ======================= ")
             except TypeError:
                 print("================ Training without scheduler ... ================================= ")
 

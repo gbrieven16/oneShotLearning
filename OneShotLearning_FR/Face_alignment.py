@@ -12,9 +12,9 @@ from keras.utils import get_file
 #########################################
 
 LANDMARKS_MODEL_URL = 'http://dlib.net/files/shape_predictor_68_face_landmarks.dat.bz2'
-RAW_IMAGES_DIR = "/home/gbrieven/datasets/FFHQ500"  # "/data/gbrieven/FFHQ500"
+RAW_IMAGES_DIR = "/home/gbrieven/datasets/FFHQ500"
 
-ALIGNED_IMAGES_DIR = "/home/gbrieven/datasets/FFHQ500_aligned/" #TO ADD FOR LINUX : "/"
+ALIGNED_IMAGES_DIR = "/home/gbrieven/datasets/FFHQ500_aligned/"
 ZIP_FILE = None  # "/data/gbrieven/FFHQ500.zip"
 
 
@@ -57,10 +57,6 @@ def unpack_bz2(src_path):
         fp.write(data)
     return dst_path
 
-#print("LandmarksDetector Definition ... \n")
-#landmarks_model_path = unpack_bz2(get_file('shape_predictor_68_face_landmarks.dat.bz2', LANDMARKS_MODEL_URL, cache_subdir='temp'))
-#landmarks_detector = LandmarksDetector(landmarks_model_path)
-
 #########################################
 #       FUNCTIONS                       #
 #########################################
@@ -71,8 +67,8 @@ RETURN: image of type PIL
 """
 
 
-def align_faces(img, save_name=None, loaded=None, output_size=(256, 256), transf_size=(512, 512), enable_padding=True):
-
+def align_faces(img, landmarks_detector, save_name=None, loaded=None, output_size=(256, 256), transf_size=(512, 512),
+                enable_padding=True):
     # ------------- Go Though all the detected faces (here only one) -----------------
     for i, face_landmarks in enumerate(landmarks_detector.get_landmarks(image_obj=img, loaded=loaded), start=1):
         lm = np.array(face_landmarks)

@@ -6,13 +6,13 @@ import zipfile
 import random
 import numpy as np
 from scipy.spatial import distance
+
 import torch.nn.functional as f
-
-
 import torch
 import torch.utils.data
 from torch import nn
 import torchvision.transforms as transforms
+# if platform.system() != "Darwin": torch.cuda.set_device(0)
 
 from PIL import Image
 from io import BytesIO
@@ -22,12 +22,11 @@ import matplotlib
 matplotlib.use("Agg")  # ('TkAgg')
 import matplotlib.pyplot as plt
 
-#if platform.system() != "Darwin": torch.cuda.set_device(0)
 from StyleEncoder import data_augmentation, get_encoding, generate_synth_face, DLATENT_DIR
-
-from Face_alignment import align_faces, ALIGNED_IMAGES_DIR
+from Face_alignment import align_faces, unpack_bz2, get_file, LANDMARKS_MODEL_URL, LandmarksDetector
 
 import warnings
+
 warnings.filterwarnings('ignore')
 
 #########################################
@@ -57,7 +56,7 @@ MAX_NB_ENTRY = 500000
 MIN_NB_IM_PER_PERSON = 2
 MAX_NB_IM_PER_PERSON = 20
 MIN_NB_PICT_CLASSIF = 4  # s.t. 25% is used for testing
-NB_TRIPLET_PER_PICT = 1
+NB_TRIPLET_PER_PICT = 4
 WITH_AL = False
 WITH_SYNTH = False
 
@@ -68,7 +67,7 @@ TRANS = transforms.Compose([transforms.CenterCrop(CENTER_CROP), transforms.ToTen
 
 Q_DATA_AUGM = 4
 BATCH_SIZE_DA = 10  # Batch size of data augmentation (so that images are registered)
-DIST_METRIC = "Manhattan"# "Cosine_Sym" "MeanSquare"
+DIST_METRIC = "Manhattan"  # "Cosine_Sym" "MeanSquare"
 
 
 # ================================================================
@@ -96,7 +95,7 @@ class Data:
             try:
                 name_person = fn.split(SEPARATOR)[0] + fn.split(SEPARATOR)[1]  # = dbNamePersonName
                 index = fn.split(SEPARATOR)[2].split(".")[0]
-            except IndexError: #ASSUMPTION: fn = namePerson.zip
+            except IndexError:  # ASSUMPTION: fn = namePerson.zip
                 name_person = fn.split(".")[0]
                 index = "0"
 
@@ -323,7 +322,7 @@ class Fileset:
                 faces_dic2 = {k: v for k, v in faces_dic.items() if k in list(faces_dic)[mid:]}
 
                 pickle.dump(faces_dic1, open(FOLDER_DIC + "faceDic_" + save + "1.pkl", "wb"))
-                pickle.dump(faces_dic2, open(FOLDER_DIC +"faceDic_" + save + "2.pkl", "wb"))
+                pickle.dump(faces_dic2, open(FOLDER_DIC + "faceDic_" + save + "2.pkl", "wb"))
 
         return faces_dic
 
@@ -361,7 +360,7 @@ class Fileset:
 
                 # zipf.write(data.file.filename)
                 zipf.write(path, new_name)
-                print("A new file was written in " + str(db_destination) + ": " + new_name)
+                #print("A new file was written in " + str(db_destination) + ": " + new_name)
                 os.remove(path)
             except TypeError:  # ".png.json" extension
                 pass
@@ -418,15 +417,15 @@ class FaceImage():
         else:
             data = torch.unsqueeze(self.trans_img, 0)
             self.feature_repres = f.normalize(model.embedding_net(data), p=2, dim=1)
-            #self.feature_repres = model.embedding_net(data)
+            # self.feature_repres = model.embedding_net(data)
             return self.feature_repres
 
     def get_latent_repr(self):
         if self.latent_repres is not None:
             return self.latent_repres
-        dlatent_name =  self.file_path.split(".")[0] + ".npy"
+        dlatent_name = self.file_path.split(".")[0] + ".npy"
         try:
-            self.latent_repres = np.load(DLATENT_DIR +dlatent_name)
+            self.latent_repres = np.load(DLATENT_DIR + dlatent_name)
             return self.latent_repres
         except FileNotFoundError:
             print(dlatent_name + " couldn't be loaded ...\n")
@@ -643,7 +642,6 @@ class Face_DS(torch.utils.data.Dataset):
                         curr_index_neg = random.choice(labels_indexes_neg)
                     except IndexError:
                         print("In triplet loss, error for the " + str(j) + "eme triplet generation")
-                        #print("The all people are "+ str(all_labels))
                         break
 
                     label_neg = all_labels[curr_index_neg]
@@ -651,9 +649,6 @@ class Face_DS(torch.utils.data.Dataset):
                         picture_negative = random.choice(faces_dic[label_neg])
                     except IndexError:
                         print("In triplet loss, error for the " + str(j) + "eme triplet generation")
-                        #print("The all people are "+ str(all_labels))
-                        #print("The \"neg\" person is "+ str(label_neg))
-                        #print("The dictionary of faces is "+ str(faces_dic))
                         break
 
                     if nb_same_db < self.nb_triplets / 2:  # Half of the negative must belong to the same db
@@ -672,9 +667,10 @@ class Face_DS(torch.utils.data.Dataset):
                     d_neg = picture_negative.get_dist(picture_ref.index, picture_ref, fr1) if model is not None else 0
 
                     # Check if the triplet is "relevant" (i.e d(a,n) < d(a,p))
-                    print("d_pos " + str(d_pos) + " and d_neg " + str(d_neg))
                     if d_pos < d_neg:
                         continue
+                    else:
+                        print("d_pos " + str(d_pos) + " and d_neg " + str(d_neg))
 
                     # To keep track of the image itself in order to potentially print it
                     try:
@@ -742,7 +738,7 @@ class Face_DS(torch.utils.data.Dataset):
 
         print("\n ---------------- Report about the quantity of data  -------------------- ")
         if triplet:
-            print("The total quantity of triplets used as data is: " + str(2 * len(self.train_labels)))
+            print("The total quantity of triplets used as data is: " + str(len(self.train_labels)))
         print("The number of different people in set is: " + str(len(list(faces_dic.keys()))))
         print("The number of pictures per person is between: " + str(min_nb_pictures) + " and " + str(max_nb_pictures))
         print("The average number of pictures per person is: " + str(sum(pictures_nbs) / len(pictures_nbs)))
@@ -807,7 +803,7 @@ def load_sets(db_name, dev, nb_classes, sets_list, model=None, save=True):
         # Load the FACE_DS Object (if there's any)
         # ------------------------------------------
         try:
-            if model is not None: #Case where "weak triplets" have to be built
+            if model is not None:  # Case where "weak triplets" have to be built
                 raise ValueError
             with open(name_file, "rb") as f:
                 loaded_set = torch.load(f)
@@ -820,7 +816,8 @@ def load_sets(db_name, dev, nb_classes, sets_list, model=None, save=True):
         # ------------------------------------------------------------------------
         except (ValueError, IOError) as e:  # EOFError  IOError FileNotFoundError
             print("\nThe set " + name_file + " couldn't be loaded...\n" + "Building Process ...")
-            result_sets_list.append(Face_DS(fileset=set, triplet_version=(nb_classes == 0), save=name_file, model=model))
+            result_sets_list.append(
+                Face_DS(fileset=set, triplet_version=(nb_classes == 0), save=name_file, model=model))
 
         # ------- Classification Case: no testset -------
         if nb_classes != 0 and i == 1:
@@ -833,8 +830,6 @@ def load_sets(db_name, dev, nb_classes, sets_list, model=None, save=True):
 '''--------------------- include_data_to_zip --------------------------------
  This function adds to MAIN_ZIP the processed content of ZIP_TO_PROCESS
  --------------------------------------------------------------------------'''
-
-
 
 
 def include_data_to_zip():
@@ -1031,10 +1026,17 @@ def generate_synthetic_im(db, nb_additional_images=Q_DATA_AUGM, directions=None)
 
 """ --------------------- register_aligned ---------------------------------
 This function crops and aligns the images in db and registers them in 
+Set ALIGNMENT_ACTIVE to True 
 ---------------------------------------------------------------------------- """
 
 
 def register_aligned(db):
+
+    print("LandmarksDetector Definition ... \n")
+    landmarks_model_path = unpack_bz2(get_file('shape_predictor_68_face_landmarks.dat.bz2', LANDMARKS_MODEL_URL,
+                                               cache_subdir='temp'))
+    landmarks_detector = LandmarksDetector(landmarks_model_path)
+
     # -------------------------------
     # 1. Open the DB
     # -------------------------------
@@ -1054,7 +1056,7 @@ def register_aligned(db):
         # ----------------------------------------------------------------------
         for i, fn in enumerate(file_names):  # fn = name[!]_id.extension
             original_image = Image.open(BytesIO(archive.read(fn))).convert("RGB")
-            res_image = align_faces(original_image)
+            res_image = align_faces(original_image, landmarks_detector)
             if res_image is None:
                 print("The file " + fn + " resulted in nontype transformation")
                 to_remove.append(fn)
@@ -1076,8 +1078,8 @@ def register_aligned(db):
 
 
 if __name__ == "__main__":
-
-    test_id = 2
+    register_aligned(FOLDER_DB + "not_aligned.zip")
+    test_id = None
     # ----------------- Galleries Generation and saving ----------------
     if test_id == 1:
         db_list = ["cfp_humFiltered", "lfw_filtered", "gbrieven_filtered", "faceScrub_humanFiltered"]
@@ -1098,4 +1100,3 @@ if __name__ == "__main__":
     # ----------------- Synthetic Person Generation and saving ----------------
     if test_id == 3:
         generate_synth_face(nb_people=150)
-

@@ -4,9 +4,8 @@ import torch.nn.functional as f
 import numpy as np
 
 from Dataprocessing import CENTER_CROP, Face_DS, from_zip_to_data
-from EmbeddingNetwork import AlexNet, BasicNet, VGG16, ResNet
+from EmbeddingNetwork import AlexNet, BasicNet, VGG16
 
-import torchvision.transforms as transforms
 from scipy.misc import toimage
 
 import matplotlib
@@ -24,22 +23,22 @@ TYPE_ARCH (related to the embedding Network)
 2: with dropout, without batch normalization  
 3: without dropout, with batch normalization  
 4: AlexNet architecture 
+5: VGG16 Net 
 """
 
-TYPE_ARCH = "1default"  #"4AlexNet" "resnet152" "VGG16" #  "2def_drop" "3def_bathNorm"
-DIM_LAST_LAYER = 1024 if TYPE_ARCH in ["VGG16", "4AlexNet", "1default1024"] else 512 # TO CHANGE?
+TYPE_ARCH = "1default"  # "4AlexNet" "resnet152" "VGG16" #  "2def_drop" "3def_bathNorm"
+DIM_LAST_LAYER = 1024 if TYPE_ARCH in ["VGG16", "4AlexNet", "1default1024"] else 512
 
 DIST_THRESHOLD = 0.02
 MARGIN = 0.2
-METRIC = "Euclid" # "Cosine" #
+METRIC = "Euclid"  # "Cosine" #
 NORMALIZE_DIST = False
 NORMALIZE_FR = True
-WEIGHT_DIST = 0.2 # for dist_loss
+WEIGHT_DIST = 0.2  # for dist_loss
 WITH_DIST_WEIGHT = False
 
 if TYPE_ARCH in ["4AlexNet", "VGG16"]:
     NORMALIZE_FR = False
-
 
 # Specifies where the torch.tensor is allocated
 DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -111,7 +110,7 @@ class DistanceBased_Net(nn.Module):
         distance = None
         if not WITH_DIST_WEIGHT or positive is None:
             distance = f.pairwise_distance(embedded_anchor, embedded_neg, 2) if self.metric == "Euclid" \
-              else f.cosine_similarity(embedded_anchor, embedded_neg)
+                else f.cosine_similarity(embedded_anchor, embedded_neg)
 
         # ------------------------------------------------------
         # CASE 1: Just get the distance between 2 input
@@ -137,7 +136,7 @@ class DistanceBased_Net(nn.Module):
                 return distance, disturb
 
             disturb = f.pairwise_distance(embedded_anchor, embedded_pos, 2) if self.metric == "Euclid" \
-                 else f.cosine_similarity(embedded_anchor, embedded_pos)
+                else f.cosine_similarity(embedded_anchor, embedded_pos)
 
             if NORMALIZE_DIST:
                 distance = abs(distance - torch.mean(distance)) / torch.std(distance)
@@ -200,12 +199,13 @@ class DistanceBased_Net(nn.Module):
 
     def update_dist_threshold(self, dista, distb):
 
-        med_dista = get_median(dista) # avg_dista = float(sum(dista)) / dista.size()[0]
-        med_distb = get_median(distb) # avg_distb = float(sum(distb)) / dista.size()[0]
+        med_dista = get_median(dista)  # avg_dista = float(sum(dista)) / dista.size()[0]
+        med_distb = get_median(distb)  # avg_distb = float(sum(distb)) / dista.size()[0]
 
         self.dist_threshold = (med_dista + med_distb) / 2
-        #print("TODELETE New Updated Threshold: " + str(self.dist_threshold))
+        # print("TODELETE New Updated Threshold: " + str(self.dist_threshold))
         return med_dista, med_distb
+
 
 # ================================================================
 #                    CLASS: Triplet_Net
@@ -239,12 +239,12 @@ class Triplet_Net(DistanceBased_Net):
             med_disturb = get_median(disturb)
 
             if abs(med_distance - med_disturb) < self.margin:
-                pass # Way to adapt loss according to the current state
+                pass  # Way to adapt loss according to the current state
 
         # 1 means, dista should be greater than distb
         target_triplet = torch.FloatTensor(distance.size()).fill_(1).to(DEVICE)
         loss = criterion((1 / class_weights[1]) * distance, class_weights[0] * disturb, target_triplet)
-        #print("triplet " + str(loss.item()))
+        # print("triplet " + str(loss.item()))
 
         # ----------------------------------
         # "Dist Loss" Definition
@@ -259,9 +259,9 @@ class Triplet_Net(DistanceBased_Net):
 
             # Distance = Disturbance Case Detection
             if diff_dist_loss.item() < 0.01:
-                loss = (min(1/med_distance, 100) + med_disturb)/2 - diff_dist_loss
+                loss = (min(1 / med_distance, 100) + med_disturb) / 2 - diff_dist_loss
             else:
-                loss = (1-WEIGHT_DIST) * loss - WEIGHT_DIST * diff_dist_loss
+                loss = (1 - WEIGHT_DIST) * loss - WEIGHT_DIST * diff_dist_loss
         # ----------------------------------
         # Cross Entropy Loss Definition
         # ----------------------------------
@@ -276,6 +276,7 @@ class Triplet_Net(DistanceBased_Net):
             loss += loss_positive + loss_negative
 
         return loss
+
 
 # ================================================================
 #                    CLASS: ContrastiveLoss
@@ -646,7 +647,7 @@ class AutoEncoder_Net(nn.Module):
 
         plt.imshow(np.reshape(dec_as_np, [200, 150, 3]))
         print("The picture representing the result from the decoder is saved as " + "resAut_" + TYPE_ARCH)
-        plt.savefig("resAutNoRelu_" + TYPE_ARCH + "_" + str(epoch)) #.squeeze()
+        plt.savefig("resAutNoRelu_" + TYPE_ARCH + "_" + str(epoch))  # .squeeze()
 
         toimage(dec_as_np).save("resAutScip_" + TYPE_ARCH + "_" + str(epoch) + ".png", "png")
 
@@ -656,7 +657,6 @@ class AutoEncoder_Net(nn.Module):
 # ================================================================
 
 def visualize_autoencoder_res(name_autoencoder, db_source):
-
     # ----------- Load autoencoder --------------------
     if name_autoencoder.split(".")[-1] == "pwf":
         network = Triplet_Net(None)

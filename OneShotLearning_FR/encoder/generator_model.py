@@ -32,7 +32,6 @@ class Generator:
         self.graph = tf.get_default_graph()
 
         self.dlatent_variable = next(v for v in tf.global_variables() if 'learnable_dlatents' in v.name)
-        #print("\n--- self.dlatent_variable: " + str(self.dlatent_variable) + "\n")
         self.set_dlatents(self.initial_dlatents)
 
         self.generator_output = self.graph.get_tensor_by_name('G_synthesis_1/_Run/concat:0')
@@ -53,10 +52,3 @@ class Generator:
         if dlatents:
             self.set_dlatents(dlatents)
         return self.sess.run(self.generated_image_uint8)
-
-
-    """
-    IN: 
-    """
-    def get_dlatent_from_image(self, image):
-        pass

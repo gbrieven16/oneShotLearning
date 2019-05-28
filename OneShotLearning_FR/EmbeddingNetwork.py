@@ -1,8 +1,10 @@
+# Source: https://github.com/pytorch/vision/blob/master/torchvision/models/vgg.py
+# Source: https://github.com/pytorch/vision/blob/master/torchvision/models/alexnet.py
+
 import math
 import torch
 from torch import nn
 import torch.nn.functional as f
-
 
 # ================================================================
 #                   GLOBAL VARIABLES
@@ -20,11 +22,6 @@ TYPE_ARCH (related to the embedding Network)
 P_DROPOUT = 0.2  # Probability of each element to be dropped (default value is 0.5)
 WITH_NORM_BATCH = False
 BATCH_SIZE = 32
-#LAST_DIM = 512
-
-# For ResNet:
-LAYERS_RES = {"resnet18": [2, 2, 2, 2], "resnet34": [3, 4, 6, 3], "resnet50": [3, 4, 6, 3],
-              "resnet101": [3, 4, 23, 3], "resnet152": [3, 8, 36, 3]}
 
 # Specifies where the torch.tensor is allocated
 DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -44,20 +41,16 @@ class BasicNet(nn.Module):
         self.name_arch = "1default"
 
         # ----------- For Feature Representation -----------------
-        self.conv1 = nn.Conv2d(3, 64, kernel_size=7)  # , padding=2)
+        self.conv1 = nn.Conv2d(3, 64, kernel_size=7)
         self.conv1_bn = nn.BatchNorm2d(64)
         self.conv2 = nn.Conv2d(64, 128, 5)
         self.conv2_bn = nn.BatchNorm2d(128)
         self.pool4 = nn.MaxPool2d(4)
         self.conv3 = nn.Conv2d(128, 256, kernel_size=5)
         self.conv3_bn = nn.BatchNorm2d(256)
-        self.linear1 = nn.Linear(256, 512) # 7168, 512
+        self.linear1 = nn.Linear(256, 512)
         self.dropout = nn.Dropout(P_DROPOUT)
         self.to(DEVICE)
-
-
-        # Last layer assigning a number to each class from the previous layer
-        # self.linear2 = nn.Linear(dim_last_layer, 2)   [32 x 7168], m2: [256 x 512]
 
     def forward(self, data):
         x = self.conv1(data.to(DEVICE))
@@ -81,7 +74,6 @@ class BasicNet(nn.Module):
         x = self.pool4(x)
 
         x = x.view(x.shape[0], -1)  # To reshape
-        #print(x.size())
         x = self.linear1(x)
 
         return f.relu(x)
@@ -120,17 +112,16 @@ class AlexNet(nn.Module):
             nn.Linear(512, dim_last_layer),
             nn.ReLU(inplace=True),
             nn.Dropout(),
-            nn.Linear(dim_last_layer, dim_last_layer), # Free first dim
+            nn.Linear(dim_last_layer, dim_last_layer),  # Free first dim
             nn.ReLU(inplace=True)
         )
         self.to(DEVICE)
-        # self.final_layer = nn.Linear(dim_last_layer, num_classes)
 
     def forward(self, data):
         x = self.features(data.to(DEVICE))
 
         if WITH_GNAP: x = self.gnap(x)
-        x = x.view(x.size(0), 512) #16384 /32 = 512.0
+        x = x.view(x.size(0), 512)  # 16384 /32 = 512.0
 
         return self.linearization(x)
 
@@ -167,7 +158,7 @@ class VGG16(nn.Module):
         if init_weights:
             self._initialize_weights()
 
-        self.to(DEVICE) #HASBEEN added
+        self.to(DEVICE)
 
     def forward(self, data):
         x = self.features(data.to(DEVICE))
@@ -253,121 +244,6 @@ class BasicBlock(nn.Module):
         out += identity
         return self.relu(out)
 
-# ================================================================
-#                    CLASS: ResNet
-# ================================================================
-
-
-class Bottleneck(nn.Module):
-    expansion = 4
-
-    def __init__(self, inplanes, planes, stride=1, downsample=None):
-        super(Bottleneck, self).__init__()
-        self.conv1 = conv1x1(inplanes, planes)
-        self.bn1 = nn.BatchNorm2d(planes)
-        self.conv2 = conv3x3(planes, planes, stride)
-        self.bn2 = nn.BatchNorm2d(planes)
-        self.conv3 = conv1x1(planes, planes * self.expansion)
-        self.bn3 = nn.BatchNorm2d(planes * self.expansion)
-        self.relu = nn.ReLU(inplace=True)
-        self.downsample = downsample
-        self.stride = stride
-
-    def forward(self, x):
-        identity = x
-
-        out = self.conv1(x)
-        out = self.bn1(out)
-        out = self.relu(out)
-
-        out = self.conv2(out)
-        out = self.bn2(out)
-        out = self.relu(out)
-
-        out = self.conv3(out)
-        out = self.bn3(out)
-
-        if self.downsample is not None:
-            identity = self.downsample(x)
-
-        out += identity
-
-        return self.relu(out)
-
-
-class ResNet(nn.Module):
-    def __init__(self, dim_last_layer, zero_init_residual=False, resnet="resnet152"):
-        super(ResNet, self).__init__()
-        if WITH_GNAP: print("The GNAP module is used\n")
-        self.name_arch = "resnet"
-        if resnet == "resnet18" or resnet == "resnet34":
-            block = BasicBlock
-        else:
-            block = Bottleneck
-
-        layers = LAYERS_RES[resnet]
-
-        self.inplanes = 64
-        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3, bias=False)
-        self.bn1 = nn.BatchNorm2d(64)
-        self.relu = nn.ReLU(inplace=True)
-        self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
-        self.layer1 = self._make_layer(block, 64, layers[0])
-        self.layer2 = self._make_layer(block, 128, layers[1], stride=2)
-        self.layer3 = self._make_layer(block, 256, layers[2], stride=2)
-        self.layer4 = self._make_layer(block, 512, layers[3], stride=2)
-        self.gnap = GNAP(in_dim=512 * block.expansion)
-
-        self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
-        self.fc = nn.Linear(512 * block.expansion, dim_last_layer)
-
-        for m in self.modules():
-            if isinstance(m, nn.Conv2d):
-                nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
-            elif isinstance(m, nn.BatchNorm2d):
-                nn.init.constant_(m.weight, 1)
-                nn.init.constant_(m.bias, 0)
-
-        # Zero-initialize the last BN in each residual branch,
-        # so that the residual branch starts with zeros, and each residual block behaves like an identity.
-        # This improves the model by 0.2~0.3% according to https://arxiv.org/abs/1706.02677
-        if zero_init_residual:
-            for m in self.modules():
-                if isinstance(m, Bottleneck):
-                    nn.init.constant_(m.bn3.weight, 0)
-                elif isinstance(m, BasicBlock):
-                    nn.init.constant_(m.bn2.weight, 0)
-
-    def _make_layer(self, block, planes, blocks, stride=1):
-        downsample = None
-        if stride != 1 or self.inplanes != planes * block.expansion:
-            downsample = nn.Sequential(conv1x1(self.inplanes, planes * block.expansion, stride),
-                                       nn.BatchNorm2d(planes * block.expansion),
-                                       )
-        layers = [block(self.inplanes, planes, stride, downsample)]
-        self.inplanes = planes * block.expansion
-        for _ in range(1, blocks):
-            layers.append(block(self.inplanes, planes))
-
-        return nn.Sequential(*layers)
-
-    def forward(self, x):
-        x = self.conv1(x)
-        x = self.bn1(x)
-        x = self.relu(x)
-        x = self.maxpool(x)
-
-        x = self.layer1(x)
-        x = self.layer2(x)
-        x = self.layer3(x)
-        x = self.layer4(x)
-
-        x = self.gnap(x)
-        x = self.avgpool(x)
-        x = x.view(x.size(0), -1)
-
-        return self.fc(x)
-
 
 # ================================================================
 #                    CLASS:  GNAP block
@@ -391,6 +267,7 @@ class GNAP(nn.Module):
        This function acts a a norm-aware reweighting layer
        ASSUMPTION: input of dimensions C x W x H 
        ----------------------------------------------------------------'''
+
     def normAwareReweighting(self, x):
         batch_size = x.size()[0]
         fij = []
@@ -402,18 +279,18 @@ class GNAP(nn.Module):
                 for w in range(self.W):
                     fij[b].append(0)
                     for channel in range(self.C):
-                        fij[b][-1] += x[b][h][w][channel]**2
+                        fij[b][-1] += x[b][h][w][channel] ** 2
                     fij[b][-1] = math.sqrt(fij[b][-1])
 
             # ------ STEP 2: Mean of local features' L2 norms -------
-            f_mean = sum(fij[b])/(self.H*self.W)
+            f_mean = sum(fij[b]) / (self.H * self.W)
 
             # ------ STEP 3: Norm-aware Reweighting -------
             i = 0
             for h in range(self.H):
                 for w in range(self.W):
                     for channel in range(self.C):
-                        x[b][h][w][channel] = (f_mean/fij[b][i]) * x[b][h][w][channel]
+                        x[b][h][w][channel] = (f_mean / fij[b][i]) * x[b][h][w][channel]
                     i += 1
         return x
 
@@ -425,5 +302,3 @@ class GNAP(nn.Module):
             x = self.normAwareReweighting(x)
             x = self.globAvgPool(x)
             return self.batchNorm(x)
-
-

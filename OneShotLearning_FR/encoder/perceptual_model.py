@@ -21,7 +21,12 @@ def load_images(images_list, img_size, zip_file):
             zip_obj = zipfile.ZipFile(zip_file)
             dir_name = "/".join(zip_file.split("/")[:-1])
             img_path = dir_name + "/" + img_fname
-            zip_obj.extract(img_fname, dir_name)
+            try:
+                zip_obj.extract(img_fname, dir_name)
+            except KeyError:
+                print("\nIN PERCEPTUAL MODEL: Error in finding " + img_fname + " in " + dir_name + "\n")
+                zip_obj.close()
+                raise Exception
             zip_obj.close()
 
             img = image.load_img(img_path, target_size=(img_size, img_size))

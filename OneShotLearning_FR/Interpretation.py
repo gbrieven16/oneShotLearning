@@ -232,7 +232,7 @@ def is_not_nb(nb):
 if __name__ == "__main__":
 
     csv_name = "result/fr_model_evaluation.csv"
-    test_id = 5
+    test_id = 7
 
     if test_id == 1:
         print(" -------------------------- TEST 1 --------------------------------")
@@ -303,7 +303,7 @@ if __name__ == "__main__":
                   annotated=False, y_title="Accuracy", save_name="fr_dist")
 
     if test_id == 7:
-        print(" ------------------------------------ TEST 8 ---------------------------------------")
+        print(" ------------------------------------ TEST 7 ---------------------------------------")
         print("Visualize the performance according to top-N when comparing synth and non-synth data")
         print(" -----------------------------------------------------------------------------------")
         csv_name = "result/fr_model_evaluation.csv"

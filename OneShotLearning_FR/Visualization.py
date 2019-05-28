@@ -127,8 +127,8 @@ def bar_chart(dictionary1, dictionary2, title, dictionary3=None, first_title='Av
         col2 = "#BB8F55" # '#FFD43B'
         col3 = "#E18C18" #'#646464'
     else:
-        col1 = "#E8E540"  #"#70615D" # "#28d9c2"
-        col2 = "#39380F"  #"#E04625" #"#FF9933"
+        col1 = "#70615D" # "#28d9c2" "#E8E540"  #
+        col2 = "#E04625" #"#FF9933" "#39380F"  #
         col3 = None
 
     for key in dictionary1.keys():

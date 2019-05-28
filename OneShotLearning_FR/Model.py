@@ -1,6 +1,5 @@
 import os
 import torch
-import pickle
 import math
 import numpy as np
 from NeuralNetwork import Triplet_Net, ContrastiveLoss, SoftMax_Net, AutoEncoder_Net, TYPE_ARCH, Classif_Net
@@ -19,11 +18,9 @@ GAMMA = 0.1  # for the lr_scheduler - default value 0.1
 N_TEST_IMG = 5
 PT_BS = 32  # Batch size for pretraining
 
-# PT_NUM_EPOCHS = 180  => default: No normalization included inside the encoder (better visual results)
-# PT_NUM_EPOCHS = 200  => default: Normalization included inside the encoder (no good visual results)
 PT_NUM_EPOCHS = 180
 AUTOENCODER_LR = 0.001
-RETRAIN_AUTOENCODER = None #"encoders/encoder_al_1default_ep180.pt"  # None
+RETRAIN_AUTOENCODER = None
 EP_SAVE = 30
 ROUND_DEC = 5
 
