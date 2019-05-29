@@ -21,7 +21,7 @@ Before the data processing phase, additional synthetic data can be generated fro
 - Synthetic people can be defined 
 - Synthetic additional instances related to a real person can be defined 
 
-All this data augmentation part is supported by the *StyleEncoder.py* script, relying on the encoder, the dnnlib and the ffhq_dataset packages coming directly from the style GAN implementation.
+All this data augmentation part is supported by the *StyleEncoder.py* script, relying on the *encoder*, the *dnnlib* and the *ffhq_dataset* packages coming directly from the style GAN implementation.
 
 ### Data Processing
 During this phase, first, the image data are processed, being aligned, cropped and turned into a pytorch tensor. Then the resulting tensor is normalized. 
@@ -38,7 +38,7 @@ All this processing part is supported by the *Dataprocessing.py* and the *FaceAl
 ### Siamese Network Training 
 
 Once processed, the embedding network belonging to the Siamese Netork may be trained as the encoder of an autoencoder, taking as input the anchor of each triplet, to get initialized its weights. Next, the Siamese Network is trained, directed by the triplet loss function. 
-Notice that other loss functions are also implemented and can be experimented, like the contrastive loss or the cross entropy loss. 
+Notice that other loss functions are also implemented and can be experimented, like the contrastive loss, the cross entropy loss and the center loss. Regarding this last loss, it has been implemented from https://github.com/KaiyangZhou/pytorch-center-loss/blob/master/center_loss.py. 
 
 All the training part is supported by the script *Model.py*. Besides this, the global structure of the Siamese Network is implemented in *NeuralNetwork.py*, where the Autoencoder class and different classes related to each loss are defined. Finally, regarding the architecture of the embedding network, all of them are implemented in *EmbeddingNetwork.py* and implemented with the help of some external code:
 
@@ -48,7 +48,7 @@ All the training part is supported by the script *Model.py*. Besides this, the g
 | 2. | AlexNet  | https://github.com/pytorch/vision/blob/master/torchvision/models/alexnet.py |
 | 3. | VGG16    | https://github.com/pytorch/vision/blob/master/torchvision/models/vgg.py     |
 
-To get the best possible model, an experimentation phase has been designed in *Experimentation.py*, relying on the definition of different scenarios, differing from each others in terms of nature and quantity of data, learning rate, losses ...
+To get the best possible model, an experimentation phase has been designed in *Experimentation.py*, relying on the definition of different scenarios, differing from each others in terms of data nature and data quantity, learning rate, losses ...
 
 ### Classification
 
