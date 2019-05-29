@@ -12,21 +12,21 @@ In addition to those main steps, first, a data augmentation process has been def
 
 All around this solution, some code is also dedicated to experiment, visualize and interprete multiple scenarios. Those multiple scenarios are mainly defined through the global variables set on top of the different scripts (referring to the number of epochs for training, the quantity of data to use, the distance metric to employ...).
 
-A very broad description of what's implmented here is given below. 
+A very broad description of what's implmented here is given below. In terms of file organization, the folder *.ipynb_checkpoints* contains the very basic implementation of the face recognition system that led to the final complete solution given in *OneShotLearning_FR*.
 
 ### Data Augmentation 
 
-Before the data processing phase, additional synthetic data can be generated from the real ones by using the style GAN implementation provided through https://github.com/Puzer/stylegan-encoder. In this way:
+Before the data processing phase, additional **synthetic data** can be generated from the real ones by using the style GAN implementation provided through https://github.com/Puzer/stylegan-encoder. In this way:
 
 - Synthetic people can be defined 
 - Synthetic additional instances related to a real person can be defined 
 
-All this data augmentation part is supported by the *StyleEncoder.py* script, relying on the *encoder*, the *dnnlib* and the *ffhq_dataset* packages coming directly from the style GAN implementation.
+All this data augmentation part is supported by the *StyleEncoder.py* script, relying on the *encoder*, the *dnnlib* and the *ffhq_dataset* packages coming directly from the **style GAN** implementation.
 
 ### Data Processing
 During this phase, first, the image data are processed, being aligned, cropped and turned into a pytorch tensor. Then the resulting tensor is normalized. 
 
-Once processed, the data are ordered by person (since a data results from a face picture) and used to build triplets (A,P,N) composing the training, validation and testing datasets. A given triplet is such that: 
+Once processed, the data are ordered by person (since a data results from a face picture) and used to build **triplets (A,P,N)** composing the training, validation and testing datasets. A given triplet is such that: 
 - A is the Anchor (i.e. the "reference picture") 
 - P is the Positive (i.e. a picture representing the same person as A) 
 - N is the Negative (i.e. a picture representing a person different from A)
@@ -37,7 +37,7 @@ All this processing part is supported by the *Dataprocessing.py* and the *FaceAl
 
 ### Siamese Network Training 
 
-Once processed, the embedding network belonging to the Siamese Netork may be trained as the encoder of an autoencoder, taking as input the anchor of each triplet, to get initialized its weights. Next, the Siamese Network is trained, directed by the triplet loss function. 
+Once processed, the embedding network referring to the Siamese Netork may be **pretrained** as the encoder of an autoencoder, taking as input the anchor of each triplet, to get initialized its weights. Next, the Siamese Network is trained, directed by the **triplet loss** function. 
 Notice that other loss functions are also implemented and can be experimented, like the contrastive loss, the cross entropy loss and the center loss. Regarding this last loss, it has been implemented from https://github.com/KaiyangZhou/pytorch-center-loss/blob/master/center_loss.py. 
 
 All the training part is supported by the script *Model.py*. Besides this, the global structure of the Siamese Network is implemented in *NeuralNetwork.py*, where the Autoencoder class and different classes related to each loss are defined. Finally, regarding the architecture of the embedding network, all of them are implemented in *EmbeddingNetwork.py* and implemented with the help of some external code:
@@ -52,8 +52,8 @@ To get the best possible model, an experimentation phase has been designed in *E
 
 ### Classification
 
-To perform the face recognition task, 2 main components are defined:
+To perform the **face recognition task**, 2 main components are defined:
 - a gallery composing of identitied face  
 - a set of probes where the target is getting the identity of each them
 
-To do so, for a given probe, its feature representation is derived, after being propagated through the Siamese Network defined below, and compared to the ones of each instance of each person in the gallery. After that, the identities in the gallery can be ranked according to the degree of similarity evaluated over the comparison process and the top identity is predicted and assigned to the probe. This is implemented in *FaceRecognition.py*. 
+To do so, for a given probe, its feature representation is derived, after being propagated through the Siamese Network, and compared to the ones of each instance of each person in the gallery. After that, the identities in the gallery can be **ranked according to the degree of similarity** evaluated over the comparison process and the top identity is predicted and assigned to the probe. This is implemented in *FaceRecognition.py*. 
