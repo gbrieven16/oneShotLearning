@@ -2,13 +2,13 @@
 
  [![Generic badge](https://img.shields.io/badge/anaconda-4.6.14-blue.svg)](https://shields.io/) [![Generic badge](https://img.shields.io/badge/pytorch-1.1.0-<COLOR>.svg)](https://shields.io/)  [![Generic badge](https://img.shields.io/badge/tensorflow-1.13.1-<COLOR>.svg)](https://shields.io/) 
 
-This repository contains a pytorch implementation of a face recognition system relying on a Siamese Network. This solution contains 3 main steps:
+This repository contains a pytorch implementation of a face recognition system relying on a Siamese Network. This solution consists of 3 main steps:
 
   - Data Processing
   - Siamese Network Training 
   - Classification (where the Face Recognition task itself is performed)
 
-In addition to those main steps, first, a data augmentation process has been defined relying on the generation of synthetic data. To perform this, a Style GAN is used, implemented in tensorflow and already trained. Next, a pretraining phase has been defined, where an autoencoder is trained on face images. By doing so, the encoder part can be retrained as part of the Siamese Network.
+In addition to those main steps, first, a data augmentation process has been defined, relying on the generation of synthetic data. To perform this, a Style GAN is used, implemented in tensorflow and already trained. Next, a pretraining phase has been defined, where an autoencoder is trained on face images. By doing so, the encoder can be retrained as part of the Siamese Network.
 
 All around this solution, some code is also dedicated to experiment, visualize and interprete multiple scenarios. Those multiple scenarios are mainly defined through the global variables set on top of the different scripts (referring to the number of epochs for training, the quantity of data to use, the distance metric to employ...).
 
@@ -24,20 +24,20 @@ Before the data processing phase, additional **synthetic data** can be generated
 All this data augmentation part is supported by the *StyleEncoder.py* script, relying on the *encoder*, the *dnnlib* and the *ffhq_dataset* packages coming directly from the **style GAN** implementation.
 
 ### Data Processing
-During this phase, first, the image data are processed, being aligned, cropped and turned into a pytorch tensor. Then the resulting tensor is normalized. 
+During this phase, first, the image data are processed, being aligned, cropped and turned into a pytorch tensor. Then the resulting tensor is standardized. 
 
-Once processed, the data are ordered by person (since a data results from a face picture) and used to build **triplets (A,P,N)** composing the training, validation and testing datasets. A given triplet is such that: 
+Once processed, the data are ordered by person (since a data results from a face picture) and used to build **triplets (A,P,N)** composing the training, the validation and the testing datasets. A given triplet is such that: 
 - A is the Anchor (i.e. the "reference picture") 
 - P is the Positive (i.e. a picture representing the same person as A) 
 - N is the Negative (i.e. a picture representing a person different from A)
 
-Some constraints can be imposed on those triplets, like exclusively using real images, selecting a Negative coming from the same database as the Anchor, builing n triplets related to each Anchor, imposing the same number of pictures per person .... 
+Some constraints can be imposed on those triplets, like exclusively using real images, selecting a Negative coming from the same database as the Anchor, builing n triplets related to each Anchor, imposing to use the same number of pictures per person .... 
 
 All this processing part is supported by the *Dataprocessing.py* and the *FaceAlignment.py* scripts. 
 
 ### Siamese Network Training 
 
-Once processed, the embedding network referring to the Siamese Netork may be **pretrained** as the encoder of an autoencoder, taking as input the anchor of each triplet, to get initialized its weights. Next, the Siamese Network is trained, directed by the **triplet loss** function. 
+Once the data has been processed, the embedding network referring to the Siamese Netork may be **pretrained** as the encoder of an autoencoder, taking as input unlabelled face pictures, to get initialized its weights. Next, the Siamese Network is trained, directed by the **triplet loss** function. 
 Notice that other loss functions are also implemented and can be experimented, like the contrastive loss, the cross entropy loss and the center loss. Regarding this last loss, it has been implemented from https://github.com/KaiyangZhou/pytorch-center-loss/blob/master/center_loss.py. 
 
 All the training part is supported by the script *Model.py*. Besides this, the global structure of the Siamese Network is implemented in *NeuralNetwork.py*, where the Autoencoder class and different classes related to each loss are defined. Finally, regarding the architecture of the embedding network, all of them are implemented in *EmbeddingNetwork.py* and implemented with the help of some external code:
