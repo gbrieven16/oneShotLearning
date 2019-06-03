@@ -1,12 +1,10 @@
 import platform
-
 import matplotlib
 
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
 import math
-import random
 import os
 import csv
 import numpy as np
@@ -123,12 +121,12 @@ def bar_chart(dictionary1, dictionary2, title, dictionary3=None, first_title='Av
 
     if dictionary3 is not None:
         third_vals = []
-        col1 = "#686158" #'#306998'
-        col2 = "#BB8F55" # '#FFD43B'
-        col3 = "#E18C18" #'#646464'
+        col1 = "#686158"  # '#306998'
+        col2 = "#BB8F55"  # '#FFD43B'
+        col3 = "#E18C18"  # '#646464'
     else:
-        col1 = "#70615D" # "#28d9c2" "#E8E540"  #
-        col2 = "#E04625" #"#FF9933" "#39380F"  #
+        col1 = "#70615D"  # "#28d9c2" "#E8E540"  #
+        col2 = "#E04625"  # "#FF9933" "#39380F"  #
         col3 = None
 
     for key in dictionary1.keys():
@@ -157,7 +155,7 @@ def bar_chart(dictionary1, dictionary2, title, dictionary3=None, first_title='Av
     ax.set_ylabel(y_title)
     ax.set_xticks(range(len(dictionary1)))
     x_labels = list(dictionary1.keys())
-    #x_labels = ["BasicNet"] + list(dictionary1.keys())[1:]
+    # x_labels = ["BasicNet"] + list(dictionary1.keys())[1:]
     ax.set_xticklabels(format_label_bar(x_labels))
 
     plt.title(title)

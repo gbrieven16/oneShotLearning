@@ -203,7 +203,6 @@ class DistanceBased_Net(nn.Module):
         med_distb = get_median(distb)  # avg_distb = float(sum(distb)) / dista.size()[0]
 
         self.dist_threshold = (med_dista + med_distb) / 2
-        # print("TODELETE New Updated Threshold: " + str(self.dist_threshold))
         return med_dista, med_distb
 
 
@@ -244,7 +243,6 @@ class Triplet_Net(DistanceBased_Net):
         # 1 means, dista should be greater than distb
         target_triplet = torch.FloatTensor(distance.size()).fill_(1).to(DEVICE)
         loss = criterion((1 / class_weights[1]) * distance, class_weights[0] * disturb, target_triplet)
-        # print("triplet " + str(loss.item()))
 
         # ----------------------------------
         # "Dist Loss" Definition
@@ -330,6 +328,8 @@ class CenterLoss(nn.Module):
             self.centers = nn.Parameter(torch.randn(self.num_classes, self.feat_dim).cuda())
         else:
             self.centers = nn.Parameter(torch.randn(self.num_classes, self.feat_dim))
+
+        self.to(DEVICE)
 
     '''------------------ forward ------------------------ '''
 
@@ -427,7 +427,7 @@ class Classif_Net(nn.Module):
             print("ERR: Not matching embedding network!")
             raise Exception
 
-        self.final_layer = nn.Linear(DIM_LAST_LAYER, nb_classes).to(DEVICE)
+        self.final_layer = nn.Linear(DIM_LAST_LAYER, nb_classes)  # .to(DEVICE)
         self.loss_cur = 0
         self.center_loss = CenterLoss(DIM_LAST_LAYER, nb_classes) if with_center_loss else None
         self.to(DEVICE)
@@ -553,11 +553,8 @@ class SoftMax_Net(nn.Module):
         target_negative = torch.squeeze(target[:, 1])  # = Only 1 here
 
         output_positive, output_negative = self.forward(data)
-        # print("output_pos is " + str(output_positive))
-        # print("target_pos is " + str(target_positive))
         loss_positive = f.cross_entropy(output_positive, target_positive)
         loss_negative = f.cross_entropy(output_negative, target_negative)
-        # print("Losses are: " + str(str(float(self.loss_cur))) + " and " + str(float(class_weights[0] * loss_positive + class_weights[1] * loss_negative)))
         return class_weights[0] * loss_positive + class_weights[1] * loss_negative + self.loss_cur
 
     """ ----------------------  visualize_last_output --------------------------------
@@ -647,7 +644,7 @@ class AutoEncoder_Net(nn.Module):
 
         plt.imshow(np.reshape(dec_as_np, [200, 150, 3]))
         print("The picture representing the result from the decoder is saved as " + "resAut_" + TYPE_ARCH)
-        plt.savefig("resAutNoRelu_" + TYPE_ARCH + "_" + str(epoch))  # .squeeze()
+        plt.savefig("resAuto_" + TYPE_ARCH + "_" + str(epoch))  # .squeeze()
 
         toimage(dec_as_np).save("resAutScip_" + TYPE_ARCH + "_" + str(epoch) + ".png", "png")
 

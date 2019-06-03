@@ -595,7 +595,7 @@ def remove_real_data(gallery):
 if __name__ == '__main__':
 
     test_id = 2
-    model = "models/dsgbrieven_filteredlfw_filtered_25375_1default_80_triplet_loss_pretautoencoder.pt"
+    model = "models/dsgbrieven_filteredlfw_filtered_16012_1default_70_triplet_loss_pretautoencoder"
 
     # --------------------
     #       Test 2
@@ -603,7 +603,7 @@ if __name__ == '__main__':
     if test_id == 2:
 
         size_gallery = [20, 50, 100, 200]  # Nb of people to consider 20, 50, 100, 200,
-        db_source_list = ["testdb_filtered"]
+        db_source_list = ["cfp_humFiltered", "testdb_filtered"]  # , "faceScrub_humanFiltered"
 
         for i, SIZE_GALLERY in enumerate(size_gallery):
 

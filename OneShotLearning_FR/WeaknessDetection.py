@@ -255,19 +255,18 @@ if __name__ == "__main__":
                 move_and_show(latent_vector, w, COEF, save_result)
 
     if test_id == 2:
-        print("-----------------------------------------------")
-        print("Generate synthetic images from learnt direction")
-        print("-----------------------------------------------")
+        print("--------------------------------------------------------------")
+        print("Generate synthetic images from learnt direction and retrain on")
+        print("--------------------------------------------------------------")
         model = load_model(model_name)
 
+        # ------- Generate synthetic images from learnt direction  -------
         db = FOLDER_DB + "cfp_humFiltered.zip"
         train_fset = generate_synthetic_im(db, nb_additional_images=2, directions=[dir_name_list[-1]])
         val_fileset = from_zip_to_data(False, fname=FOLDER_DB + db_source_list[0] + ".zip", max_nb_entry=SIZE_VALID)
         sets_list = [train_fset, val_fileset]
 
-        # ------------------------------------------------
-        # Retrain Model On
-        # ------------------------------------------------
+        # ------- Retrain Model On -------
         fname = []
         for i, db_source in enumerate(db_source_list):
             fname.append(FOLDER_DB + db_source + "zip")

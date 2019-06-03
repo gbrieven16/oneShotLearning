@@ -32,7 +32,7 @@ WITH_EPOCH_OPT = False
 LOSS = "triplet_loss"  # "ce_classif" "constrastive_loss" triplet_and_ce
 
 MODE = "learn"  # "classifier training"
-PRETRAINING = "autoencoder" # "autoencoder_only" "none"
+PRETRAINING = "none"  # "autoencoder" # "autoencoder_only" "none"
 WITH_NON_PRET = True
 
 WITH_PROFILE = False  # True if both frontally and in profile people
@@ -80,7 +80,7 @@ def main(db_train=None, fname=None, nb_classes=0, name_model=None, loss=LOSS):
 
         # ------------------- Model Definition and Training  -----------------
         f1_score, model_name = main_train(sets_list, fname, db_train=db_train, name_model=name_model, loss=loss,
-                   nb_images=len(training_set.data_list))
+                                          nb_images=len(training_set.data_list))
 
         return f1_score
 
@@ -138,7 +138,7 @@ def main(db_train=None, fname=None, nb_classes=0, name_model=None, loss=LOSS):
 def load_model(model_name):
     pickle.load = partial(pickle.load)
     pickle.Unpickler = partial(pickle.Unpickler)
-    return torch.load(model_name, map_location=lambda storage, loc: storage, pickle_module=pickle).to(DEVICE) # network
+    return torch.load(model_name, map_location=lambda storage, loc: storage, pickle_module=pickle).to(DEVICE)  # network
 
 
 '''----------------------- get_db_name --------------------------------------
@@ -285,7 +285,7 @@ def main_train(sets_list, fname, db_train=None, name_model=None, scheduler=WITH_
 
 if __name__ == '__main__':
 
-    test = 3 if platform.system() == "Darwin" else 2
+    test = 2 if platform.system() == "Darwin" else 2
 
     # -----------------------------------------------------------------------
     # Test 1: Confusion Matrix with different db for training and testing
@@ -307,7 +307,7 @@ if __name__ == '__main__':
         print("Test 2: Classification setting with evolving number of different classes")
         print("-------------------------------------------------------------------------")
         MODE = "learn"
-        nb_classes_list = [5, 10, 50, 100, 200, 500] #, 1000, 5000, 10000]
+        nb_classes_list = [5, 10, 50, 100, 200, 500]  # , 1000, 5000, 10000]
         f1 = []
         db_name_train = [FOLDER_DB + "gbrieven_filtered.zip",
                          FOLDER_DB + "lfw_filtered.zip"]  # "faceScrub", "lfw", "cfp", "gbrieven", "testdb"]
@@ -324,7 +324,7 @@ if __name__ == '__main__':
                          FOLDER_DB + "lfw_filtered.zip"]  # "faceScrub", "lfw", "cfp", "gbrieven", "testdb"]
         # db_name_train = [FOLDER_DB + "cfp70.zip"]
         # db_name_train = [FOLDER_DB + "gbrieven_filtered.zip"]
-        loss_list = ["triplet_loss"] #, "cross_entropy"] #, "constrastive_loss"]
+        loss_list = ["triplet_loss"]  # , "cross_entropy"] #, "constrastive_loss"]
         for i, loss in enumerate(loss_list):
             main(fname=db_name_train, loss=loss)
 
@@ -362,8 +362,6 @@ if __name__ == '__main__':
         print("        such that d(A,N) < d(A,P)")
         print("-----------------------------------------------------------------------\n")
         MODE = "learn"
-        name_model = FROM_ROOT + "models/dscfp_humFilteredgbrieven_filteredlfw_filteredfaceScrub_humanFiltered_" \
-                                 "15880_1default_70_cross_entropy_nonpretrained.pt"
-        db_name_train = [FOLDER_DB + "cfp_humFiltered.zip", FOLDER_DB + "gbrieven_filtered.zip",
-                         FOLDER_DB + "lfw_filtered.zip", FOLDER_DB + "faceScrub_humanFiltered.zip"]
+        name_model = FROM_ROOT + "models/dsgbrieven_filteredlfw_filtered_25375_1default_80_triplet_loss_pretautoencoder.pt"
+        db_name_train = [FOLDER_DB + "gbrieven_filtered.zip", FOLDER_DB + "lfw_filtered.zip"]
         main(name_model=name_model, fname=db_name_train, loss="triplet_loss")

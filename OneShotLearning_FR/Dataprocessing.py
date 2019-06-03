@@ -107,11 +107,6 @@ class Data:
         self.index = index
         self.extension = extension
 
-        '''print("db_source is " + self.db_source)
-        print("person is " + self.name_person)
-        print("index " + str(self.index))
-        print("extension " + str(extension))'''
-
         # + Potentially add some characteristic related to the picture for the interpretation later, like girl/guy ....)
 
     '''---------------- convert_image --------------------------------
@@ -360,7 +355,7 @@ class Fileset:
 
                 # zipf.write(data.file.filename)
                 zipf.write(path, new_name)
-                #print("A new file was written in " + str(db_destination) + ": " + new_name)
+                # print("A new file was written in " + str(db_destination) + ": " + new_name)
                 os.remove(path)
             except TypeError:  # ".png.json" extension
                 pass
@@ -669,8 +664,6 @@ class Face_DS(torch.utils.data.Dataset):
                     # Check if the triplet is "relevant" (i.e d(a,n) < d(a,p))
                     if d_pos < d_neg:
                         continue
-                    else:
-                        print("d_pos " + str(d_pos) + " and d_neg " + str(d_neg))
 
                     # To keep track of the image itself in order to potentially print it
                     try:
@@ -687,8 +680,6 @@ class Face_DS(torch.utils.data.Dataset):
 
                 pos_pict_lists.append(pos_pict_list)
 
-        # print("pos_pict_lists: " + str(pos_pict_lists))
-        # self.train_data = torch.stack(self.train_data)
         self.train_labels = torch.tensor(self.train_labels)
 
     """ --------------------- image_data ------------------------------------
@@ -823,7 +814,6 @@ def load_sets(db_name, dev, nb_classes, sets_list, model=None, save=True):
         if nb_classes != 0 and i == 1:
             break
 
-            # print("len of set " + str(i) + ": " + str(len(result_sets_list[-1].train_data)))
     return result_sets_list
 
 
@@ -1031,7 +1021,6 @@ Set ALIGNMENT_ACTIVE to True
 
 
 def register_aligned(db):
-
     print("LandmarksDetector Definition ... \n")
     landmarks_model_path = unpack_bz2(get_file('shape_predictor_68_face_landmarks.dat.bz2', LANDMARKS_MODEL_URL,
                                                cache_subdir='temp'))

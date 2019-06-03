@@ -280,7 +280,7 @@ if __name__ == "__main__":
         # -------------------------------------------------------
         # Compare the scenarios with and without synthetic data
         # -------------------------------------------------------
-        csv_name = "result/syntAndReal_old.csv"
+        csv_name = "result/syntAndReal.csv"
         title = "Comparison between different data quantities and nature"
         # Compare architectures
         di1 = to_dic(csv_name, ["Synth", "Total Nb of Images"], "best_f1_score", lower_bound=0)
@@ -311,7 +311,7 @@ if __name__ == "__main__":
 
         x_axis = ["Top-1", "Top-3", "Top-5", "Top-8", "Top-10", "Top-20"]  # Should be the keys of dic
         size_gal = 100
-        model = "dscfp_humFilteredgbrieven_filteredlfw_filteredfaceScrub_humanFiltered_15880_1default_70_triplet_loss_pretautoencoder.pt"
+        model = "dsgbrieven_filteredlfw_filtered_15880_1default_70_triplet_loss_pretautoencoder.pt"
         d_nonSynth = {}
         d_synth = {}
         df = pd.read_csv(csv_name, delimiter=";")
@@ -320,16 +320,16 @@ if __name__ == "__main__":
         # Store all values of crit_value to the corresponding crit_key
         # ------------------------------------------------------------------------
         for i, row in df.iterrows():
-            if row["db_test"] != '[\'cfp_humFiltered\']' or row["gallery_size"] != size_gal or row["model name"] != model:
+            if row["gallery_size"] != size_gal or row["model name"] != model:
                 continue
             for i, acc in enumerate(row["topN"].split("),")):
                 if i == 3 or i == 6:
                     continue
-                print("row[top] type is: " + str(float(acc.split("(")[1].split(",")[0])*5))
+                print("row[top] type is: " + str(float(acc.split("(")[1].split(",")[0])))
                 if row["With_synthet"]:
-                    d_synth[x_axis[i]] = 5*float(acc.split("(")[1].split(",")[0])
+                    d_synth[x_axis[i]] = float(acc.split("(")[1].split(",")[0])
                 else:
-                    d_nonSynth[x_axis[i]] = 5*float(acc.split("(")[1].split(",")[0])
+                    d_nonSynth[x_axis[i]] = float(acc.split("(")[1].split(",")[0])
 
         print("d_nonSynth " + str(d_nonSynth))
         # arch = list(di1.keys())

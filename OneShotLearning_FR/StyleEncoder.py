@@ -33,7 +33,6 @@ DIRECTION_DIR = FROM_ROOT + 'ffhq_dataset/latent_directions/'
 DLATENT_DIR = "/home/gbrieven/datasets/latent_repres/" if platform.system() != "Darwin" \
     else "data/gbrieven/latent_repres/"
 
-
 URL_FFHQ = 'https://drive.google.com/uc?id=1MEGjdvVpUsu1jB4zrXZN7Y4kBBOzizDQ'
 STYLE_GAN = FROM_ROOT + "models/karras2019stylegan-ffhq-1024x1024.pkl"
 
@@ -55,7 +54,6 @@ RANDOMIZE_NOISE = False
 
 CHANGES = ["smile", "age", "gender"]
 COEF = {"smile": [-1.5, 0, 1.3], "age": [-1.5, 0], "gender": [-1, 0]}
-
 
 if False and platform.system() != "Darwin":
     if GENERATED_IMAGES_DIR is not None:
@@ -142,15 +140,14 @@ def move_and_show(latent_vector, direction, coeff, save_result):
         new_latent_vector = latent_vector.copy()
         new_latent_vector[INDEX_VEC_CHANGE] = (latent_vector + coeff * direction)[INDEX_VEC_CHANGE]
     synthetic_image = generate_image(new_latent_vector)
-    #try:
+
     plt.imshow(synthetic_image)
     plt.title('Coeff: %0.1f' % coeff)
     plt.show()
     if save_result is not None:
         plt.savefig(save_result)
         print("The set of synthetic images has been saved!")
-    #except:
-        #pass
+
     return synthetic_image
 
 
@@ -239,7 +236,6 @@ REM: IMPL_CHOICE: the latent representation related to a person is derived from 
 
 
 def data_augmentation(face_dic=None, nb_add_instances=3, save_generated_im=False, save_dlatent=False, dirs=None):
-
     if nb_add_instances == 0:
         return
 
@@ -293,4 +289,3 @@ if __name__ == "__main__":
             save_result = GENERATED_IMAGES_DIR + change + "_" + str(coef) + "_" + image.split(".")[0]
             save_result += str(IMAGE_SIZE) + "_nbElem" + str(INDEX_VEC_CHANGE) + ".jpeg"
             apply_latent_direction(z, direction=change, coef=coef)
-
